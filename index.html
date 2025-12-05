@@ -735,7 +735,11 @@
                 const geo = new THREE.BufferGeometry();
                 geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
                 this.mesh = new THREE.Points(geo, new THREE.PointsMaterial({
-                    color: 0xffffff, size: 0.6, transparent: true, opacity: 0.7
+    				color: 0x888888, // 1. 改为灰色。这样在辉光阈值(threshold=1.0)下，雪花就不会发光了，只有烟花会亮
+    				size: 0.6, // 2. 稍微调小一点，更显精致
+					transparent: true, // 3. 降低不透明度，让它看起来更轻盈，不会遮挡烟花
+					opacity: 0.88,
+					sizeAttenuation: true // 4. (可选) 如果你想让雪花完全不受光照影响，可以使用 sizeAttenuation: true
                 }));
                 scene.add(this.mesh);
             }
