@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Christmas Express - Ultimate Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        
+        /* --- 启动页样式 --- */
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); backdrop-filter: blur(12px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100; color: white; transition: opacity 0.6s ease-out;
+        }
+        h1 { 
+            font-size: 36px; color: #ffb300; margin-bottom: 20px; letter-spacing: 4px; 
+            text-shadow: 0 0 30px rgba(255, 165, 0, 0.5); text-transform: uppercase; text-align: center;
+        }
+        .intro-card {
+            background: rgba(255,255,255,0.05); padding: 30px; border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1); text-align: center; max-width: 90%; width: 400px;
+        }
+        .tips { color: #ccc; font-size: 14px; line-height: 2.2; margin-bottom: 30px; text-align: left; }
+        .key { color: #4fc3f7; font-weight: bold; margin-right: 8px; border-bottom: 1px dashed #4fc3f7; }
+        
+        #start-btn {
+            background: linear-gradient(135deg, #d32f2f, #b71c1c);
+            color: white; border: none; padding: 15px 80px; font-size: 20px; border-radius: 50px;
+            cursor: pointer; box-shadow: 0 0 30px rgba(211, 47, 47, 0.4);
+            transition: transform 0.1s; border: 1px solid rgba(255,255,255,0.2);
+        }
+        #start-btn:active { transform: scale(0.95); }
+
+        /* --- 游戏内 UI --- */
+        #hud { 
+            position: absolute; top: 20px; left: 20px; z-index: 10; 
+            pointer-events: none; opacity: 0; transition: opacity 1s; 
+        }
+        .tag { 
+            background: rgba(0,0,0,0.6); color: #fff; padding: 8px 16px; 
+            border-radius: 30px; font-size: 14px; border: 1px solid #ffffff22; 
+            backdrop-filter: blur(4px); display: flex; align-items: center; gap: 8px;
+        }
+        .dot { width: 8px; height: 8px; background: #00ff00; border-radius: 50%; box-shadow: 0 0 5px #00ff00; }
+
+        #settings-btn {
+            position: absolute; top: 20px; right: 20px; z-index: 20;
+            width: 44px; height: 44px; background: rgba(255,255,255,0.1); 
+            backdrop-filter: blur(10px); border-radius: 50%; border: 1px solid rgba(255,255,255,0.2);
+            color: white; font-size: 22px; display: flex; justify-content: center; align-items: center;
+            cursor: pointer; opacity: 0; transition: opacity 1s;
+        }
+        
+        /* --- 设置弹窗 --- */
+        #settings-modal { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 30; display: none; width: 340px; 
+        }
+        #modal-overlay { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 25; display: none; background: rgba(0,0,0,0.5); 
+        }
+        
+        #loading { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); color: #666; font-size: 12px; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+    <!-- 启动页 -->
+    <div id="start-screen">
+        <div class="intro-card">
+            <h1>极地特快</h1>
+            <div class="tips">
+                <div><span class="key">🎆 点击屏幕</span> 燃放节日烟花</div>
+                <div><span class="key">🖱️ 滚轮缩放</span> 调整跟随距离 (距离记忆)</div>
+                <div><span class="key">👆 单指拖动</span> 360° 观察列车 (松手回正)</div>
+                <div><span class="key">⚡ 双击屏幕</span> 切换 上帝/驾驶 视角</div>
+            </div>
+            <button id="start-btn">开始旅程</button>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div class="tag">
+            <div class="dot"></div>
+            <span id="view-text">智能驾驶模式</span>
+        </div>
+    </div>
+    <div id="settings-btn">⚙️</div>
+
+    <div id="modal-overlay"></div>
+    <div id="settings-modal"></div>
+    
+    <div id="loading">正在装载烟花与礼物...</div>
+    <div id="canvas-container"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+        // --- 核心参数 ---
+        const PARAMS = {
+            // 🚂 列车
+            trainSpeed: 0.15,
+            carriageGap: 0.009, 
+            wheelSpeed: 2.0,
+            
+            // 🎥 相机
+            camFollowDist: 25.0,  
+            camHeightOffset: 8.0, 
+            camSmooth: 0.03,      
+            
+            // 💡 环境
+            moonIntensity: 1.8,
+            fogDensity: 0.002,
+            bloomStrength: 0.8,
+            bloomThreshold: 1.0,
+            
+            // ✨ 灯光
+            headlightPower: 60.0,
+            bulbBrightness: 15.0,
+            starBrightness: 25.0,
+        };
+
+        const STATE = { 
+            started: false, 
+            viewMode: 'FOLLOW', 
+            settingsOpen: false,
+            isUserInteracting: false 
+        };
+
+        let scene, camera, renderer, composer, controls, gui;
+        let train, fireworkMgr, snowSystem;
+        let lights = {}, bloomPass;
+        let emissiveObjects = []; 
+        let trackCurve, trackPointsSample = [];
+        const clock = new THREE.Clock();
+        const _vec3 = new THREE.Vector3();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020408);
+            scene.fog = new THREE.FogExp2(0x020408, PARAMS.fogDensity);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
+            camera.position.set(0, 150, 150);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // 模块初始化 (将在后续部分定义)
+            setupLights();
+            generateTrack();
+            createTrackMesh();
+            createEnvironment(); 
+
+            const renderScene = new RenderPass(scene, camera);
+            bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 1.0;
+            bloomPass.strength = PARAMS.bloomStrength;
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            train = new TrainSystem(scene, trackCurve);
+            fireworkMgr = new FireworkManager(scene);
+            snowSystem = new SnowSystem(scene);
+
+            setupControls();
+            setupUI();
+
+            document.getElementById('loading').style.display = 'none';
+            animate();
+        }
+        
+        // (Part 1 结束，请回复 "2" 继续)
+// (接 Part 1)
+
+        // ============================
+        // 🌍 世界构建系统
+        // ============================
+        function setupLights() {
+            // 月光 (HDR)
+            lights.moon = new THREE.DirectionalLight(0xaaccff, PARAMS.moonIntensity);
+            lights.moon.position.set(-80, 120, -80);
+            lights.moon.castShadow = true;
+            lights.moon.shadow.mapSize.set(2048, 2048);
+            lights.moon.shadow.camera.left = -200; lights.moon.shadow.camera.right = 200;
+            lights.moon.shadow.camera.top = 200; lights.moon.shadow.camera.bottom = -200;
+            scene.add(lights.moon);
+
+            // 环境光
+            const ambient = new THREE.AmbientLight(0x404060, 0.3);
+            scene.add(ambient);
+
+            // 地面
+            const ground = new THREE.Mesh(
+                new THREE.CircleGeometry(600, 64), 
+                new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 1.0, metalness: 0.0 })
+            );
+            ground.rotation.x = -Math.PI / 2; 
+            ground.receiveShadow = true;
+            scene.add(ground);
+        }
+
+        function generateTrack() {
+            // 生成复杂的“三叶草”闭合回路
+            const s = 1.4; // 缩放系数
+            const points = [
+                new THREE.Vector3(10*s, 0, 20*s), new THREE.Vector3(50*s, 2, 50*s), new THREE.Vector3(90*s, 0, 0),
+                new THREE.Vector3(50*s, 0, -50*s), new THREE.Vector3(10*s, 0, -20*s), new THREE.Vector3(-20*s, 0, -20*s),
+                new THREE.Vector3(-50*s, 3, -70*s), new THREE.Vector3(-90*s, 0, -50*s), new THREE.Vector3(-60*s, 0, -10*s),
+                new THREE.Vector3(-60*s, 0, 10*s), new THREE.Vector3(-90*s, 0, 50*s), new THREE.Vector3(-50*s, 3, 70*s),
+                new THREE.Vector3(-20*s, 0, 20*s), new THREE.Vector3(0, 0, 0)
+            ];
+            trackCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+            // 采样600个点用于避障计算
+            trackPointsSample = trackCurve.getPoints(600);
+        }
+
+        function createTrackMesh() {
+            const divisions = 600;
+            // 1. 路基 (黑色防穿帮)
+            const bed = new THREE.Mesh(
+                new THREE.TubeGeometry(trackCurve, divisions, 3.5, 8, true), 
+                new THREE.MeshStandardMaterial({color: 0x080808, roughness: 1})
+            );
+            bed.position.y = -0.2; bed.scale.y = 0.1; 
+            scene.add(bed);
+
+            // 2. 枕木 (InstanceMesh 优化性能)
+            const plankGeo = new THREE.BoxGeometry(5.5, 0.3, 1.2);
+            const plankMat = new THREE.MeshStandardMaterial({color: 0x3e2723});
+            const planks = new THREE.InstancedMesh(plankGeo, plankMat, divisions);
+            const dummy = new THREE.Object3D();
+            
+            for(let i=0; i<divisions; i++) {
+                const t = i/divisions;
+                const pos = trackCurve.getPointAt(t);
+                const tangent = trackCurve.getTangentAt(t);
+                dummy.position.copy(pos); 
+                dummy.lookAt(pos.clone().add(tangent)); 
+                dummy.updateMatrix();
+                planks.setMatrixAt(i, dummy.matrix);
+            }
+            planks.receiveShadow = true; 
+            scene.add(planks);
+        }
+
+        // 🛡️ 核心避障算法：检查坐标是否安全
+        function isSafePosition(x, z) {
+            const safeDistSq = 18 * 18; // 18米安全距离
+            for(let i=0; i<trackPointsSample.length; i+=3) { // 步进3优化性能
+                const dx = trackPointsSample[i].x - x;
+                const dz = trackPointsSample[i].z - z;
+                if ((dx*dx + dz*dz) < safeDistSq) return false;
+            }
+            return true;
+        }
+
+        function createEnvironment() {
+            // 1. 放置地标巨树 (位于环路中心)
+            createHeroTree(60, 0, 1.5, 0xff0000); 
+            createHeroTree(-70, 50, 1.3, 0x00ff00);
+            createHeroTree(-70, -50, 1.4, 0xffcc00);
+            
+            // 2. 生成森林背景 (自动避障)
+            let planted = 0, attempts = 0;
+            while(planted < 150 && attempts < 4000) {
+                attempts++;
+                const r = 35 + Math.random() * 180;
+                const a = Math.random() * 6.28;
+                const x = Math.cos(a)*r; const z = Math.sin(a)*r;
+                
+                if(isSafePosition(x, z)) {
+                    createNatureTree(x, z);
+                    planted++;
+                }
+            }
+
+            // 3. 生成装饰品 (礼物/雪人/路灯)
+            for(let i=0; i<40; i++) {
+                const x = (Math.random()-0.5)*350; 
+                const z = (Math.random()-0.5)*350;
+                if(isSafePosition(x, z)) {
+                    const r = Math.random();
+                    if(r < 0.3) createGift(x, z);
+                    else if(r < 0.6) createSnowman(x, z);
+                    else createLamp(x, z);
+                }
+            }
+        }
+
+        // --- 物体工厂函数 ---
+
+        function createHeroTree(x, z, s, c) {
+            const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.set(s,s,s);
+            const t = new THREE.Mesh(new THREE.CylinderGeometry(1,2,4,8), new THREE.MeshStandardMaterial({color:0x3e2723})); t.position.y=2; g.add(t);
+            const lm = new THREE.MeshStandardMaterial({color:0x0f4d0f, roughness:0.8});
+            
+            // 树冠层级
+            for(let i=0;i<4;i++){
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(10-i*2, 6, 10), lm);
+                cone.position.y = 4 + i*3.5; cone.castShadow = true; g.add(cone);
+                
+                // 挂彩灯
+                const count = 5 + i;
+                for(let k=0; k<count; k++){
+                    const a = (k/count) * 6.28 + i; 
+                    const br = 10 - i*2 - 0.5;
+                    const b = new THREE.Mesh(new THREE.SphereGeometry(0.35,4,4), new THREE.MeshStandardMaterial({
+                        color:0, emissive: Math.random()>0.5 ? c : 0xffffff, emissiveIntensity: PARAMS.bulbBrightness
+                    }));
+                    b.position.set(Math.cos(a)*br, 4+i*3.5-2.5, Math.sin(a)*br);
+                    b.userData = {type:'bulb'}; emissiveObjects.push(b);
+                    g.add(b);
+                }
+            }
+            // 树顶星
+            const st = new THREE.Mesh(new THREE.OctahedronGeometry(1.5), new THREE.MeshStandardMaterial({
+                color:0xffff00, emissive:0xffaa00, emissiveIntensity:20
+            }));
+            st.position.y = 20; st.userData = {type:'star'}; emissiveObjects.push(st); g.add(st);
+            
+            // 树底光照
+            const pl = new THREE.PointLight(c, 2, 30); pl.position.y = 5; g.add(pl);
+            scene.add(g);
+        }
+
+        function createNatureTree(x, z) {
+            const g = new THREE.Group(); g.position.set(x,0,z); 
+            const s = 0.8 + Math.random()*0.8; g.scale.set(s,s,s);
+            const t = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.8,3,5), new THREE.MeshStandardMaterial({color:0x3e2723})); 
+            t.position.y=1.5; g.add(t);
+            const m = new THREE.MeshStandardMaterial({color:0x1b3e20});
+            for(let i=0;i<3;i++){
+                const c = new THREE.Mesh(new THREE.ConeGeometry(4-i, 5, 7), m); 
+                c.position.y = 3.5 + i*3; c.castShadow = true; g.add(c);
+            }
+            scene.add(g);
+        }
+
+        function createGift(x, z) {
+            const g = new THREE.Group(); g.position.set(x,0,z); g.rotation.y = Math.random();
+            const b = new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5), new THREE.MeshStandardMaterial({color:Math.random()*0xffffff}));
+            b.position.y = 0.75; b.castShadow = true; g.add(b); scene.add(g);
+        }
+
+        function createSnowman(x, z) {
+            const g = new THREE.Group(); g.position.set(x,0,z); g.rotation.y = Math.random();
+            const m = new THREE.MeshStandardMaterial({color:0xffffff});
+            const b1 = new THREE.Mesh(new THREE.SphereGeometry(1.2,8,8), m); b1.position.y=1; g.add(b1);
+            const b2 = new THREE.Mesh(new THREE.SphereGeometry(0.8,8,8), m); b2.position.y=2.5; g.add(b2);
+            scene.add(g);
+        }
+
+        function createLamp(x, z) {
+            const g = new THREE.Group(); g.position.set(x,0,z);
+            const p = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,7), new THREE.MeshStandardMaterial({color:0x111})); 
+            p.position.y=3.5; g.add(p);
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshStandardMaterial({
+                color:0xffaa00, emissive:0xffaa00, emissiveIntensity:10
+            }));
+            b.position.y=7; b.userData={type:'bulb'}; emissiveObjects.push(b); g.add(b); 
+            scene.add(g); 
+        }
+
+        // (Part 2 结束，请回复 "3" 继续)
+      
+      // (接 Part 2)
+
+        // ============================
+        // 🚂 火车系统 (核心逻辑)
+        // ============================
+        class TrainSystem {
+            constructor(scene, curve) {
+                this.scene = scene; 
+                this.curve = curve;
+                this.group = new THREE.Group();
+                this.smokes = []; 
+                this.progress = 0;
+                
+                // 1. 创建车头
+                this.loco = this.createDetailedLoco();
+                this.group.add(this.loco);
+                
+                // 2. 创建车厢 (8节)
+                this.cars = [];
+                for(let i=1; i<=8; i++) {
+                    const car = this.createDetailedCar(i);
+                    this.group.add(car);
+                    this.cars.push(car);
+                }
+                
+                // 3. 初始化间距
+                this.refreshGap();
+                scene.add(this.group);
+            }
+
+            // 动态更新车厢间距 (用于GUI调节)
+            refreshGap() { 
+                this.cars.forEach((c, i) => {
+                    // 间距累加
+                    c.userData.tOffset = (i + 1) * PARAMS.carriageGap;
+                }); 
+            }
+            
+            createDetailedLoco() {
+                const g = new THREE.Group();
+                const mat = new THREE.MeshStandardMaterial({color:0xb71c1c, roughness:0.4});
+                const black = new THREE.MeshStandardMaterial({color:0x1a1a1a});
+                
+                // 锅炉 & 驾驶室
+                const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 5.5, 16), mat);
+                boiler.rotation.x = Math.PI/2; boiler.position.set(0, 3.2, 1); g.add(boiler);
+                const cab = new THREE.Mesh(new THREE.BoxGeometry(3.4, 4.5, 2.8), mat);
+                cab.position.set(0, 3.5, -2.5); g.add(cab);
+                
+                // 烟囱 (车头方向 +Z)
+                this.chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5), black);
+                this.chimney.position.set(0, 4.2, 2.5); g.add(this.chimney);
+                this.smokeSource = this.chimney; // 记录冒烟点
+                
+                // 排障器 (三角形)
+                const cow = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.5, 4), black);
+                cow.rotation.x = -Math.PI/2; cow.rotation.y = Math.PI/4; 
+                cow.scale.set(1, 0.5, 1); cow.position.set(0, 1, 4.5); g.add(cow);
+
+                // 车灯与光源
+                const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3), black);
+                lamp.rotation.x = -Math.PI/2; lamp.position.set(0, 4.5, 3.8); g.add(lamp);
+                
+                const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.35, 16), new THREE.MeshStandardMaterial({
+                    color:0xffaa00, emissive:0xffdd88, emissiveIntensity:PARAMS.trainLightPower
+                }));
+                bulb.position.set(0, 4.5, 3.96); 
+                bulb.userData={type:'headlight'}; 
+                emissiveObjects.push(bulb); 
+                g.add(bulb);
+                
+                const s = new THREE.SpotLight(0xffdd88, 50, 80, 0.6, 0.5); 
+                s.position.set(0, 4.5, 4); s.target.position.set(0, 0, 30); 
+                g.add(s); g.add(s.target);
+                
+                // 后连接杆
+                const coup = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 2.5), black);
+                coup.position.set(0, 2, -3.5); g.add(coup);
+
+                // 轮子
+                this.wheels = [];
+                const addWheel = (x, z, s) => { 
+                    const w = new THREE.Mesh(new THREE.CylinderGeometry(s, s, 0.4, 12), black); 
+                    w.rotation.z = Math.PI/2; w.position.set(x, s, z); 
+                    g.add(w); this.wheels.push(w); 
+                };
+                addWheel(1.7, 2, 1); addWheel(-1.7, 2, 1);
+                addWheel(1.7, 0, 1); addWheel(-1.7, 0, 1);
+                addWheel(1.7, 3.5, 0.6); addWheel(-1.7, 3.5, 0.6);
+                
+                return g;
+            }
+
+            createDetailedCar(i) {
+                const g = new THREE.Group();
+                const col = i % 2 === 0 ? 0x1565c0 : 0x2e7d32;
+                const mat = new THREE.MeshStandardMaterial({color: col});
+                const black = new THREE.MeshStandardMaterial({color: 0x111111});
+                
+                // 车身与车顶
+                const body = new THREE.Mesh(new THREE.BoxGeometry(3.0, 3.5, 5.0), mat); 
+                body.position.y = 2.8; g.add(body);
+                const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 5.1, 8, 1, false, 0, Math.PI), new THREE.MeshStandardMaterial({color:0x333333}));
+                roof.rotation.z = Math.PI/2; roof.rotation.y = Math.PI/2; 
+                roof.position.set(0, 4.55, 0); g.add(roof);
+                
+                // 窗户
+                const wg = new THREE.PlaneGeometry(0.8, 1.0);
+                const addWin = (x, z) => { 
+                    const w = new THREE.Mesh(wg, black); 
+                    w.position.set(x, 3.2, z); 
+                    w.rotation.y = x > 0 ? 1.57 : -1.57; 
+                    g.add(w);
+                };
+                addWin(1.51, 1.2); addWin(1.51, -1.2); 
+                addWin(-1.51, 1.2); addWin(-1.51, -1.2);
+
+                // 连接杆 (双向互插，防穿帮)
+                const fc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.5), black); 
+                fc.position.set(0, 2, 2.5); g.add(fc);
+                const bc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 2.0), black); 
+                bc.position.set(0, 2, -3.0); g.add(bc);
+                
+                // 轮子
+                const wGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 12); wGeo.rotateZ(Math.PI/2);
+                const w1 = new THREE.Mesh(wGeo, black); w1.position.set(1.6, 0.7, 1.5); g.add(w1);
+                const w2 = new THREE.Mesh(wGeo, black); w2.position.set(-1.6, 0.7, 1.5); g.add(w2);
+                if(!this.wheels) this.wheels=[]; this.wheels.push(w1, w2);
+                
+                return g;
+            }
+
+            update(delta) {
+                // 移动进度
+                const speed = PARAMS.trainSpeed * delta * 0.2;
+                this.progress = (this.progress + speed) % 1;
+                
+                // 放置车头
+                this.place(this.loco, this.progress);
+                
+                // 放置车厢
+                this.cars.forEach(c => {
+                    let t = this.progress - c.userData.tOffset; 
+                    if(t < 0) t += 1;
+                    this.place(c, t);
+                });
+
+                // 车轮动画
+                if(this.wheels) {
+                    this.wheels.forEach(w => w.rotation.x -= speed * 100 * PARAMS.wheelSpeed);
+                }
+
+                // 冒烟逻辑
+                if(Math.random() > 0.88) { 
+                    _vec3.setFromMatrixPosition(this.smokeSource.matrixWorld); 
+                    _vec3.y += 0.5; 
+                    this.spawnSmoke(_vec3); 
+                }
+                this.updateSmoke();
+            }
+
+            place(obj, t) {
+                const pos = this.curve.getPointAt(t);
+                const tangent = this.curve.getTangentAt(t);
+                obj.position.copy(pos);
+                // 修正朝向：让 +Z (车头) 指向切线方向
+                // lookAt 默认让 -Z 对准目标，所以我们要对准 "位置 - 切线" 的方向
+                obj.lookAt(pos.clone().sub(tangent)); 
+            }
+
+            spawnSmoke(pos) {
+                const m = new THREE.Mesh(
+                    new THREE.DodecahedronGeometry(0.3 + Math.random()*0.4), 
+                    new THREE.MeshStandardMaterial({color:0xcccccc, transparent:true, opacity:0.4})
+                );
+                m.position.copy(pos); 
+                this.scene.add(m); 
+                this.smokes.push({m, life:1.2});
+            }
+
+            updateSmoke() {
+                for(let i=this.smokes.length-1; i>=0; i--) {
+                    const s = this.smokes[i]; 
+                    s.life -= 0.02; 
+                    s.m.position.y += 0.06; 
+                    s.m.scale.multiplyScalar(1.02); 
+                    s.m.material.opacity = s.life * 0.3;
+                    if(s.life <= 0){ 
+                        this.scene.remove(s.m); 
+                        this.smokes.splice(i, 1); 
+                    }
+                }
+            }
+        }
+
+        // ============================
+        // 🎇 烟花管理器
+        // ============================
+        class FireworkManager {
+            constructor(scene) {
+                this.scene = scene; 
+                this.list = [];
+                // 生成圆形发光贴图
+                const c = document.createElement('canvas'); c.width=32; c.height=32;
+                const x = c.getContext('2d');
+                const g = x.createRadialGradient(16,16,0,16,16,16);
+                g.addColorStop(0,'#fff'); g.addColorStop(1,'transparent');
+                x.fillStyle = g; x.fillRect(0,0,32,32);
+                this.tex = new THREE.CanvasTexture(c);
+            }
+
+            launch() {
+                // 在相机前方发射
+                _vec3.set(0, 0, -40).applyQuaternion(camera.quaternion).add(camera.position);
+                const pos = _vec3.clone().add(new THREE.Vector3((Math.random()-0.5)*50, -20, (Math.random()-0.5)*50));
+                const c = new THREE.Color().setHSL(Math.random(), 1, 0.6);
+                
+                this.list.push({
+                    phase: 'up',
+                    pos: pos,
+                    vel: new THREE.Vector3(0, 1.2 + Math.random(), 0),
+                    destY: pos.y + 40 + Math.random() * 20,
+                    color: c,
+                    trail: new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshBasicMaterial({color:c})),
+                    particles: null
+                });
+                this.scene.add(this.list[this.list.length-1].trail);
+            }
+
+            update() {
+                for(let i=this.list.length-1; i>=0; i--) {
+                    const f = this.list[i];
+                    if(f.phase === 'up') {
+                        f.pos.add(f.vel); f.vel.y *= 0.98; f.trail.position.copy(f.pos);
+                        if(f.vel.y < 0.1 || f.pos.y > f.destY) {
+                            this.scene.remove(f.trail); 
+                            f.phase = 'pop'; 
+                            this.explode(f);
+                        }
+                    } else {
+                        const p = f.particles.geometry.attributes.position.array;
+                        f.life -= 0.015;
+                        for(let k=0; k<p.length/3; k++) {
+                            p[k*3] += f.vels[k*3]; 
+                            p[k*3+1] += f.vels[k*3+1]; 
+                            p[k*3+2] += f.vels[k*3+2];
+                            f.vels[k*3+1] -= 0.005; // 重力
+                        }
+                        f.particles.geometry.attributes.position.needsUpdate = true;
+                        f.particles.material.opacity = f.life;
+                        if(f.life <= 0) {
+                            this.scene.remove(f.particles); 
+                            this.list.splice(i, 1);
+                        }
+                    }
+                }
+            }
+
+            explode(f) {
+                const count = 100; const pos = [], vels = [];
+                for(let i=0; i<count; i++) {
+                    pos.push(f.pos.x, f.pos.y, f.pos.z);
+                    const s = 0.2 + Math.random() * 0.3;
+                    const th = Math.random() * 6.28, ph = Math.acos(2 * Math.random() - 1);
+                    vels.push(Math.sin(ph)*Math.cos(th)*s, Math.sin(ph)*Math.sin(th)*s, Math.cos(ph)*s);
+                }
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                const mat = new THREE.PointsMaterial({
+                    color: f.color, size: 2, map: this.tex, 
+                    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+                });
+                f.particles = new THREE.Points(geo, mat);
+                f.life = 1.0; 
+                f.vels = vels;
+                this.scene.add(f.particles);
+            }
+        }
+
+        // ============================
+        // ❄️ 天气系统
+        // ============================
+        class SnowSystem {
+            constructor(scene) {
+                const count = 3000;
+                const pos = [];
+                for(let i=0; i<count; i++) {
+                    pos.push(Math.random()*600-300, Math.random()*200, Math.random()*600-300);
+                }
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                this.mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+                    color: 0xffffff, size: 0.6, transparent: true, opacity: 0.7
+                }));
+                scene.add(this.mesh);
+            }
+            update() {
+                const p = this.mesh.geometry.attributes.position.array;
+                for(let i=1; i<p.length; i+=3) {
+                    p[i] -= 0.25; 
+                    if(p[i] < 0) p[i] = 200; // 循环下落
+                }
+                this.mesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        // (Part 3 结束，请回复 "4" 继续)
+      
+      // (接 Part 3)
+
+        // ============================
+        // ⚙️ 交互与 UI 设置
+        // ============================
+        function setupUI() {
+            // 1. 启动按钮
+            const startBtn = document.getElementById('start-btn');
+            startBtn.addEventListener('click', () => {
+                STATE.started = true;
+                // UI 动画
+                document.getElementById('start-screen').style.opacity = '0';
+                setTimeout(() => document.getElementById('start-screen').style.display = 'none', 600);
+                document.getElementById('hud').style.opacity = '1';
+                document.getElementById('settings-btn').style.opacity = '1';
+            });
+
+            // 2. 设置弹窗
+            const btn = document.getElementById('settings-btn');
+            const modal = document.getElementById('settings-modal');
+            const overlay = document.getElementById('modal-overlay');
+            
+            const toggleSettings = () => { 
+                STATE.settingsOpen = !STATE.settingsOpen; 
+                const disp = STATE.settingsOpen ? 'block' : 'none';
+                modal.style.display = disp; 
+                overlay.style.display = disp; 
+            };
+            btn.addEventListener('click', toggleSettings); 
+            overlay.addEventListener('click', toggleSettings);
+
+            // 3. GUI 参数面板
+            gui = new GUI({ container: modal, width: '100%' });
+            gui.title('🔧 驾驶员控制台');
+
+            const f1 = gui.addFolder('🎥 智能镜头');
+            f1.add(PARAMS, 'camSmooth', 0.01, 0.1).name('回正柔和度');
+            f1.add(PARAMS, 'camHeightOffset', 2, 20).name('视角基础高度');
+
+            const f2 = gui.addFolder('🚂 列车物理');
+            f2.add(PARAMS, 'trainSpeed', 0, 0.4).name('引擎速度');
+            f2.add(PARAMS, 'carriageGap', 0.005, 0.02).name('车厢间距').onChange(() => train.refreshGap());
+
+            const f3 = gui.addFolder('💡 光影氛围');
+            f3.add(PARAMS, 'moonIntensity', 0, 5).name('月光亮度').onChange(v => lights.moon.intensity = v);
+            f3.add(PARAMS, 'fogDensity', 0, 0.01).name('大雾浓度').onChange(v => scene.fog.density = v);
+            f3.add(PARAMS, 'bloomStrength', 0, 3).name('辉光强度').onChange(v => bloomPass.strength = v);
+            
+            const updateEmis = () => emissiveObjects.forEach(o => {
+                if(o.userData.type === 'bulb') o.material.emissiveIntensity = PARAMS.bulbBrightness;
+                if(o.userData.type === 'headlight') o.material.emissiveIntensity = PARAMS.trainLightPower;
+            });
+            f3.add(PARAMS, 'bulbBrightness', 0, 50).name('彩灯亮度').onChange(updateEmis);
+            f3.add(PARAMS, 'trainLightPower', 0, 100).name('车头灯亮度').onChange(updateEmis);
+
+            // 4. 全局交互监听
+            // 点击放烟花 (避开设置弹窗)
+            window.addEventListener('pointerdown', (e) => {
+                if(STATE.started && !STATE.settingsOpen) {
+                    fireworkMgr.launch();
+                }
+            });
+            
+            // 双击切换视角
+            window.addEventListener('dblclick', () => {
+                if(!STATE.started) return;
+                STATE.viewMode = STATE.viewMode === 'FOLLOW' ? 'GOD' : 'FOLLOW';
+                
+                // 更新 HUD 文字
+                const text = STATE.viewMode === 'FOLLOW' ? "智能驾驶模式" : "上帝俯瞰模式";
+                document.getElementById('hud').querySelector('span').innerText = text;
+                
+                // 切换到上帝视角时，重置目标到中心，方便操作
+                if(STATE.viewMode === 'GOD') controls.target.set(0,0,0);
+            });
+        }
+
+        function setupControls() {
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; 
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05; // 防止穿地
+            controls.minDistance = 10; 
+            controls.maxDistance = 600;
+            
+            // 关键：监听用户交互状态
+            // 当用户正在拖动屏幕时，暂停相机的自动回正，避免“抢夺”控制权
+            controls.addEventListener('start', () => STATE.isUserInteracting = true);
+            controls.addEventListener('end', () => STATE.isUserInteracting = false);
+        }
+
+        // ============================
+        // 🎥 核心动画循环
+        // ============================
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            // 1. 更新各系统
+            if(train) train.update(delta);
+            if(fireworkMgr) fireworkMgr.update();
+            if(snowSystem) snowSystem.update();
+
+            // 2. 智能跟随逻辑 (Smart TPS)
+            if (STATE.started && STATE.viewMode === 'FOLLOW' && train) {
+                const locoPos = train.loco.position;
+                
+                // 核心 A: 锁定控制器中心到火车头
+                controls.target.copy(locoPos);
+
+                // 核心 B: 自动回正 (仅当用户松手时)
+                if (!STATE.isUserInteracting) {
+                    // 获取当前用户缩放的距离 (Distance Memory)
+                    const currentDist = camera.position.distanceTo(locoPos);
+                    
+                    // 获取火车正后方向量 (-Z方向)
+                    // (车头是指向切线的，我们假设车头模型的+Z是前方)
+                    // 注意：在 TrainSystem.place 中我们用了 lookAt(pos - tangent)
+                    // 这意味着物体的 -Z 指向了后方，+Z 指向了前方。
+                    // 所以获取后方可以直接取物体坐标系的 -Z 轴。
+                    const backVec = new THREE.Vector3(0, 0, -1).applyQuaternion(train.loco.quaternion).normalize();
+                    
+                    // 计算理想位置
+                    // 保持当前的缩放距离 (currentDist)
+                    // 并加上基础高度偏移
+                    const idealPos = locoPos.clone()
+                        .add(backVec.multiplyScalar(currentDist)) 
+                        .add(new THREE.Vector3(0, PARAMS.camHeightOffset, 0)); 
+
+                    // 柔和插值移动 (Soft Lock)
+                    camera.position.lerp(idealPos, PARAMS.camSmooth);
+                }
+            } 
+            // 3. 待机动画 (未开始时)
+            else if (!STATE.started) {
+                const t = Date.now() * 0.0001;
+                camera.position.set(Math.sin(t)*200, 120, Math.cos(t)*200);
+                camera.lookAt(0,0,0);
+            }
+
+            controls.update();
+            composer.render();
+        }
+
+        // 窗口自适应
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight; 
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight); 
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body> 
+</html>
