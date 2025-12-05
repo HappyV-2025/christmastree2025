@@ -398,197 +398,252 @@
       // (接 Part 2)
 
         // ============================
-        // 🚂 火车系统 (核心逻辑)
-        // ============================
-        class TrainSystem {
-            constructor(scene, curve) {
-                this.scene = scene; 
-                this.curve = curve;
-                this.group = new THREE.Group();
-                this.smokes = []; 
-                this.progress = 0;
-                
-                // 1. 创建车头
-                this.loco = this.createDetailedLoco();
-                this.group.add(this.loco);
-                
-                // 2. 创建车厢 (8节)
-                this.cars = [];
-                for(let i=1; i<=8; i++) {
-                    const car = this.createDetailedCar(i);
-                    this.group.add(car);
-                    this.cars.push(car);
-                }
-                
-                // 3. 初始化间距
-                this.refreshGap();
-                scene.add(this.group);
+// 🚂 火车系统 (修正版：Q版比例 + 紧密连接 + 12节长编组)
+// ============================
+class TrainSystem {
+    constructor(scene, curve) {
+        this.scene = scene; 
+        this.curve = curve;
+        this.group = new THREE.Group();
+        this.smokes = []; 
+        this.progress = 0;
+        this.wheels = []; 
+        
+        // 0. 光晕贴图 (保持之前的好效果)
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');     
+        gradient.addColorStop(0.2, 'rgba(255, 220, 100, 0.8)'); 
+        gradient.addColorStop(0.5, 'rgba(255, 150, 0, 0.3)');   
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');           
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 64, 64);
+        this.glareTexture = new THREE.CanvasTexture(canvas);
+
+        // 1. 创建车头 (缩短)
+        this.loco = this.createDetailedLoco();
+        this.group.add(this.loco);
+        
+        // 2. 创建车厢 (增加到 12 节！)
+        this.cars = [];
+        for(let i=1; i<=12; i++) {
+            const car = this.createDetailedCar(i);
+            this.group.add(car);
+            this.cars.push(car);
+        }
+        
+        // 3. 初始化间距
+        this.refreshGap();
+        scene.add(this.group);
+    }
+
+    // --- 间距核心修正 ---
+    refreshGap() { 
+        this.cars.forEach((c, i) => {
+            // 关键调整：
+            // 车身现在约 5个单位长。轨道总长约 600-700。
+            // 0.007 是经过计算匹配短车身的最佳间距，保证连接杆正好接触
+            const gapStep = 0.0075 + (PARAMS.carriageGap * 0.2); 
+            c.userData.tOffset = (i + 1) * gapStep;
+        }); 
+    }
+    
+    createDetailedLoco() {
+        const g = new THREE.Group();
+        
+        const bodyMat = new THREE.MeshStandardMaterial({
+            color: 0xb71c1c, roughness: 0.3, metalness: 0.6,
+            emissive: 0x550000, emissiveIntensity: 0.4
+        });
+        const blackMat = new THREE.MeshStandardMaterial({color:0x111111, roughness:0.7});
+        const goldMat = new THREE.MeshStandardMaterial({color:0xffb300, roughness:0.2, metalness:0.8});
+
+        // 1. 锅炉 (缩短到 5.0，比例更协调)
+        const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 5.0, 16), bodyMat);
+        boiler.rotation.x = Math.PI/2; boiler.position.set(0, 3.6, 1.0); g.add(boiler);
+
+        // 驾驶室
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(3.8, 5.2, 3.2), bodyMat);
+        cab.position.set(0, 4.1, -2.5); g.add(cab);
+        
+        // 烟囱
+        this.chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.6, 1.8), blackMat);
+        this.chimney.position.set(0, 4.5, 2.5); g.add(this.chimney);
+        this.smokeSource = this.chimney; 
+
+        // 排障器
+        const cow = new THREE.Mesh(new THREE.ConeGeometry(2.0, 1.5, 4), blackMat);
+        cow.rotation.x = -Math.PI/2; cow.rotation.y = Math.PI/4; 
+        cow.scale.set(1, 0.5, 1); cow.position.set(0, 1.0, 4.5); g.add(cow);
+
+        // 轮组 (更紧凑)
+        const addWheel = (z, radius) => {
+            const wGeo = new THREE.CylinderGeometry(radius, radius, 0.5, 16); wGeo.rotateZ(Math.PI/2);
+            const w1 = new THREE.Mesh(wGeo, blackMat); w1.position.set(1.9, radius, z);
+            const w2 = new THREE.Mesh(wGeo, blackMat); w2.position.set(-1.9, radius, z);
+            g.add(w1); g.add(w2);
+            this.wheels.push(w1, w2);
+            if(radius > 1.0) { 
+                const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.7,8), goldMat);
+                hub.rotation.z = Math.PI/2; w1.add(hub); w2.add(hub.clone());
             }
+        };
+        addWheel(0, 1.3); addWheel(2.2, 1.3); addWheel(-1.5, 1.3); // 动轮
+        addWheel(4.0, 0.8); // 导轮
 
-            // 动态更新车厢间距 (用于GUI调节)
-            refreshGap() { 
-                this.cars.forEach((c, i) => {
-                    // 间距累加
-                    c.userData.tOffset = (i + 1) * PARAMS.carriageGap;
-                }); 
-            }
-            
-            createDetailedLoco() {
-                const g = new THREE.Group();
-                const mat = new THREE.MeshStandardMaterial({color:0xb71c1c, roughness:0.4});
-                const black = new THREE.MeshStandardMaterial({color:0x1a1a1a});
-                
-                // 锅炉 & 驾驶室
-                const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 5.5, 16), mat);
-                boiler.rotation.x = Math.PI/2; boiler.position.set(0, 3.2, 1); g.add(boiler);
-                const cab = new THREE.Mesh(new THREE.BoxGeometry(3.4, 4.5, 2.8), mat);
-                cab.position.set(0, 3.5, -2.5); g.add(cab);
-                
-                // 烟囱 (车头方向 +Z)
-                this.chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5), black);
-                this.chimney.position.set(0, 4.2, 2.5); g.add(this.chimney);
-                this.smokeSource = this.chimney; // 记录冒烟点
-                
-                // 排障器 (三角形)
-                const cow = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.5, 4), black);
-                cow.rotation.x = -Math.PI/2; cow.rotation.y = Math.PI/4; 
-                cow.scale.set(1, 0.5, 1); cow.position.set(0, 1, 4.5); g.add(cow);
+        // 灯光 (保持)
+        const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.5, 32), new THREE.MeshBasicMaterial({color: 0xffaa00}));
+        bulb.position.set(0, 5.2, 3.6); g.add(bulb);
 
-                // 车灯与光源
-                const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3), black);
-                lamp.rotation.x = -Math.PI/2; lamp.position.set(0, 4.5, 3.8); g.add(lamp);
-                
-                const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.35, 16), new THREE.MeshStandardMaterial({
-                    color:0xffaa00, emissive:0xffdd88, emissiveIntensity:PARAMS.trainLightPower
-                }));
-                bulb.position.set(0, 4.5, 3.96); 
-                bulb.userData={type:'headlight'}; 
-                emissiveObjects.push(bulb); 
-                g.add(bulb);
-                
-                const s = new THREE.SpotLight(0xffdd88, 50, 80, 0.6, 0.5); 
-                s.position.set(0, 4.5, 4); s.target.position.set(0, 0, 30); 
-                g.add(s); g.add(s.target);
-                
-                // 后连接杆
-                const coup = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 2.5), black);
-                coup.position.set(0, 2, -3.5); g.add(coup);
+        const spriteMat = new THREE.SpriteMaterial({ 
+            map: this.glareTexture, color: 0xffdd88, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false 
+        });
+        const glare = new THREE.Sprite(spriteMat);
+        glare.position.set(0, 5.2, 4.0); glare.scale.set(10, 10, 1); g.add(glare);
 
-                // 轮子
-                this.wheels = [];
-                const addWheel = (x, z, s) => { 
-                    const w = new THREE.Mesh(new THREE.CylinderGeometry(s, s, 0.4, 12), black); 
-                    w.rotation.z = Math.PI/2; w.position.set(x, s, z); 
-                    g.add(w); this.wheels.push(w); 
-                };
-                addWheel(1.7, 2, 1); addWheel(-1.7, 2, 1);
-                addWheel(1.7, 0, 1); addWheel(-1.7, 0, 1);
-                addWheel(1.7, 3.5, 0.6); addWheel(-1.7, 3.5, 0.6);
-                
-                return g;
-            }
+        const s = new THREE.SpotLight(0xffccaa, 400, 120, 0.8, 0.5); 
+        s.position.set(0, 5.2, 3.8); s.target.position.set(0, -5, 30); 
+        s.castShadow = true; s.shadow.bias = -0.0001;
+        g.add(s); g.add(s.target);
+        
+        // 关键：车头后方的连接器 (凸出)
+        const coupler = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.0, 8), blackMat);
+        coupler.rotation.x = Math.PI/2; coupler.position.set(0, 2.0, -4.2); g.add(coupler);
+        
+        return g;
+    }
 
-            createDetailedCar(i) {
-                const g = new THREE.Group();
-                const col = i % 2 === 0 ? 0x1565c0 : 0x2e7d32;
-                const mat = new THREE.MeshStandardMaterial({color: col});
-                const black = new THREE.MeshStandardMaterial({color: 0x111111});
-                
-                // 车身与车顶
-                const body = new THREE.Mesh(new THREE.BoxGeometry(3.0, 3.5, 5.0), mat); 
-                body.position.y = 2.8; g.add(body);
-                const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 5.1, 8, 1, false, 0, Math.PI), new THREE.MeshStandardMaterial({color:0x333333}));
-                roof.rotation.z = Math.PI/2; roof.rotation.y = Math.PI/2; 
-                roof.position.set(0, 4.55, 0); g.add(roof);
-                
-                // 窗户
-                const wg = new THREE.PlaneGeometry(0.8, 1.0);
-                const addWin = (x, z) => { 
-                    const w = new THREE.Mesh(wg, black); 
-                    w.position.set(x, 3.2, z); 
-                    w.rotation.y = x > 0 ? 1.57 : -1.57; 
-                    g.add(w);
-                };
-                addWin(1.51, 1.2); addWin(1.51, -1.2); 
-                addWin(-1.51, 1.2); addWin(-1.51, -1.2);
+    createDetailedCar(i) {
+        const g = new THREE.Group();
+        const colors = [0xb71c1c, 0x1b5e20, 0x0d47a1, 0xff6f00];
+        const col = colors[(i-1) % 4];
+        
+        const bodyMat = new THREE.MeshStandardMaterial({
+            color: col, roughness: 0.4, emissive: col, emissiveIntensity: 0.15
+        });
+        const blackMat = new THREE.MeshStandardMaterial({color:0x111111, roughness: 0.9});
+        const winMat = new THREE.MeshStandardMaterial({color:0x000000, emissive: 0xffcc88, emissiveIntensity: 1.5});
 
-                // 连接杆 (双向互插，防穿帮)
-                const fc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.5), black); 
-                fc.position.set(0, 2, 2.5); g.add(fc);
-                const bc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 2.0), black); 
-                bc.position.set(0, 2, -3.0); g.add(bc);
-                
-                // 轮子
-                const wGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.4, 12); wGeo.rotateZ(Math.PI/2);
-                const w1 = new THREE.Mesh(wGeo, black); w1.position.set(1.6, 0.7, 1.5); g.add(w1);
-                const w2 = new THREE.Mesh(wGeo, black); w2.position.set(-1.6, 0.7, 1.5); g.add(w2);
-                if(!this.wheels) this.wheels=[]; this.wheels.push(w1, w2);
-                
-                return g;
-            }
+        // 1. 车身 (你设定的 7.8)
+        const carLen = 7.8;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.8, carLen), bodyMat); 
+        body.position.y = 3.3; g.add(body);
+        
+        // 2. 车顶 (适配长度)
+        const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 1.9, carLen+0.2, 12, 1, false, 0, Math.PI), new THREE.MeshStandardMaterial({color:0x222222}));
+        roof.rotation.z = Math.PI/2; roof.rotation.y = Math.PI/2; 
+        roof.position.set(0, 5.2, 0); g.add(roof);
+        
+        // 3. 窗户优化 (均匀分布 3 个窗户)
+        // 窗户尺寸稍微缩小一点点(1.2*1.5)，看起来更精致
+        const winGeo = new THREE.PlaneGeometry(1.2, 1.5);
+        const winCount = 3; // 增加窗户数量
+        
+        // 计算窗户分布：
+        // 让窗户分布在车身中间 5.0 米的范围内，两头留白 1.4 米
+        const spread = 5.0; 
+        const startZ = -spread / 2;
+        const step = spread / (winCount - 1);
 
-            update(delta) {
-                // 移动进度
-                const speed = PARAMS.trainSpeed * delta * 0.2;
-                this.progress = (this.progress + speed) % 1;
-                
-                // 放置车头
-                this.place(this.loco, this.progress);
-                
-                // 放置车厢
-                this.cars.forEach(c => {
-                    let t = this.progress - c.userData.tOffset; 
-                    if(t < 0) t += 1;
-                    this.place(c, t);
-                });
-
-                // 车轮动画
-                if(this.wheels) {
-                    this.wheels.forEach(w => w.rotation.x -= speed * 100 * PARAMS.wheelSpeed);
-                }
-
-                // 冒烟逻辑
-                if(Math.random() > 0.88) { 
-                    _vec3.setFromMatrixPosition(this.smokeSource.matrixWorld); 
-                    _vec3.y += 0.5; 
-                    this.spawnSmoke(_vec3); 
-                }
-                this.updateSmoke();
-            }
-
-            place(obj, t) {
-                const pos = this.curve.getPointAt(t);
-                const tangent = this.curve.getTangentAt(t);
-                obj.position.copy(pos);
-                // 修正朝向：让 +Z (车头) 指向切线方向
-                // lookAt 默认让 -Z 对准目标，所以我们要对准 "位置 - 切线" 的方向
-                obj.lookAt(pos.clone().add(tangent)); 
-            }
-
-            spawnSmoke(pos) {
-                const m = new THREE.Mesh(
-                    new THREE.DodecahedronGeometry(0.3 + Math.random()*0.4), 
-                    new THREE.MeshStandardMaterial({color:0xcccccc, transparent:true, opacity:0.4})
-                );
-                m.position.copy(pos); 
-                this.scene.add(m); 
-                this.smokes.push({m, life:1.2});
-            }
-
-            updateSmoke() {
-                for(let i=this.smokes.length-1; i>=0; i--) {
-                    const s = this.smokes[i]; 
-                    s.life -= 0.02; 
-                    s.m.position.y += 0.06; 
-                    s.m.scale.multiplyScalar(1.02); 
-                    s.m.material.opacity = s.life * 0.3;
-                    if(s.life <= 0){ 
-                        this.scene.remove(s.m); 
-                        this.smokes.splice(i, 1); 
-                    }
-                }
+        for(let side = -1; side <= 1; side += 2) {
+            for(let k = 0; k < winCount; k++) {
+                const w = new THREE.Mesh(winGeo, winMat);
+                // 动态计算 Z 轴坐标
+                const zPos = startZ + k * step;
+                w.position.set(1.71*side, 3.6, zPos);
+                w.rotation.y = side*Math.PI/2;
+                g.add(w);
             }
         }
+
+        // 4. 风琴连接 (Gangway) - 自动适配 carLen
+        const gangwayGeo = new THREE.BoxGeometry(2.4, 2.8, 1.2);
+        const gangway = new THREE.Mesh(gangwayGeo, blackMat);
+        // 放在车头最前端
+        gangway.position.set(0, 3.0, carLen/2 + 0.3); 
+        g.add(gangway);
+
+        // 5. 转向架 (Bogie) - 位置优化
+        // 车身变长了，轮子必须往两头移，否则车会显得很晃
+        const createBogie = (z) => {
+            const b = new THREE.Group(); b.position.set(0, 0, z);
+            const wGeo = new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12); wGeo.rotateZ(Math.PI/2);
+            const w1 = new THREE.Mesh(wGeo, blackMat); w1.position.set(1.6, 0.65, 0);
+            const w2 = new THREE.Mesh(wGeo, blackMat); w2.position.set(-1.6, 0.65, 0);
+            
+            const beam = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.4, 1.0), blackMat);
+            beam.position.y = 0.65;
+            
+            b.add(w1, w2, beam);
+            g.add(b);
+            this.wheels.push(w1, w2);
+        };
+        
+        // 之前是 1.4，现在改为 2.8，轮子支撑点更开阔
+        createBogie(2.8); 
+        createBogie(-2.8);
+        
+        return g;
+    }
+
+    update(delta) {
+        const speed = PARAMS.trainSpeed * delta * 0.2;
+        this.progress = (this.progress + speed) % 1;
+        this.place(this.loco, this.progress);
+        this.cars.forEach(c => {
+            let t = this.progress - c.userData.tOffset; 
+            if(t < 0) t += 1;
+            this.place(c, t);
+        });
+
+        if(this.wheels) this.wheels.forEach(w => w.rotation.x -= speed * 150 * PARAMS.wheelSpeed);
+
+        if(Math.random() > 0.85) { 
+            _vec3.setFromMatrixPosition(this.smokeSource.matrixWorld); 
+            _vec3.y += 0.8; 
+            this.spawnSmoke(_vec3); 
+        }
+        this.updateSmoke();
+    }
+
+    place(obj, t) {
+        const pos = this.curve.getPointAt(t);
+        const tangent = this.curve.getTangentAt(t);
+        obj.position.copy(pos);
+        obj.lookAt(pos.clone().add(tangent)); 
+    }
+
+    spawnSmoke(pos) {
+        const m = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(0.4 + Math.random()*0.3, 0), 
+            new THREE.MeshStandardMaterial({
+                color: 0xeeeeee, transparent:true, opacity: 0.5, roughness: 1, depthWrite: false 
+            })
+        );
+        m.position.copy(pos); 
+        m.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
+        this.scene.add(m); 
+        this.smokes.push({m, life: 1.0 + Math.random() * 0.5});
+    }
+
+    updateSmoke() {
+        for(let i=this.smokes.length-1; i>=0; i--) {
+            const s = this.smokes[i]; 
+            s.life -= 0.015; 
+            s.m.position.y += 0.08; 
+            s.m.rotation.x += 0.02; 
+            const expansion = 1.0 + (1.5 - s.life) * 0.05; 
+            s.m.scale.multiplyScalar(expansion); 
+            s.m.material.opacity = s.life * 0.4;
+            if(s.life <= 0){ 
+                this.scene.remove(s.m); 
+                this.smokes.splice(i, 1); 
+            }
+        }
+    }
+}
 
         // ============================
         // 🎇 烟花管理器
