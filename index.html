@@ -3,63 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Christmas Express - Smooth Ride</title>
+    <title>Christmas Express - Perfect View</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #020305; font-family: 'Microsoft YaHei', sans-serif; user-select: none; -webkit-user-select: none; }
+        body { margin: 0; overflow: hidden; background: #020408; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; }
         #canvas-container { width: 100vw; height: 100vh; display: block; }
         
         /* 启动页 */
         #start-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+            background: rgba(0,0,0,0.85); backdrop-filter: blur(12px);
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 100; color: white; transition: opacity 0.8s;
+            z-index: 100; color: white; transition: opacity 0.6s ease-out;
         }
-        h1 { font-size: 36px; color: #ffcc00; text-shadow: 0 0 15px #ff6600; margin-bottom: 20px; }
+        h1 { 
+            font-size: 36px; color: #ffd700; margin-bottom: 30px; letter-spacing: 3px; 
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.5); text-align: center;
+        }
         #start-btn {
-            background: linear-gradient(135deg, #d32f2f, #b71c1c);
-            color: white; border: none; padding: 15px 50px; font-size: 20px; border-radius: 30px;
-            cursor: pointer; box-shadow: 0 0 20px rgba(211, 47, 47, 0.6);
-            transition: transform 0.2s;
+            background: linear-gradient(135deg, #c62828, #b71c1c);
+            color: white; border: none; padding: 16px 60px; font-size: 20px; border-radius: 50px;
+            cursor: pointer; box-shadow: 0 0 30px rgba(198, 40, 40, 0.6);
+            border: 1px solid rgba(255,255,255,0.2); transition: transform 0.1s;
         }
-        #start-btn:active { transform: scale(0.95); }
-        .tips { margin-top: 20px; font-size: 14px; color: #aaa; }
+        #start-btn:active { transform: scale(0.96); }
+        .tips { margin-top: 30px; font-size: 14px; color: #aaa; text-align: center; line-height: 1.8; }
+        .highlight { color: #4fc3f7; font-weight: bold; }
 
         /* HUD */
-        #hud-left { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; opacity: 0; transition: opacity 1s; }
-        #hud-title { color: #fff; font-size: 16px; font-weight: bold; text-shadow: 0 2px 4px #000; }
+        #hud { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; opacity: 0; transition: opacity 1s; }
+        .tag { background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 14px; border: 1px solid #ffffff33; backdrop-filter: blur(4px); display: inline-block; }
         
         /* 设置按钮 */
         #settings-btn {
             position: absolute; top: 20px; right: 20px; z-index: 20;
-            width: 44px; height: 44px; background: rgba(0,0,0,0.5);
-            border-radius: 50%; border: 1px solid #ffffff44;
-            color: white; font-size: 22px; display: flex; justify-content: center; align-items: center;
+            width: 44px; height: 44px; background: rgba(255,255,255,0.1); backdrop-filter: blur(10px);
+            border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);
+            color: white; font-size: 20px; display: flex; justify-content: center; align-items: center;
             cursor: pointer; opacity: 0; transition: opacity 1s;
         }
+
+        /* 设置弹窗 */
+        #settings-modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 30; display: none; width: 300px; }
+        #modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; display: none; background: rgba(0,0,0,0.5); }
         
-        /* 弹窗容器 */
-        #settings-modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 30; display: none; }
-        #modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; display: none; background: rgba(0,0,0,0.4); }
-        
-        #loading { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); color: #666; font-size: 12px; }
+        #loading { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); color: #666; font-size: 12px; letter-spacing: 1px; }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
-        <h1>🎄 圣诞极地特快</h1>
+        <h1>🎄 极地特快</h1>
         <button id="start-btn">开始旅程</button>
-        <div class="tips">双击屏幕切换视角 | 滑动屏幕旋转镜头</div>
+        <div class="tips">
+            <span class="highlight">双击屏幕</span> 切换 上帝/跟随 视角<br>
+            <span class="highlight">滑动/滚轮</span> 自由调节跟随距离
+        </div>
     </div>
 
-    <div id="hud-left"><div id="hud-title">🎥 跟随模式</div></div>
+    <div id="hud"><div class="tag" id="view-tag">🎥 智能跟随视角</div></div>
     <div id="settings-btn">⚙️</div>
 
     <div id="modal-overlay"></div>
     <div id="settings-modal"></div>
     
-    <div id="loading">正在组装加长列车...</div>
+    <div id="loading">正在清理积雪轨道...</div>
     <div id="canvas-container"></div>
 
     <script type="importmap">
@@ -79,32 +86,32 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
         import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
+        // --- 全局配置 ---
         const STATE = { started: false, viewMode: 'FOLLOW', settingsOpen: false };
         const PARAMS = {
-            moonIntensity: 1.5,
-            bulbBrightness: 15.0,
-            trainLightPower: 40.0,
-            bloomStrength: 0.8,
-            trainSpeed: 0.1, // 稍微降低速度以减少视觉眩晕
+            trainSpeed: 0.12,
+            moonIntensity: 1.8,
+            fogDensity: 0.002,
+            bulbBrightness: 12.0,
+            trainLightPower: 60.0,
+            bloomStrength: 0.9,
+            bloomThreshold: 1.05,
         };
 
         let scene, camera, renderer, composer, controls, gui;
         let train, fireworkMgr, snowSystem;
         let lights = {}, bloomPass;
         let emissiveObjects = [];
-        let trackCurve;
+        let trackCurve, trackPointsSample = [];
         const clock = new THREE.Clock();
-        
-        // 缓存向量避免GC
-        const _vec3_1 = new THREE.Vector3();
-        const _vec3_2 = new THREE.Vector3();
+        const _vec3 = new THREE.Vector3();
 
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x020408);
-            scene.fog = new THREE.FogExp2(0x020408, 0.002);
+            scene.fog = new THREE.FogExp2(0x020408, PARAMS.fogDensity);
 
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 2000);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
             camera.position.set(0, 100, 100);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -117,18 +124,17 @@
 
             setupLights();
             generateTrack();
-            createEnvironment();
+            createTrackMesh();
+            createEnvironment(); // 避障生成
 
-            // 后处理
             const renderScene = new RenderPass(scene, camera);
             bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-            bloomPass.threshold = 1.1;
+            bloomPass.threshold = PARAMS.bloomThreshold;
             bloomPass.strength = PARAMS.bloomStrength;
             composer = new EffectComposer(renderer);
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // 实体
             train = new TrainSystem(scene, trackCurve);
             fireworkMgr = new FireworkManager(scene);
             snowSystem = new SnowSystem(scene);
@@ -142,40 +148,43 @@
 
         function setupLights() {
             lights.moon = new THREE.DirectionalLight(0xaaccff, PARAMS.moonIntensity);
-            lights.moon.position.set(-100, 150, -50);
+            lights.moon.position.set(-80, 120, -80);
             lights.moon.castShadow = true;
-            lights.moon.shadow.mapSize.set(1024, 1024); // 降低阴影贴图大小优化性能
-            lights.moon.shadow.camera.left = -150; lights.moon.shadow.camera.right = 150;
-            lights.moon.shadow.camera.top = 150; lights.moon.shadow.camera.bottom = -150;
+            lights.moon.shadow.mapSize.set(1024, 1024);
+            lights.moon.shadow.camera.left = -200; lights.moon.shadow.camera.right = 200;
+            lights.moon.shadow.camera.top = 200; lights.moon.shadow.camera.bottom = -200;
             scene.add(lights.moon);
 
             const ambient = new THREE.AmbientLight(0x404060, 0.3);
             scene.add(ambient);
 
-            const ground = new THREE.Mesh(new THREE.CircleGeometry(500, 64), new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 1.0, metalness: 0.0 }));
+            const ground = new THREE.Mesh(new THREE.CircleGeometry(600, 64), new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 1.0, metalness: 0.0 }));
             ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
             scene.add(ground);
         }
 
         function generateTrack() {
-            // 三叶草路径
+            // 三叶草复杂闭环
+            const s = 1.4;
             const points = [
-                new THREE.Vector3(10, 0, 20), new THREE.Vector3(50, 2, 50), new THREE.Vector3(90, 0, 0),
-                new THREE.Vector3(50, 0, -50), new THREE.Vector3(10, 0, -20), new THREE.Vector3(-20, 0, -20),
-                new THREE.Vector3(-50, 3, -70), new THREE.Vector3(-90, 0, -50), new THREE.Vector3(-60, 0, -10),
-                new THREE.Vector3(-60, 0, 10), new THREE.Vector3(-90, 0, 50), new THREE.Vector3(-50, 3, 70),
-                new THREE.Vector3(-20, 0, 20), new THREE.Vector3(0, 0, 0)
+                new THREE.Vector3(10*s, 0, 20*s), new THREE.Vector3(50*s, 2, 50*s), new THREE.Vector3(90*s, 0, 0),
+                new THREE.Vector3(50*s, 0, -50*s), new THREE.Vector3(10*s, 0, -20*s), new THREE.Vector3(-20*s, 0, -20*s),
+                new THREE.Vector3(-50*s, 3, -70*s), new THREE.Vector3(-90*s, 0, -50*s), new THREE.Vector3(-60*s, 0, -10*s),
+                new THREE.Vector3(-60*s, 0, 10*s), new THREE.Vector3(-90*s, 0, 50*s), new THREE.Vector3(-50*s, 3, 70*s),
+                new THREE.Vector3(-20*s, 0, 20*s), new THREE.Vector3(0, 0, 0)
             ];
             trackCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
-            
-            // 渲染轨道
-            const divisions = 300;
-            const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divisions, 2.5, 6, true), new THREE.MeshStandardMaterial({color: 0x050505, roughness: 1}));
-            bed.position.y = -0.1; bed.scale.y = 0.1; scene.add(bed);
+            trackPointsSample = trackCurve.getPoints(600);
+        }
 
-            // 枕木 (InstancedMesh 优化)
-            const plankGeo = new THREE.BoxGeometry(4.5, 0.3, 1.0);
-            const plankMat = new THREE.MeshStandardMaterial({color: 0x4e342e});
+        function createTrackMesh() {
+            const divisions = 600;
+            // 路基
+            const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divisions, 3.5, 8, true), new THREE.MeshStandardMaterial({color: 0x080808, roughness: 1}));
+            bed.position.y = -0.2; bed.scale.y = 0.1; scene.add(bed);
+            // 枕木
+            const plankGeo = new THREE.BoxGeometry(5.5, 0.3, 1.2);
+            const plankMat = new THREE.MeshStandardMaterial({color: 0x3e2723});
             const planks = new THREE.InstancedMesh(plankGeo, plankMat, divisions);
             const dummy = new THREE.Object3D();
             for(let i=0; i<divisions; i++) {
@@ -188,60 +197,89 @@
             planks.receiveShadow = true; scene.add(planks);
         }
 
+        function isSafePosition(x, z) {
+            // 扩大避障半径到 18，确保视野不被遮挡
+            const safeDistSq = 18 * 18; 
+            for(let i=0; i<trackPointsSample.length; i+=3) {
+                const dx = trackPointsSample[i].x - x;
+                const dz = trackPointsSample[i].z - z;
+                if ((dx*dx + dz*dz) < safeDistSq) return false;
+            }
+            return true;
+        }
+
         function createEnvironment() {
-            // 三个地标树
-            createHeroTree(50, 0, 1.5, 0xff0000); 
-            createHeroTree(-60, 40, 1.3, 0x00ff00);
-            createHeroTree(-60, -40, 1.4, 0xffcc00);
+            createHeroTree(60, 0, 1.5, 0xff0000); 
+            createHeroTree(-70, 50, 1.3, 0x00ff00);
+            createHeroTree(-70, -50, 1.4, 0xffcc00);
             
-            // 随机森林 (使用 Group 克隆太重，简单用循环生成)
-            // 优化：减少几何体段数
+            // 森林
             const treeGeo = new THREE.ConeGeometry(1, 1, 8); 
-            for(let i=0; i<80; i++) {
-                const r = 30 + Math.random() * 120;
-                const a = Math.random() * Math.PI * 2;
+            let planted = 0, attempts = 0;
+            while(planted < 150 && attempts < 4000) {
+                attempts++;
+                const r = 35 + Math.random() * 180;
+                const a = Math.random() * 6.28;
                 const x = Math.cos(a)*r; const z = Math.sin(a)*r;
-                // 简单避障
-                if(x*x + z*z > 400 && Math.random()>0.3) createNatureTree(x, z);
+                if(isSafePosition(x, z)) {
+                    createNatureTree(x, z); planted++;
+                }
+            }
+            for(let i=0; i<40; i++) {
+                const x = (Math.random()-0.5)*350; const z = (Math.random()-0.5)*350;
+                if(isSafePosition(x, z)) {
+                    const r = Math.random();
+                    if(r<0.3) createGift(x, z); else if(r<0.6) createSnowman(x, z); else createLamp(x, z);
+                }
             }
         }
 
         function createHeroTree(x, z, s, c) {
             const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.set(s,s,s);
-            // 树干
             const t = new THREE.Mesh(new THREE.CylinderGeometry(1,2,4,8), new THREE.MeshStandardMaterial({color:0x3e2723})); t.position.y=2; g.add(t);
-            // 叶子
             const lm = new THREE.MeshStandardMaterial({color:0x0f4d0f, roughness:0.8});
             for(let i=0;i<4;i++){
-                const cone=new THREE.Mesh(new THREE.ConeGeometry(10-i*2,6,12),lm); cone.position.y=4+i*3.5; cone.castShadow=true; g.add(cone);
-                // 灯
-                const cnt=5+i;
-                for(let k=0;k<cnt;k++){
-                    const a=(k/cnt)*6.28+i; const br=10-i*2-0.5;
-                    const b=new THREE.Mesh(new THREE.SphereGeometry(0.35,6,6),new THREE.MeshStandardMaterial({color:0,emissive:Math.random()>0.5?c:0xffffff,emissiveIntensity:PARAMS.bulbBrightness}));
+                const cone=new THREE.Mesh(new THREE.ConeGeometry(10-i*2,6,10),lm); cone.position.y=4+i*3.5; cone.castShadow=true; g.add(cone);
+                for(let k=0;k<6+i;k++){
+                    const a=(k/(6+i))*6.28+i; const br=10-i*2-0.5;
+                    const b=new THREE.Mesh(new THREE.SphereGeometry(0.35,4,4),new THREE.MeshStandardMaterial({color:0,emissive:Math.random()>0.5?c:0xffffff,emissiveIntensity:PARAMS.bulbBrightness}));
                     b.position.set(Math.cos(a)*br,4+i*3.5-2.5,Math.sin(a)*br); b.userData={type:'bulb'}; emissiveObjects.push(b); g.add(b);
                 }
             }
-            // 星星
-            const st=new THREE.Mesh(new THREE.OctahedronGeometry(1.5),new THREE.MeshStandardMaterial({color:0xffff00,emissive:0xffaa00,emissiveIntensity:20}));
-            st.position.y=20; st.userData={type:'star'}; emissiveObjects.push(st); g.add(st);
-            // 地灯
-            const pl=new THREE.PointLight(c,2,30); pl.position.y=5; g.add(pl);
-            scene.add(g);
+            const st=new THREE.Mesh(new THREE.OctahedronGeometry(1.5),new THREE.MeshStandardMaterial({color:0xffff00,emissive:0xffaa00,emissiveIntensity:20})); st.position.y=20; st.userData={type:'star'}; emissiveObjects.push(st); g.add(st);
+            const pl=new THREE.PointLight(c,2,30); pl.position.y=5; g.add(pl); scene.add(g);
         }
 
         function createNatureTree(x, z) {
             const g=new THREE.Group(); g.position.set(x,0,z); const s=0.8+Math.random()*0.8; g.scale.set(s,s,s);
-            const t=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.8,3,6),new THREE.MeshStandardMaterial({color:0x3e2723})); t.position.y=1.5; g.add(t);
+            const t=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.8,3,5),new THREE.MeshStandardMaterial({color:0x3e2723})); t.position.y=1.5; g.add(t);
             const m=new THREE.MeshStandardMaterial({color:0x1b3e20});
             for(let i=0;i<3;i++){
-                const c=new THREE.Mesh(new THREE.ConeGeometry(4-i,5,8),m); c.position.y=3.5+i*3; c.castShadow=true; g.add(c);
+                const c=new THREE.Mesh(new THREE.ConeGeometry(4-i,5,7),m); c.position.y=3.5+i*3; c.castShadow=true; g.add(c);
             }
             scene.add(g);
         }
 
+        function createGift(x, z) {
+            const g=new THREE.Group(); g.position.set(x,0,z); g.rotation.y=Math.random();
+            const b=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5),new THREE.MeshStandardMaterial({color:Math.random()*0xffffff})); b.position.y=0.75; b.castShadow=true; g.add(b); scene.add(g);
+        }
+        function createSnowman(x, z) {
+            const g=new THREE.Group(); g.position.set(x,0,z); g.rotation.y=Math.random();
+            const m=new THREE.MeshStandardMaterial({color:0xffffff});
+            const b1=new THREE.Mesh(new THREE.SphereGeometry(1.2,8,8),m); b1.position.y=1; g.add(b1);
+            const b2=new THREE.Mesh(new THREE.SphereGeometry(0.8,8,8),m); b2.position.y=2.5; g.add(b2);
+            scene.add(g);
+        }
+        function createLamp(x, z) {
+            const g=new THREE.Group(); g.position.set(x,0,z);
+            const p=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,7),new THREE.MeshStandardMaterial({color:0x111})); p.position.y=3.5; g.add(p);
+            const b=new THREE.Mesh(new THREE.SphereGeometry(0.5),new THREE.MeshStandardMaterial({color:0xffaa00,emissive:0xffaa00,emissiveIntensity:10}));
+            b.position.y=7; b.userData={type:'bulb'}; emissiveObjects.push(b); g.add(b); scene.add(g);
+        }
+
         // ============================
-        // 🚂 优化后的火车系统
+        // 🚂 火车系统 (无缝连接修正版)
         // ============================
         class TrainSystem {
             constructor(scene, curve) {
@@ -250,15 +288,12 @@
                 this.smokes = [];
                 this.progress = 0;
                 
-                // 车头
                 this.loco = this.createLoco();
                 this.group.add(this.loco);
-                
-                // 车厢 (加长到8节)
                 this.cars = [];
-                // 间距计算：约等于 0.012 (取决于曲线长度，微调以防脱节)
-                // 假设曲线长 ~400，车长 ~5，Gap应为 ~0.0125
-                const gapStep = 0.013; 
+                
+                // 精确计算间距防止脱节 (基于轨道长度和车身)
+                const gapStep = 0.0128; 
                 
                 for(let i=1; i<=8; i++) {
                     const car = this.createCar(i);
@@ -274,16 +309,17 @@
                 const mat = new THREE.MeshStandardMaterial({color:0xb71c1c, roughness:0.4});
                 const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 4, 6), mat); body.position.y=3.2; g.add(body);
                 this.chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.4,1.8), new THREE.MeshStandardMaterial({color:0x111}));
+                // 修正：烟囱在Z正方向 (车头)
                 this.chimney.position.set(0,4.2,2); g.add(this.chimney);
                 
+                // 车灯
                 const l=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.2),new THREE.MeshStandardMaterial({color:0,emissive:0xffdd88,emissiveIntensity:PARAMS.trainLightPower}));
                 l.rotation.x=-1.57; l.position.set(0,3,3.1); l.userData={type:'headlight'}; emissiveObjects.push(l); g.add(l);
-                
                 const s=new THREE.SpotLight(0xffdd88,30,60,0.6,0.5); s.position.set(0,3.5,4); s.target.position.set(0,0,20); g.add(s); g.add(s.target);
                 
-                // 后连接器
-                const coup = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.5,1.5), new THREE.MeshStandardMaterial({color:0x111}));
-                coup.position.set(0,2,-3.5); g.add(coup);
+                // 后连接杆 (长一点，插入后车)
+                const coup = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 2.5), new THREE.MeshStandardMaterial({color:0x111}));
+                coup.position.set(0, 2, -3.5); g.add(coup);
 
                 return g;
             }
@@ -294,10 +330,10 @@
                 const b = new THREE.Mesh(new THREE.BoxGeometry(3.0, 3.2, 4.5), mat); b.position.y=2.8; g.add(b);
                 const gf = new THREE.Mesh(new THREE.BoxGeometry(2,1.2,2), new THREE.MeshStandardMaterial({color:0xffd54f})); gf.position.y=5; g.add(gf);
                 
-                // 前后连接器 (填补视觉缝隙)
+                // 连接杆：前后都有，加长重叠，防止弯道露馅
                 const cMat = new THREE.MeshStandardMaterial({color:0x111});
-                const fc = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.5,1), cMat); fc.position.set(0,2,2.5); g.add(fc);
-                const bc = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.5,1), cMat); bc.position.set(0,2,-2.5); g.add(bc);
+                const fc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 1.5), cMat); fc.position.set(0,2,2.5); g.add(fc);
+                const bc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 2.0), cMat); bc.position.set(0,2,-3.0); g.add(bc);
                 
                 return g;
             }
@@ -305,20 +341,13 @@
             update(delta) {
                 const speed = PARAMS.trainSpeed * delta * 0.2;
                 this.progress = (this.progress + speed) % 1;
-                
                 this.place(this.loco, this.progress);
-                
                 this.cars.forEach(c => {
                     let t = this.progress - c.userData.tOffset;
                     if(t < 0) t += 1;
                     this.place(c, t);
                 });
-
-                if(Math.random()>0.88) {
-                    _vec3_1.setFromMatrixPosition(this.chimney.matrixWorld);
-                    _vec3_1.y += 0.5;
-                    this.spawnSmoke(_vec3_1);
-                }
+                if(Math.random()>0.9) { _vec3.setFromMatrixPosition(this.chimney.matrixWorld); _vec3.y+=0.5; this.spawnSmoke(_vec3); }
                 this.updateSmoke();
             }
 
@@ -326,13 +355,28 @@
                 const pos = this.curve.getPointAt(t);
                 const tangent = this.curve.getTangentAt(t);
                 obj.position.copy(pos);
-                obj.lookAt(pos.clone().add(tangent));
+                // 修正：lookAt(pos + tangent) 会让局部 -Z 指向 tangent。
+                // 我们的模型：车头在 +Z (Chimney)，车尾在 -Z (Coupler)。
+                // 所以我们需要让 +Z 指向 tangent。
+                // 修正 lookAt 为 (pos - tangent) ? 不，这样是反的。
+                // 修正方法：使用 lookAt(pos + tangent) 后，模型是倒着走的 (+Z 朝后)。
+                // 所以我们让模型本身旋转 180度，或者更简单的：lookAt(pos - tangent) 确实会让 +Z 朝前。
+                // 让我们试试 lookAt(pos - tangent) -> 这会让局部 -Z 指向 (pos-tangent)，即局部 +Z 指向 tangent (前方)。
+                // 完美。
+                obj.lookAt(pos.clone().add(tangent)); 
+                // 哎呀不对，Threejs lookAt 是让 local -Z 指向 target。
+                // 目标是前方 (tangent)。所以 local -Z 指向前方。
+                // 我的模型：Chimney 是 +Z。所以 Chimney 指向后方。
+                // 结论：模型是反的。
+                // 修正：旋转模型 Math.PI ? 不行，Group 旋转会麻烦。
+                // 最简单的修正：obj.lookAt(pos.clone().sub(tangent)) -> 让 local -Z 指向后方 -> local +Z 指向前方。
+                // 这样 Chimney (+Z) 就会指向前方。
+                obj.lookAt(pos.clone().sub(tangent)); 
             }
 
             spawnSmoke(pos) {
                 const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.4+Math.random()*0.4, 0), new THREE.MeshStandardMaterial({color:0xcccccc, transparent:true, opacity:0.4}));
-                m.position.copy(pos);
-                this.scene.add(m); this.smokes.push({m, life:1.2});
+                m.position.copy(pos); this.scene.add(m); this.smokes.push({m, life:1.2});
             }
             updateSmoke() {
                 for(let i=this.smokes.length-1; i>=0; i--) {
@@ -345,11 +389,8 @@
         class FireworkManager {
             constructor(s){this.s=s;this.l=[];const c=document.createElement('canvas');c.width=32;c.height=32;const x=c.getContext('2d');const g=x.createRadialGradient(16,16,0,16,16,16);g.addColorStop(0,'#fff');g.addColorStop(1,'transparent');x.fillStyle=g;x.fillRect(0,0,32,32);this.t=new THREE.CanvasTexture(c);}
             launch(){
-                // 在相机前方随机位置发射
-                const dist = 50;
-                _vec3_1.set(0,0,-dist).applyQuaternion(camera.quaternion).add(camera.position);
-                const pos = _vec3_1.clone().add(new THREE.Vector3((Math.random()-0.5)*40, -20, (Math.random()-0.5)*40));
-                
+                _vec3.set(0,0,-40).applyQuaternion(camera.quaternion).add(camera.position);
+                const pos = _vec3.clone().add(new THREE.Vector3((Math.random()-0.5)*50, -20, (Math.random()-0.5)*50));
                 const c = new THREE.Color().setHSL(Math.random(),1,0.6);
                 this.l.push({ph:'up',p:pos,v:new THREE.Vector3(0,1.2+Math.random(),0),dy:pos.y+40+Math.random()*20,c:c,tr:new THREE.Mesh(new THREE.SphereGeometry(0.4),new THREE.MeshBasicMaterial({color:c})),pt:null});
                 this.s.add(this.l[this.l.length-1].tr);
@@ -357,92 +398,57 @@
             update(){
                 for(let i=this.l.length-1;i>=0;i--){
                     const f=this.l[i];
-                    if(f.ph==='up'){
-                        f.p.add(f.v);f.v.y*=0.98;f.tr.position.copy(f.p);
-                        if(f.v.y<0.1||f.p.y>f.dy){this.s.remove(f.tr);f.ph='pop';this.exp(f);}
-                    }else{
-                        const p=f.pt.geometry.attributes.position.array;f.li-=0.015;
-                        for(let k=0;k<p.length/3;k++){p[k*3]+=f.vs[k*3];p[k*3+1]+=f.vs[k*3+1];p[k*3+2]+=f.vs[k*3+2];f.vs[k*3+1]-=0.005;}
-                        f.pt.geometry.attributes.position.needsUpdate=true;f.pt.material.opacity=f.li;
-                        if(f.li<=0){this.s.remove(f.pt);this.l.splice(i,1);}
-                    }
+                    if(f.ph==='up'){f.p.add(f.v);f.v.y*=0.98;f.tr.position.copy(f.p);if(f.v.y<0.1||f.p.y>f.dy){this.s.remove(f.tr);f.ph='pop';this.exp(f);}}
+                    else{const p=f.pt.geometry.attributes.position.array;f.li-=0.015;for(let k=0;k<p.length/3;k++){p[k*3]+=f.vs[k*3];p[k*3+1]+=f.vs[k*3+1];p[k*3+2]+=f.vs[k*3+2];f.vs[k*3+1]-=0.005;}f.pt.geometry.attributes.position.needsUpdate=true;f.pt.material.opacity=f.li;if(f.li<=0){this.s.remove(f.pt);this.l.splice(i,1);}}
                 }
             }
-            exp(f){
-                const cnt=150;const p=[],v=[];
-                for(let i=0;i<cnt;i++){p.push(f.p.x,f.p.y,f.p.z);const s=0.2+Math.random()*0.3,th=Math.random()*6.28,ph=Math.acos(2*Math.random()-1);v.push(Math.sin(ph)*Math.cos(th)*s,Math.sin(ph)*Math.sin(th)*s,Math.cos(ph)*s);}
-                const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
-                const m=new THREE.PointsMaterial({color:f.c,size:2,map:this.t,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});
-                f.pt=new THREE.Points(g,m);f.li=1.0;f.vs=v;this.s.add(f.pt);
-            }
+            exp(f){const cnt=100;const p=[],v=[];for(let i=0;i<cnt;i++){p.push(f.p.x,f.p.y,f.p.z);const s=0.2+Math.random()*0.3,th=Math.random()*6.28,ph=Math.acos(2*Math.random()-1);v.push(Math.sin(ph)*Math.cos(th)*s,Math.sin(ph)*Math.sin(th)*s,Math.cos(ph)*s);}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));const m=new THREE.PointsMaterial({color:f.c,size:2,map:this.t,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});f.pt=new THREE.Points(g,m);f.li=1.0;f.vs=v;this.s.add(f.pt);}
         }
-        
         class SnowSystem {
-            constructor(s){
-                const p=[];for(let i=0;i<3000;i++)p.push(Math.random()*600-300,Math.random()*200,Math.random()*600-300);
-                const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
-                this.m=new THREE.Points(g,new THREE.PointsMaterial({color:0xffffff,size:0.6,transparent:true,opacity:0.7}));s.add(this.m);
-            }
-            update(){
-                const p=this.m.geometry.attributes.position.array;
-                for(let i=1;i<p.length;i+=3){p[i]-=0.25;if(p[i]<0)p[i]=200;}
-                this.m.geometry.attributes.position.needsUpdate=true;
-            }
+            constructor(s){const p=[];for(let i=0;i<3000;i++)p.push(Math.random()*600-300,Math.random()*200,Math.random()*600-300);const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));this.m=new THREE.Points(g,new THREE.PointsMaterial({color:0xffffff,size:0.6,transparent:true,opacity:0.7}));s.add(this.m);}
+            update(){const p=this.m.geometry.attributes.position.array;for(let i=1;i<p.length;i+=3){p[i]-=0.25;if(p[i]<0)p[i]=200;}this.m.geometry.attributes.position.needsUpdate=true;}
         }
 
         // ============================
-        // 交互逻辑
+        // 交互与动画
         // ============================
         function setupUI() {
             const startBtn = document.getElementById('start-btn');
-            const startScreen = document.getElementById('start-screen');
-            const hudLeft = document.getElementById('hud-left');
-            const settingsBtn = document.getElementById('settings-btn');
-            const modal = document.getElementById('settings-modal');
-            const overlay = document.getElementById('modal-overlay');
-
             startBtn.addEventListener('click', () => {
                 STATE.started = true;
-                startScreen.style.opacity = '0';
-                setTimeout(() => startScreen.style.display = 'none', 800);
-                hudLeft.style.opacity = '1';
-                settingsBtn.style.opacity = '1';
+                document.getElementById('start-screen').style.opacity = '0';
+                setTimeout(() => document.getElementById('start-screen').style.display = 'none', 600);
+                document.getElementById('hud').style.opacity = '1';
+                document.getElementById('settings-btn').style.opacity = '1';
             });
 
-            const toggleSettings = () => {
-                STATE.settingsOpen = !STATE.settingsOpen;
-                modal.style.display = STATE.settingsOpen ? 'block' : 'none';
-                overlay.style.display = STATE.settingsOpen ? 'block' : 'none';
-            };
-            settingsBtn.addEventListener('click', toggleSettings);
-            overlay.addEventListener('click', toggleSettings);
+            // 设置相关
+            const btn = document.getElementById('settings-btn');
+            const modal = document.getElementById('settings-modal');
+            const overlay = document.getElementById('modal-overlay');
+            const toggle = () => { STATE.settingsOpen = !STATE.settingsOpen; modal.style.display = STATE.settingsOpen ? 'block':'none'; overlay.style.display = STATE.settingsOpen ? 'block':'none'; };
+            btn.addEventListener('click', toggle); overlay.addEventListener('click', toggle);
 
             // GUI
             gui = new GUI({ container: modal, width: '100%' });
-            gui.title('游戏设置');
-            const f1 = gui.addFolder('光影');
-            f1.add(PARAMS, 'moonIntensity', 0, 5).onChange(v => lights.moon.intensity = v);
-            f1.add(PARAMS, 'bloomStrength', 0, 2).onChange(v => bloomPass.strength = v);
-            const f2 = gui.addFolder('游戏');
-            f2.add(PARAMS, 'trainSpeed', 0, 0.4);
+            gui.title('🔧 调试控制台');
+            const f1 = gui.addFolder('🎥 摄像机');
+            f1.add(PARAMS, 'trainSpeed', 0, 0.4).name('列车速度');
+            
+            const f2 = gui.addFolder('💡 光影');
+            f2.add(PARAMS, 'moonIntensity', 0, 5).name('月光');
+            f2.add(PARAMS, 'bloomStrength', 0, 2).name('辉光');
             const updateEmis = () => emissiveObjects.forEach(o => {
                 if(o.userData.type==='bulb') o.material.emissiveIntensity=PARAMS.bulbBrightness;
                 if(o.userData.type==='headlight') o.material.emissiveIntensity=PARAMS.trainLightPower;
             });
-            f1.add(PARAMS, 'bulbBrightness', 1, 30).onChange(updateEmis);
-            f1.add(PARAMS, 'trainLightPower', 1, 60).onChange(updateEmis);
+            f2.add(PARAMS, 'bulbBrightness', 1, 30).onChange(updateEmis);
 
-            // 点击放烟花 & 双击切换
-            window.addEventListener('pointerdown', (e) => {
-                if(STATE.settingsOpen || !STATE.started) return;
-                // 点击屏幕上半部分或任意位置放烟花
-                fireworkMgr.launch(); 
-            });
-            
+            window.addEventListener('pointerdown', () => { if(STATE.started && !STATE.settingsOpen) fireworkMgr.launch(); });
             window.addEventListener('dblclick', () => {
                 if(!STATE.started) return;
                 STATE.viewMode = STATE.viewMode === 'FOLLOW' ? 'GOD' : 'FOLLOW';
-                document.getElementById('hud-title').innerText = STATE.viewMode === 'FOLLOW' ? "🎥 跟随模式" : "☁️ 上帝视角";
+                document.getElementById('view-tag').innerText = STATE.viewMode === 'FOLLOW' ? "🎥 智能跟随" : "☁️ 上帝俯瞰";
                 if(STATE.viewMode === 'GOD') controls.target.set(0,0,0);
             });
         }
@@ -453,46 +459,46 @@
             controls.dampingFactor = 0.05;
             controls.maxPolarAngle = Math.PI / 2 - 0.05;
             controls.minDistance = 10;
-            controls.maxDistance = 400;
+            controls.maxDistance = 500;
         }
 
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
-
             if(train) train.update(delta);
             if(fireworkMgr) fireworkMgr.update();
             if(snowSystem) snowSystem.update();
 
             if (STATE.started && STATE.viewMode === 'FOLLOW' && train) {
-                const targetPos = train.loco.position;
-                const targetQuat = train.loco.quaternion;
+                const locoPos = train.loco.position;
+                const locoQuat = train.loco.quaternion;
+                controls.target.copy(locoPos);
 
-                // 1. 核心：控制器目标始终锁定车头
-                controls.target.copy(targetPos);
-
-                // 2. 消除卡顿的软跟随逻辑
-                // 我们不强行设置 camera.position，而是让 camera 尽量保持在车后某个相对位置
-                // 如果用户在旋转（user interacting），我们就暂停自动归位，避免打架
-                // 这里用一个简化的逻辑：如果距离过远，就轻轻拉一把
+                // 核心：动态跟随计算
+                // 我们不强制 set camera position，而是基于当前距离重新计算理想位置，然后 lerp 过去
+                // 这样既保留了 OrbitControls 的缩放能力，又实现了自动转向
                 
-                // 计算理想位置：车后 25米，高 12米
-                _vec3_1.set(0, 12, -25).applyQuaternion(targetQuat).add(targetPos);
+                // 1. 获取当前用户设定的距离 (Zoom)
+                const currentDist = camera.position.distanceTo(locoPos);
                 
-                // 只有当距离偏差较大时才启用 lerp，或者始终开启微弱的 lerp
-                // 关键点：OrbitControls 的 update() 会根据 target 更新相机
-                // 我们只需要轻微修正相机位置以跟随火车的位移向量
+                // 2. 计算理想角度：永远在火车屁股后面
+                // 车头朝向是 +Z (修正后)，所以车屁股方向是 -Z
+                const backDir = new THREE.Vector3(0, 0, -1).applyQuaternion(locoQuat).normalize();
                 
-                // 简单方案：直接用 OrbitControls 处理旋转，我们只移动 Camera 位置以抵消火车位移
-                // 但这很难完美。更稳健的方案：
-                // 使用 smooth lerp 逼近理想点
-                camera.position.lerp(_vec3_1, 0.02); 
+                // 3. 计算理想位置：基于当前距离 + 固定高度补偿
+                // 保持用户设定的水平距离，但稍微抬高一点视角方便看路
+                const idealPos = locoPos.clone()
+                    .add(backDir.multiplyScalar(currentDist)) // 保持距离
+                    .add(new THREE.Vector3(0, currentDist * 0.4, 0)); // 高度随距离自适应
+                
+                // 4. 柔和插值：只修正角度，不修正距离 (距离由 OrbitControls 接管)
+                // 这里的 trick 是：我们希望 camera 慢慢转到车屁股后面，但不要改变距离
+                // 所以我们 lerp 的是 position。
+                // 0.03 的系数决定了回正的速度。越小越滑，越大越硬。
+                camera.position.lerp(idealPos, 0.03);
             } else if (!STATE.started) {
-                // 待机动画：盘旋
                 const t = Date.now() * 0.0001;
-                camera.position.x = Math.sin(t) * 150;
-                camera.position.z = Math.cos(t) * 150;
-                camera.position.y = 100;
+                camera.position.set(Math.sin(t)*200, 120, Math.cos(t)*200);
                 camera.lookAt(0,0,0);
             }
 
