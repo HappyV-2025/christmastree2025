@@ -324,35 +324,34 @@
         function createHeroTree(x, z, scaleFactor) {
             const group = new THREE.Group();
             group.position.set(x, 0, z);
-            // 基础缩放：原本是 1.5，现在建议给 4.0 以上
+            // 放大树的体积
             group.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-            // 1. 树干 (粗壮)
-            const trunkGeo = new THREE.CylinderGeometry(2, 2.5, 12, 16);
+            // --- 1. 树干 ---
+            const trunkGeo = new THREE.CylinderGeometry(2.2, 2.8, 14, 16);
             const trunkMat = new THREE.MeshStandardMaterial({
-                color: 0x3e2723, 
-                roughness: 0.9 
+                color: 0x3e2723, roughness: 0.9 
             });
             const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-            trunk.position.y = 6;
+            trunk.position.y = 7;
             group.add(trunk);
 
-            // 2. 树叶 (7层结构，更茂密)
-            const leafMat = new THREE.MeshStandardMaterial({
-                color: 0x0f5515, // 更深邃的松绿色
-                roughness: 0.7,
-                flatShading: true // 低多边形风格，棱角分明更有质感
-            });
-            
+            // --- 2. 树冠 (7层结构) ---
+            // 定义每一层的参数，供后续计算灯带位置使用
             const layers = 7;
-            const treeHeight = 55; // 树总高
+            const layerData = []; // 存储每一层的几何信息
             
+            const leafMat = new THREE.MeshStandardMaterial({
+                color: 0x0f5515, // 经典的深松绿
+                roughness: 0.8,
+                flatShading: true // 低多边形风格
+            });
+
             for(let i=0; i<layers; i++) {
                 // 越往上越窄
-                const radius = 18 - i * 2.2; 
-                // 每一层的高度
-                const h = 12; 
-                const y = 10 + i * 6.5; 
+                const radius = 19 - i * 2.4; 
+                const h = 13; 
+                const y = 11 + i * 6.8; // 层层堆叠
                 
                 const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, h, 16), leafMat);
                 cone.position.y = y;
@@ -360,94 +359,135 @@
                 cone.receiveShadow = true;
                 group.add(cone);
 
-                // --- 增加装饰球 (不发光，只反光) ---
-                if (i < layers - 1) { // 顶层不挂球
-                    const orbCount = 6 + i;
+                // 存下数据用于计算灯带贴合
+                // 锥体底部y, 顶部y, 底部半径
+                layerData.push({
+                    yBottom: y - h/2,
+                    yTop: y + h/2,
+                    radius: radius
+                });
+
+                // --- 增加装饰球 (Baubles) ---
+                // 让球挂在树枝末梢
+                if (i < layers - 1) { 
+                    const orbCount = 7 + i;
                     for(let k=0; k<orbCount; k++) {
-                        const angle = (k / orbCount) * Math.PI * 2 + (i * 0.5);
-                        const r = radius - 0.5; // 挂在边缘
+                        const angle = (k / orbCount) * Math.PI * 2 + (i * 1.5); // 错落角度
+                        const r = radius - 0.8; // 挂在边缘往里一点点
                         const bx = Math.cos(angle) * r;
                         const bz = Math.sin(angle) * r;
                         
-                        // 随机红金蓝配色
-                        const cols = [0xff0000, 0xffd700, 0x0044ff]; 
+                        // 装饰球配色 (红/金/银/蓝)
+                        const cols = [0xd50000, 0xffd700, 0xc0c0c0, 0x2962ff]; 
                         const orbCol = cols[Math.floor(Math.random()*cols.length)];
                         
                         const ball = new THREE.Mesh(
-                            new THREE.SphereGeometry(0.6, 8, 8), 
+                            new THREE.SphereGeometry(0.7, 8, 8), 
                             new THREE.MeshStandardMaterial({
-                                color: orbCol, 
-                                metalness: 0.7, 
-                                roughness: 0.2 
+                                color: orbCol, metalness: 0.8, roughness: 0.2 
                             })
                         );
-                        ball.position.set(bx, y - h/2 + 0.5, bz);
+                        // 让球稍微垂下来一点
+                        ball.position.set(bx, y - h/2 + 0.2, bz);
                         group.add(ball);
                     }
                 }
             }
 
-            // 3. 螺旋灯带 (数学美感)
-            // 使用螺旋线公式生成灯泡位置
-            const lightCount = 120; // 灯泡数量
-            const spiralTurns = 6.0; // 缠绕圈数
-            const heightRange = 45;  // 缠绕高度范围
+            // --- 3. 智能贴合表面的五彩灯带 ---
             
-            for(let i=0; i<lightCount; i++) {
-                const t = i / lightCount; // 0 到 1 的进度
+            // 核心算法：获取任意高度 y 处的树冠表面半径
+            const getTreeRadiusAtY = (y) => {
+                let maxR = 0;
+                // 遍历所有层，看 y 落在哪里
+                layerData.forEach(layer => {
+                    if(y >= layer.yBottom && y <= layer.yTop) {
+                        // 线性插值计算圆锥表面的半径
+                        // 半径 r = BaseR * (1 - (currentY - bottomY) / height)
+                        const h = layer.yTop - layer.yBottom;
+                        const ratio = (y - layer.yBottom) / h;
+                        const r = layer.radius * (1 - ratio);
+                        // 取最大值（因为层与层有重叠，我们要最外面的那个面）
+                        if(r > maxR) maxR = r;
+                    }
+                });
+                return maxR;
+            };
+
+            const lightColors = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff]; // 五颜六色
+            const totalBulbs = 180; // 灯泡总数
+            const spiralTurns = 8.0; // 缠绕圈数
+            const startY = 13;       // 起始高度
+            const endY = 60;         // 结束高度
+
+            for(let i=0; i<totalBulbs; i++) {
+                const t = i / totalBulbs;
                 
-                // 高度从下往上
-                const ly = 12 + t * heightRange;
+                // 1. 基础高度 (线性上升)
+                let y = startY + t * (endY - startY);
                 
-                // 半径随高度变小 (锥形螺旋)
-                const currentRadius = 18 * (1 - t) + 1.0; 
+                // 2. 计算当前高度对应的树表面半径 (关键！)
+                // +0.6 是为了让灯泡浮在树叶表面，不要陷进去
+                const surfaceR = getTreeRadiusAtY(y) + 0.6; 
                 
-                // 角度螺旋上升
+                // 如果半径太小(比如到了树尖以上)，就不生成了
+                if(surfaceR <= 0.5) continue;
+
+                // 3. 计算螺旋角度
                 const angle = t * Math.PI * 2 * spiralTurns;
-                
-                const lx = Math.cos(angle) * currentRadius;
-                const lz = Math.sin(angle) * currentRadius;
+
+                // 4. 计算坐标
+                const x = Math.cos(angle) * surfaceR;
+                const z = Math.sin(angle) * surfaceR;
+
+                // 5. 增加一点“自然垂坠感” (Noise)
+                // 让 y 轴稍微随机一点点，模拟电线不规则的挂着
+                y -= Math.random() * 0.3;
+
+                // 6. 随机颜色
+                const color = lightColors[Math.floor(Math.random() * lightColors.length)];
 
                 const bulb = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.5, 8, 8),
+                    new THREE.SphereGeometry(0.45, 8, 8),
                     new THREE.MeshStandardMaterial({
-                        color: 0xffff00,
-                        emissive: 0xffaa00,
-                        emissiveIntensity: PARAMS.bulbBrightness // 绑定全局参数
+                        color: color,
+                        emissive: color,
+                        // 绑定全局亮度参数
+                        emissiveIntensity: PARAMS.bulbBrightness 
                     })
                 );
-                bulb.position.set(lx, ly, lz);
-                bulb.userData = { type: 'bulb' }; // 用于GUI控制亮度
+                bulb.position.set(x, y, z);
+                bulb.userData = { type: 'bulb' }; // 标记用于GUI控制
                 emissiveObjects.push(bulb);
                 group.add(bulb);
             }
 
-            // 4. 树顶巨星
-            const starGeo = new THREE.OctahedronGeometry(3.5, 0);
-            const starMat = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Basic材质不受光照影响，永远亮
+            // --- 4. 树顶巨星 (加亮) ---
+            const starGeo = new THREE.OctahedronGeometry(4.0, 0);
+            const starMat = new THREE.MeshBasicMaterial({ color: 0xffeb3b }); 
             const star = new THREE.Mesh(starGeo, starMat);
-            star.position.y = treeHeight + 2;
+            star.position.y = 62; // 树顶高度
             
-            // 给星星加一层辉光外壳
+            // 星星外发光 (Halo)
             const glow = new THREE.Mesh(
-                new THREE.OctahedronGeometry(5.0, 0),
+                new THREE.OctahedronGeometry(6.0, 0),
                 new THREE.MeshBasicMaterial({ 
-                    color: 0xffdd00, 
+                    color: 0xffaa00, 
                     transparent: true, 
-                    opacity: 0.3, 
-                    blending: THREE.AdditiveBlending 
+                    opacity: 0.25, 
+                    blending: THREE.AdditiveBlending,
+                    side: THREE.BackSide
                 })
             );
             star.add(glow);
-            
-            // 星星作为发光物体加入管理
-            star.userData = { type: 'star' }; // 这里标记一下，虽然它用了Basic材质
-            // 添加点光源照亮树顶
-            const topLight = new THREE.PointLight(0xffaa00, 100, 100);
-            topLight.position.set(0, 5, 0);
+
+            // 树顶专属点光源 (照亮迷雾)
+            const topLight = new THREE.PointLight(0xffaa00, 150, 80);
+            topLight.position.set(0, 2, 0);
             star.add(topLight);
 
-            emissiveObjects.push(star); 
+            star.userData = { type: 'star' };
+            emissiveObjects.push(star);
             group.add(star);
 
             scene.add(group);
