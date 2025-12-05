@@ -2,873 +2,429 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Ultimate 3D Interactive Christmas Tree V9 - Fixed</title>
+    <title>Christmas - High Visibility Version</title>
     <style>
-        body { margin: 0; overflow: hidden; background: linear-gradient(to bottom, #090910 0%, #1a1a2e 100%); font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; display: block; }
         #ui {
             position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none;
-            text-shadow: 0 0 5px rgba(0,0,0,0.5); z-index: 10;
+            text-shadow: 0 0 5px #000; z-index: 10;
         }
-        h1 { margin: 0; font-size: 2rem; letter-spacing: 2px; color: #ffcc00; }
-        p { font-size: 1rem; opacity: 0.8; }
+        h1 { margin: 0; font-size: 24px; color: #ffd700; }
         .highlight { color: #00ffcc; font-weight: bold; }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; background: rgba(0,0,0,0.5); padding: 20px; border-radius: 8px;
+        }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <h1>MERRY CHRISTMAS V9 (修复版)</h1>
-        <p>点击 <span class="highlight">小火车</span> 启动环绕 | 点击 <span class="highlight">礼物盒</span> 弹跳</p>
-        <p>点击 <span class="highlight">彩球</span> 摆动 | 鼠标移动 <span class="highlight">推动雪花</span></p>
+        <h1>MERRY CHRISTMAS (高亮修复版)</h1>
+        <p>1. 点击地面: <span class="highlight">放烟花</span></p>
+        <p>2. 点击火车: <span class="highlight">启停火车</span></p>
     </div>
-
+    
+    <div id="loading">正在开灯...</div>
     <div id="canvas-container"></div>
 
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
             }
         }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-// --- 全局变量 ---
-let scene, camera, renderer, composer, controls;
-let raycaster, mouse;
-let gifts = []; 
-let ornaments = []; 
-let treeGroup;  
-let snowParticles;
-let train; 
-let trainWheels = []; 
-let trackLight; 
-const clock = new THREE.Clock();
-const SNOW_HEIGHT = 60; 
-const SNOW_COUNT = 2000;
-const TRAIN_PATH_RADIUS = 25; 
-
-// =======================================================
-// A. 初始化与设置函数
-// =======================================================
-
-function init() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050510);
-    scene.fog = new THREE.Fog(0x050510, 50, 150); 
-
-    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 250); 
-    camera.position.set(0, 20, 50);
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.shadowMap.enabled = true; 
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-    setupLights();
-    
-    // 后期处理 (Bloom 辉光)
-    const renderScene = new RenderPass(scene, camera);
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-    bloomPass.threshold = 0.1; 
-    bloomPass.strength = 0.6;
-    bloomPass.radius = 0.7; 
-    
-    composer = new EffectComposer(renderer);
-    composer.addPass(renderScene);
-    composer.addPass(bloomPass);
-
-    // 核心构建
-    createGround();
-    createTrainTracks(); 
-    createToyTrain(); 
-    createTree(); 
-    createSnowman(); 
-    createSnow();
-
-    // 交互
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2 - 0.05; 
-    
-    raycaster = new THREE.Raycaster();
-    mouse = new THREE.Vector2();
-
-    window.addEventListener('resize', onWindowResize);
-    window.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('mousemove', onMouseMove); 
-
-    animate(); 
-}
-
-// =======================================================
-// B. 实用工具函数 (Lights, Ground, Snow)
-// =======================================================
-
-function setupLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xddeeff, 1.5);
-    dirLight.position.set(-20, 50, 20);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 100;
-    dirLight.shadow.camera.left = -30;
-    dirLight.shadow.camera.right = 30;
-    dirLight.shadow.camera.top = 30;
-    dirLight.shadow.camera.bottom = -30;
-    scene.add(dirLight);
-
-    const pointLight = new THREE.PointLight(0xffaa00, 2, 20);
-    pointLight.position.set(0, 5, 5);
-    scene.add(pointLight);
-}
-
-function generateSnowTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128; canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    for (let i = 0; i < 1000; i++) {
-        ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5 + 0.5})`;
-        ctx.fillRect(Math.random() * 128, Math.random() * 128, 1, 1);
-    }
-    return canvas;
-}
-
-function createGround() {
-    const geometry = new THREE.CircleGeometry(60, 64);
-    
-    const snowTexture = new THREE.CanvasTexture(generateSnowTexture());
-    snowTexture.wrapS = snowTexture.wrapT = THREE.RepeatWrapping;
-    snowTexture.repeat.set(5, 5);
-
-    const material = new THREE.MeshStandardMaterial({ 
-        color: 0xffffff, 
-        roughness: 0.8,
-        metalness: 0,
-        map: snowTexture, 
-        bumpMap: snowTexture,
-        bumpScale: 0.5
-    });
-    const ground = new THREE.Mesh(geometry, material);
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
-}
-
-function createSnow() {
-    const geometry = new THREE.BufferGeometry();
-    const vertices = [];
-    for (let i = 0; i < SNOW_COUNT; i++) {
-        vertices.push(
-            Math.random() * 200 - 100, 
-            Math.random() * SNOW_HEIGHT, 
-            Math.random() * 200 - 100
-        );
-    }
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    const material = new THREE.PointsMaterial({
-        color: 0xffffff,
-        size: 0.4,
-        transparent: true,
-        opacity: 0.8
-    });
-    snowParticles = new THREE.Points(geometry, material);
-    scene.add(snowParticles);
-}
-
-function createTrainTracks() {
-    const radius = TRAIN_PATH_RADIUS;
-    const trackWidth = 1;
-    
-    const trackGeo = new THREE.TorusGeometry(radius, trackWidth, 8, 50);
-    const trackMat = new THREE.MeshStandardMaterial({ 
-        color: 0x4a4a4a, 
-        metalness: 0.9,
-        roughness: 0.4
-    });
-    const tracks = new THREE.Mesh(trackGeo, trackMat);
-    tracks.rotation.x = Math.PI / 2;
-    tracks.position.y = 0.1;
-    tracks.receiveShadow = true;
-    scene.add(tracks);
-
-    const lightGeo = new THREE.TorusGeometry(radius + 0.5, trackWidth * 1.5, 3, 30);
-    const lightMat = new THREE.MeshBasicMaterial({ 
-        color: 0xff8800, 
-        transparent: true, 
-        opacity: 0, 
-        wireframe: false,
-        blending: THREE.AdditiveBlending 
-    });
-    trackLight = new THREE.Mesh(lightGeo, lightMat);
-    trackLight.rotation.x = Math.PI / 2;
-    trackLight.position.y = 0.2;
-    scene.add(trackLight);
-}
-
-// =======================================================
-// C. 核心模型构建 (Tree, Gifts, Snowman)
-// =======================================================
-
-function createStar() {
-    const shape = new THREE.Shape();
-    const points = 5;
-    const outerRadius = 1.2;
-    const innerRadius = 0.5;
-    for (let i = 0; i < points * 2; i++) {
-        const r = (i % 2 === 0) ? outerRadius : innerRadius;
-        const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
-        const x = Math.cos(a) * r;
-        const y = Math.sin(a) * r;
-        if (i === 0) shape.moveTo(x, y);
-        else shape.lineTo(x, y);
-    }
-    shape.closePath();
-    const extrudeSettings = { depth: 0.4, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelSegments: 2 };
-    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    const material = new THREE.MeshStandardMaterial({ 
-        color: 0xffff00, 
-        emissive: 0xffdd00,
-        emissiveIntensity: 1,
-        metalness: 0.8,
-        roughness: 0.2
-    });
-    const star = new THREE.Mesh(geometry, material);
-    star.position.y = 25.5;
-    star.rotation.z = Math.random() * 0.1;
-    star.userData = { type: 'star' }; 
-    treeGroup.add(star);
-}
-
-function generateStripeTexture(size, colorA, colorB) {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = `#${colorA.toString(16)}`;
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = `#${colorB.toString(16)}`;
-    for(let i = 0; i < size; i += size/8) {
-        ctx.fillRect(i, 0, size/16, size);
-    }
-    return canvas;
-}
-
-function createCandyCane(size = 0.5) {
-    const group = new THREE.Group();
-    const curve = new THREE.CubicBezierCurve3(
-        new THREE.Vector3( 0, 0, 0 ),
-        new THREE.Vector3( size * 2, size * 4, 0 ),
-        new THREE.Vector3( 0, size * 5, 0 ),
-        new THREE.Vector3( 0, size * 5.5, 0 )
-    );
-    const geometry = new THREE.TubeGeometry( curve, 20, size * 0.3, 8, false );
-    const stripeTexture = new THREE.CanvasTexture(generateStripeTexture(128, 0xffffff, 0xff0000));
-    stripeTexture.wrapS = THREE.RepeatWrapping;
-    stripeTexture.repeat.set(3, 1);
-    stripeTexture.rotation = Math.PI / 2;
-    const material = new THREE.MeshStandardMaterial({
-        map: stripeTexture,
-        metalness: 0.1,
-        roughness: 0.5
-    });
-    const cane = new THREE.Mesh(geometry, material);
-    cane.castShadow = true;
-    cane.receiveShadow = true;
-    group.add(cane);
-    return group;
-}
-
-function addOrnamentsToLayer(y, radius, height, layerIndex) {
-    const count = 6 + layerIndex * 2; 
-    const angleStep = (Math.PI * 2) / count;
-
-    for (let i = 0; i < count; i++) {
-        const angle = i * angleStep + (Math.random() * 0.5);
-        const r = radius * (0.7 + Math.random() * 0.15); 
-        const x = Math.cos(angle) * r;
-        const z = Math.sin(angle) * r;
-        const ornamentY = y - height * (0.3 + Math.random() * 0.4); 
-
-        const rand = Math.random();
-        let mesh;
-
-        if (rand < 0.6) {
-            const geo = new THREE.SphereGeometry(0.35, 16, 16);
-            const colors = [0xff0000, 0x00ccff, 0xffd700, 0xffffff];
-            const color = colors[Math.floor(Math.random() * colors.length)];
-            const mat = new THREE.MeshStandardMaterial({ 
-                color: color, 
-                metalness: 0.7, 
-                roughness: 0.2 
-            });
-            mesh = new THREE.Mesh(geo, mat);
-            mesh.userData = { 
-                isOrnament: true, 
-                isSwinging: false, 
-                swingTime: 0,
-                initialRotation: new THREE.Vector3()
-            };
-            ornaments.push(mesh);
-
-        } else if (rand < 0.9) {
-            const geo = new THREE.SphereGeometry(0.2, 8, 8);
-            const color = Math.random() > 0.5 ? 0xffaa00 : 0x00aaff;
-            const mat = new THREE.MeshStandardMaterial({ 
-                color: color, 
-                emissive: color,
-                emissiveIntensity: 2
-            });
-            mesh = new THREE.Mesh(geo, mat);
-
-        } else {
-            mesh = createCandyCane(0.3);
-            mesh.rotation.x = Math.PI / 2;
-            mesh.rotation.y = Math.random() * Math.PI * 2;
-            mesh.scale.set(0.6, 0.6, 0.6);
-        }
-
-        mesh.position.set(x, ornamentY, z);
-        mesh.castShadow = true;
-        treeGroup.add(mesh);
-    }
-}
-
-function createTree() {
-    treeGroup = new THREE.Group();
-    scene.add(treeGroup);
-
-    // 树干和底座
-    const trunkGeo = new THREE.CylinderGeometry(1.5, 2.5, 10, 8);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3c31, roughness: 0.9 });
-    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-    trunk.position.y = 5;
-    trunk.castShadow = true;
-    trunk.receiveShadow = true;
-    treeGroup.add(trunk);
-
-    const potGeo = new THREE.CylinderGeometry(4, 3, 4, 16);
-    const potMat = new THREE.MeshStandardMaterial({ color: 0x8b0000, roughness: 0.5 });
-    const pot = new THREE.Mesh(potGeo, potMat);
-    pot.position.y = 2;
-    pot.castShadow = true;
-    pot.receiveShadow = true;
-    treeGroup.add(pot);
-
-    const potRimGeo = new THREE.TorusGeometry(3.6, 0.3, 8, 32);
-    const potRimMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.8, roughness: 0.2 });
-    const potRim = new THREE.Mesh(potRimGeo, potRimMat);
-    potRim.rotation.x = Math.PI/2;
-    potRim.position.y = 3.5;
-    treeGroup.add(potRim);
-    
-    // 树叶层
-    const levels = 5;
-    const treeColors = [0x1a5c1a, 0x1e691e, 0x227522]; 
-
-    for (let i = 0; i < levels; i++) {
-        const width = 10 - i * 1.8 + Math.random() * 0.5; 
-        const height = 6;
-        const yPos = 8 + i * 3.5; 
-        
-        const leafGeo = new THREE.ConeGeometry(width, height, 8);
-        const leafMat = new THREE.MeshStandardMaterial({ 
-            color: treeColors[i % 3], 
-            flatShading: true,
-            roughness: 0.8
-        });
-        
-        const branchLayer = new THREE.Mesh(leafGeo, leafMat);
-        branchLayer.position.y = yPos;
-        branchLayer.castShadow = true;
-        branchLayer.receiveShadow = true;
-        branchLayer.rotation.y = Math.random() * Math.PI * 2; 
-        branchLayer.rotation.z = (Math.random() - 0.5) * 0.1; 
-        treeGroup.add(branchLayer);
-
-        addOrnamentsToLayer(yPos, width, height, i);
-    }
-
-    createStar(); 
-    createGifts();
-}
-
-function createGifts() {
-    const colors = [0xd63031, 0x0984e3, 0xfdcb6e, 0x6c5ce7, 0x2ecc71, 0x9b59b6];
-    const geometry = new THREE.BoxGeometry(1, 1, 1); 
-
-    for (let i = 0; i < 15; i++) {
-        const sizeX = 1 + Math.random() * 1.5;
-        const sizeY = 0.5 + Math.random() * 2;
-        const sizeZ = 1 + Math.random() * 1.5;
-        
-        const color = colors[Math.floor(Math.random() * colors.length)];
-        const material = new THREE.MeshStandardMaterial({ color: color });
-        
-        const box = new THREE.Mesh(geometry, material);
-        box.scale.set(sizeX, sizeY, sizeZ); 
-        
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 5 + Math.random() * 7; 
-        
-        box.position.set(
-            Math.cos(angle) * dist, 
-            sizeY / 2, 
-            Math.sin(angle) * dist
-        );
-        box.rotation.y = Math.random() * Math.PI;
-        
-        box.castShadow = true;
-        box.receiveShadow = true;
-        
-        const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-        const ribbon1 = new THREE.Mesh(new THREE.BoxGeometry(sizeX * 1.02, sizeY * 0.1, sizeZ * 1.02), ribbonMat);
-        const ribbon2 = new THREE.Mesh(new THREE.BoxGeometry(sizeX * 0.1, sizeY * 1.02, sizeZ * 1.02), ribbonMat);
-        box.add(ribbon1);
-        box.add(ribbon2);
-
-        box.userData = { 
-            isGift: true, 
-            velocity: 0,
-            originalY: sizeY/2
+        // --- 全局配置 ---
+        const CONFIG = {
+            trainRadius: 32,
+            groundColor: 0x223344, // 提亮地面
+            fireworkSize: 2.0,
         };
-        
-        gifts.push(box);
-        scene.add(box);
-    }
-}
 
-function createSnowman() {
-    const snowmanGroup = new THREE.Group();
-    const sizes = [4, 3, 2];
-    for(let i=0; i<3; i++) {
-        const geo = new THREE.SphereGeometry(sizes[i], 32, 32);
-        const mat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.1 });
-        const body = new THREE.Mesh(geo, mat);
-        let yOffset = 0;
-        if(i === 0) yOffset = sizes[0]; 
-        if(i === 1) yOffset = sizes[0] * 2 + sizes[1] * 0.5; 
-        if(i === 2) yOffset = sizes[0] * 2 + sizes[1] * 2 + sizes[2] * 0.5; 
-        body.position.y = yOffset;
-        body.castShadow = true;
-        body.receiveShadow = true;
-        snowmanGroup.add(body);
-    }
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), eyeMat);
-    const eyeR = eyeL.clone();
-    eyeL.position.set(-0.5, sizes[0] * 2 + sizes[1] * 2 + sizes[2] * 0.5 + 1.5, 1.8);
-    eyeR.position.set(0.5, sizes[0] * 2 + sizes[1] * 2 + sizes[2] * 0.5 + 1.5, 1.8);
-    snowmanGroup.add(eyeL, eyeR);
-    const noseMat = new THREE.MeshStandardMaterial({ color: 0xff8800 });
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.3, 2, 8), noseMat);
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, sizes[0] * 2 + sizes[1] * 2 + sizes[2] * 0.5 + 1.5, 2.5);
-    snowmanGroup.add(nose);
-    snowmanGroup.position.set(20, 0, -5); 
-    snowmanGroup.userData.isAnimated = true; 
-    scene.add(snowmanGroup);
-}
+        let scene, camera, renderer, composer, controls;
+        let raycaster, mouse;
+        let train, fireworkMgr, snowSystem;
+        const clock = new THREE.Clock();
 
-// =======================================================
-// D. V9 火车美化模型重写
-// =======================================================
-function createToyTrain() {
-    train = new THREE.Group();
-    trainWheels = [];
-    
-    const redMat = new THREE.MeshStandardMaterial({ color: 0xcc0000, metalness: 0.5, roughness: 0.5 });
-    const blackMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.4 });
-    const goldMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.9, roughness: 0.2, emissive: 0xffd700, emissiveIntensity: 0.1 });
-    const windowMat = new THREE.MeshStandardMaterial({ color: 0x3399ff, metalness: 0.1, roughness: 0.1, transparent: true, opacity: 0.7 });
+        function init() {
+            // 1. 场景 - 使用深蓝背景，不要死黑
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a1020); 
+            scene.fog = new THREE.FogExp2(0x0a1020, 0.006); 
 
-    // --- 1. 机车头 (Locomotive) ---
-    const locoGroup = new THREE.Group();
-    locoGroup.position.x = -4.5;
-    locoGroup.name = "机车";
-    
-    // 锅炉 (使用倒角BoxGeometry模拟圆润车身)
-    const boilerBodyGeo = new THREE.BoxGeometry(7, 3.5, 3.5, 2, 2, 2);
-    const boilerBody = new THREE.Mesh(boilerBodyGeo, redMat);
-    boilerBody.position.set(-0.5, 3.5, 0);
-    boilerBody.name = "锅炉";
-    boilerBody.userData.isTrainPart = true;
-    locoGroup.add(boilerBody);
+            // 2. 相机
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+            camera.position.set(0, 40, 90);
 
-    // 驾驶室
-    const cabGeo = new THREE.BoxGeometry(3, 4, 4);
-    const cab = new THREE.Mesh(cabGeo, redMat);
-    cab.position.set(-4.5, 4, 0);
-    cab.name = "驾驶室";
-    cab.userData.isTrainPart = true;
-    locoGroup.add(cab);
+            // 3. 渲染器 (移除 ToneMapping 防止压暗)
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    // 窗户
-    const windowGeo = new THREE.PlaneGeometry(1, 2);
-    const windowL = new THREE.Mesh(windowGeo, windowMat);
-    windowL.position.set(-4.5, 4, 2.01);
-    windowL.name = "车窗";
-    windowL.userData.isTrainPart = true;
-    cab.add(windowL);
-    const windowR = windowL.clone();
-    windowR.position.z = -2.01;
-    cab.add(windowR);
+            // 4. 灯光系统 (暴力提亮)
+            setupLights();
 
-    // 烟囱 (更细长)
-    const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 3, 16), blackMat);
-    chimney.position.set(2.5, 5.5, 0);
-    chimney.name = "烟囱";
-    chimney.userData.isTrainPart = true;
-    locoGroup.add(chimney);
+            // 5. 后处理 (Bloom)
+            const renderScene = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0.2; // 阈值
+            bloomPass.strength = 1.8;  // 强度
+            bloomPass.radius = 0.5;
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
 
-    // 连接杆 (活塞)
-    const pistonMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9 });
-    const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 4, 8), pistonMat);
-    piston.rotation.z = Math.PI / 2;
-    piston.position.set(0, 1.5, 2.2);
-    piston.name = "活塞";
-    piston.userData.isTrainPart = true;
-    locoGroup.add(piston);
+            // 6. 创建物体
+            createGround();
+            createTree();
+            
+            // 系统初始化
+            train = new TrainSystem(scene);
+            fireworkMgr = new FireworkManager(scene);
+            snowSystem = new SnowSystem(scene); // 找回雪花！
 
-    // 前灯
-    const headlight = new THREE.PointLight(0xffffff, 3, 5);
-    headlight.position.set(3.5, 3.5, 0);
-    locoGroup.add(headlight);
-    
-    // --- 轮子 (Wheels) ---
-    const wheelGeo = new THREE.CylinderGeometry(1.2, 1.2, 0.5, 16);
-    
-    // 大轮子
-    for(let i=-1.5; i<=1.5; i+=3) {
-        const wheelL = new THREE.Mesh(wheelGeo, blackMat);
-        wheelL.rotation.z = Math.PI / 2;
-        wheelL.position.set(i, 1.2, 2.2);
-        wheelL.name = "火车轮子";
-        wheelL.userData.isTrainPart = true;
-        
-        const wheelR = wheelL.clone();
-        wheelR.position.z = -2.2;
-        wheelR.name = "火车轮子";
-        wheelR.userData.isTrainPart = true;
-        
-        locoGroup.add(wheelL, wheelR);
-        trainWheels.push(wheelL, wheelR);
-    }
-    
-    // 小轮子
-    for(let i=3; i<=5; i+=2) {
-        const wheelL = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.5, 12), blackMat);
-        wheelL.rotation.z = Math.PI / 2;
-        wheelL.position.set(i, 0.7, 2.2);
-        wheelL.name = "火车轮子";
-        wheelL.userData.isTrainPart = true;
-        
-        const wheelR = wheelL.clone();
-        wheelR.position.z = -2.2;
-        wheelR.name = "火车轮子";
-        wheelR.userData.isTrainPart = true;
-        
-        locoGroup.add(wheelL, wheelR);
-        trainWheels.push(wheelL, wheelR);
-    }
-    train.add(locoGroup);
+            // 7. 交互
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05;
 
-    // --- 2. 煤水车 (Tender) ---
-    const tenderGroup = new THREE.Group();
-    tenderGroup.position.x = 4.5;
-    tenderGroup.name = "煤水车";
-    
-    const tenderBody = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 4), blackMat);
-    tenderBody.position.set(0, 2.5, 0);
-    tenderBody.name = "煤水车体";
-    tenderBody.userData.isTrainPart = true;
-    tenderGroup.add(tenderBody);
-    
-    const coal = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 3.5), new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 1 }));
-    coal.position.set(0, 4.5, 0);
-    coal.name = "煤炭";
-    coal.userData.isTrainPart = true;
-    tenderGroup.add(coal);
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('pointerdown', onPointerDown);
 
-    // 连接杆
-    const connector = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 0.3), goldMat);
-    connector.position.set(-locoGroup.position.x + 0.5, 1.5, 0); // 调整连接位置
-    connector.name = "连接杆";
-    connector.userData.isTrainPart = true;
-    tenderGroup.add(connector);
-    
-    // 轮子
-    for(let i=-1; i<=1; i+=2) {
-        const wheelL = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.5, 16), blackMat);
-        wheelL.rotation.z = Math.PI / 2;
-        wheelL.position.set(i, 0.8, 2.2);
-        wheelL.name = "煤车轮子";
-        wheelL.userData.isTrainPart = true;
-        
-        const wheelR = wheelL.clone();
-        wheelR.position.z = -2.2;
-        wheelR.name = "煤车轮子";
-        wheelR.userData.isTrainPart = true;
-        
-        tenderGroup.add(wheelL, wheelR);
-        trainWheels.push(wheelL, wheelR);
-    }
-
-    train.add(tenderGroup);
-
-    // --- 整体设置 ---
-    train.castShadow = true;
-    train.receiveShadow = true;
-    
-    train.userData = { 
-        isRunning: false, 
-        currentAngle: 0, 
-        runTime: 0, 
-        maxRunTime: 8, // 增加运行时间
-        pathRadius: TRAIN_PATH_RADIUS
-    };
-    
-    train.position.set(train.userData.pathRadius, 0, 0);
-    scene.add(train);
-}
-
-// =======================================================
-// E. 交互函数
-// =======================================================
-
-function swingOrnament(ornament) {
-    if (ornament.userData.isSwinging) return;
-    
-    ornament.userData.isSwinging = true;
-    ornament.userData.swingTime = 0;
-    ornament.userData.initialRotation.copy(ornament.rotation);
-}
-
-function startTrain() {
-    if (train.userData.isRunning) return;
-    train.userData.isRunning = true;
-    train.userData.runTime = clock.getElapsedTime();
-    console.log("火车启动！");
-}
-
-function jumpGift(gift) {
-    if (gift.userData.isJumping) return;
-    
-    gift.userData.isJumping = true;
-    gift.userData.velocity = 0.8; 
-
-    const oldColor = gift.material.color.getHex();
-    
-    gift.material.color.setHex(0xffffff);
-
-    setTimeout(() => {
-        gift.material.color.setHex(oldColor);
-    }, 200);
-}
-
-function onPointerDown(event) {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
-
-    // 修复：创建包含所有可交互对象的数组
-    const allInteractable = [];
-    
-    // 添加礼物
-    allInteractable.push(...gifts);
-    
-    // 添加挂件
-    allInteractable.push(...ornaments);
-    
-    // 添加火车的所有可点击部分
-    train.traverse((child) => {
-        if (child.isMesh && child.visible) {
-            allInteractable.push(child);
+            document.getElementById('loading').style.display = 'none';
+            animate();
         }
-    });
-    
-    const intersects = raycaster.intersectObjects(allInteractable, true);
-    
-    if (intersects.length > 0) {
-        const object = intersects[0].object;
-        console.log("点击到:", object.name || object.type);
 
-        // 检查是否为火车部件
-        let currentObj = object;
-        while (currentObj) {
-            // 如果点击的是火车部件（包括车轮、车身等）
-            if (currentObj === train || 
-                currentObj.parent === train || 
-                (currentObj.parent && currentObj.parent.parent === train)) {
-                startTrain();
-                return;
-            }
-            
-            // 检查是否是礼物
-            if (currentObj.userData && currentObj.userData.isGift) {
-                jumpGift(currentObj);
-                return;
-            }
-            
-            // 检查是否是挂件
-            if (currentObj.userData && currentObj.userData.isOrnament) {
-                swingOrnament(currentObj);
-                return;
-            }
-            
-            currentObj = currentObj.parent;
+        function setupLights() {
+            // 1. 全局环境光 (保底亮度，确保绝对能看见)
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+
+            // 2. 模拟月光 (平行光)
+            const dirLight = new THREE.DirectionalLight(0xaaccff, 1.2);
+            dirLight.position.set(-50, 100, -50);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            // 3. 树下的暖色补光
+            const pointLight = new THREE.PointLight(0xffaa00, 3, 50);
+            pointLight.position.set(0, 10, 5);
+            scene.add(pointLight);
         }
-    }
-}
 
-function onMouseMove(event) {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-}
-
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    composer.setSize(window.innerWidth, window.innerHeight);
-}
-
-// =======================================================
-// F. 动画循环
-// =======================================================
-
-function animate() {
-    requestAnimationFrame(animate);
-
-    const time = clock.getElapsedTime();
-    const delta = clock.getDelta();
-
-    // 1. 树和星星动画
-    treeGroup.rotation.y += 0.002;
-    const star = treeGroup.children.find(c => c.userData.type === 'star');
-    if (star) { star.rotation.y = time; }
-
-    // 2. 礼物动画
-    gifts.forEach(gift => {
-        if (gift.userData.isJumping) {
-            gift.position.y += gift.userData.velocity;
-            gift.userData.velocity -= 0.05; 
-            gift.rotation.x += 0.1;
-            gift.rotation.z += 0.1;
-
-            if (gift.position.y <= gift.userData.originalY) {
-                gift.position.y = gift.userData.originalY;
-                gift.userData.isJumping = false;
-                gift.userData.velocity = 0;
-                gift.rotation.x = 0;
-                gift.rotation.z = 0;
+        // ============================
+        // 雪花系统 (找回)
+        // ============================
+        class SnowSystem {
+            constructor(scene) {
+                const count = 2000;
+                const geo = new THREE.BufferGeometry();
+                const pos = [];
+                for(let i=0; i<count; i++) {
+                    pos.push(
+                        Math.random()*200 - 100,
+                        Math.random()*100,
+                        Math.random()*200 - 100
+                    );
+                }
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                
+                const mat = new THREE.PointsMaterial({
+                    color: 0xffffff,
+                    size: 0.5,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                
+                this.mesh = new THREE.Points(geo, mat);
+                scene.add(this.mesh);
+            }
+            update() {
+                const p = this.mesh.geometry.attributes.position.array;
+                for(let i=1; i<p.length; i+=3) {
+                    p[i] -= 0.2; // 下落
+                    if(p[i] < 0) p[i] = 100; // 循环
+                }
+                this.mesh.geometry.attributes.position.needsUpdate = true;
             }
         }
-    });
 
-    // 3. 挂件摆动动画
-    ornaments.forEach(ornament => {
-        if (ornament.userData.isSwinging) {
-            ornament.userData.swingTime += delta * 5; 
-            const maxSwing = 0.4;
-            const duration = Math.PI * 2;
-            
-            const swingAngle = Math.sin(ornament.userData.swingTime) * maxSwing * Math.exp(-ornament.userData.swingTime / duration * 3);
-            
-            ornament.rotation.x = ornament.userData.initialRotation.x + swingAngle; 
-            
-            if (ornament.userData.swingTime > duration) { 
-                ornament.userData.isSwinging = false;
-                ornament.rotation.x = ornament.userData.initialRotation.x;
+        // ============================
+        // 火车系统 (保持修复后的 LookAt 逻辑)
+        // ============================
+        class TrainSystem {
+            constructor(scene) {
+                this.scene = scene;
+                this.group = new THREE.Group();
+                this.wheels = [];
+                this.angle = 0;
+                this.speed = 0;
+                this.targetSpeed = 0.5;
+                
+                this.buildModel();
+                this.scene.add(this.group);
+                this.updatePosition();
+            }
+
+            buildModel() {
+                // 明亮的材质颜色
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 0.4 });
+                const blackMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+                const goldMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, metalness: 0.5 });
+                
+                // 车头
+                const loco = new THREE.Group();
+                const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 5, 16), bodyMat);
+                boiler.rotation.x = Math.PI / 2; boiler.position.set(0, 2.5, 0);
+                loco.add(boiler);
+
+                const cab = new THREE.Mesh(new THREE.BoxGeometry(3.2, 5, 3), bodyMat);
+                cab.position.set(0, 3.5, -3.5);
+                loco.add(cab);
+
+                const chim = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 1.5), blackMat);
+                chim.position.set(0, 4, 1.5);
+                loco.add(chim);
+
+                // 车灯
+                const lightMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.2, 0.5), goldMat);
+                lightMesh.rotation.x = -Math.PI/2;
+                lightMesh.position.set(0, 2, 2.6);
+                loco.add(lightMesh);
+                
+                const spot = new THREE.SpotLight(0xffffee, 8, 50, 0.6, 0.5);
+                spot.position.set(0, 2, 3);
+                spot.target.position.set(0, 0, 20);
+                loco.add(spot);
+                loco.add(spot.target);
+
+                // 轮子
+                const wGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.4, 12);
+                wGeo.rotateZ(Math.PI/2);
+                const addWheel = (x, z) => {
+                    const w = new THREE.Mesh(wGeo, blackMat);
+                    w.position.set(x, 0.9, z);
+                    loco.add(w);
+                    this.wheels.push(w);
+                }
+                addWheel(1.6, 1.5); addWheel(-1.6, 1.5);
+                addWheel(1.6, -1); addWheel(-1.6, -1);
+                addWheel(1.6, -3.5); addWheel(-1.6, -3.5);
+
+                this.group.add(loco);
+
+                // 碰撞判定盒
+                const hitBox = new THREE.Mesh(new THREE.BoxGeometry(6, 8, 12), new THREE.MeshBasicMaterial({visible:false}));
+                hitBox.position.y = 4;
+                hitBox.userData = { isTrain: true };
+                this.group.add(hitBox);
+            }
+
+            toggle() {
+                this.targetSpeed = (this.targetSpeed === 0) ? 0.6 : 0;
+            }
+
+            updatePosition() {
+                const r = CONFIG.trainRadius;
+                this.group.position.set(Math.cos(this.angle)*r, 0, Math.sin(this.angle)*r);
+                
+                // 让车头永远看向前方 (轨道切线)
+                const lookAngle = this.angle - 0.1;
+                const lx = Math.cos(lookAngle)*r;
+                const lz = Math.sin(lookAngle)*r;
+                this.group.lookAt(lx, 0, lz);
+            }
+
+            update(delta) {
+                if(Math.abs(this.speed - this.targetSpeed) > 0.01) {
+                    this.speed += (this.targetSpeed - this.speed) * 0.02;
+                } else {
+                    this.speed = this.targetSpeed;
+                }
+                if(this.speed > 0) {
+                    this.angle -= this.speed * delta * 0.5;
+                    this.updatePosition();
+                    this.wheels.forEach(w => w.rotation.x += this.speed * 0.5);
+                    if(Math.random() > 0.8) spawnSmoke(this.group.position);
+                }
             }
         }
-    });
 
-    // 4. 火车环绕动画
-    if (train.userData.isRunning) {
-        const elapsedRunTime = time - train.userData.runTime;
-        
-        if (elapsedRunTime < train.userData.maxRunTime) {
-            const speed = 1.0; 
-            train.userData.currentAngle += delta * speed;
-            
-            const r = train.userData.pathRadius;
-            const angle = train.userData.currentAngle;
-
-            train.position.x = r * Math.cos(angle);
-            train.position.z = r * Math.sin(angle);
-            
-            train.rotation.y = -angle - Math.PI / 2;
-            
-            trackLight.material.opacity = 0.5 + Math.sin(time * 10) * 0.4;
-
-            // 轮子滚动动画
-            trainWheels.forEach(wheel => {
-                wheel.rotation.x += delta * speed * 3; 
-            });
-            
-        } else {
-            train.userData.isRunning = false;
-            trackLight.material.opacity = 0; 
+        // ============================
+        // 烟花管理器 (保持高亮配置)
+        // ============================
+        class FireworkManager {
+            constructor(scene) {
+                this.scene = scene;
+                this.fireworks = [];
+                this.texture = this.createTexture();
+            }
+            createTexture() {
+                const c = document.createElement('canvas'); c.width=32; c.height=32;
+                const ctx = c.getContext('2d');
+                const g = ctx.createRadialGradient(16,16,0,16,16,16);
+                g.addColorStop(0, 'rgba(255,255,255,1)');
+                g.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = g; ctx.fillRect(0,0,32,32);
+                return new THREE.CanvasTexture(c);
+            }
+            launch(target) {
+                if(this.fireworks.length > 20) return;
+                const count = 3 + Math.floor(Math.random()*3);
+                for(let i=0; i<count; i++) setTimeout(() => this.spawnOne(target), i*250);
+            }
+            spawnOne(center) {
+                const start = center.clone().add(new THREE.Vector3((Math.random()-0.5)*15, 0, (Math.random()-0.5)*15));
+                const color = new THREE.Color().setHSL(Math.random(), 1.0, 0.6);
+                this.fireworks.push({
+                    phase: 'rise', pos: start, vel: new THREE.Vector3(0, 0.8+Math.random()*0.4, 0),
+                    destY: 30+Math.random()*20, color: color, particles: null, trail: this.createTrail(start, color)
+                });
+            }
+            createTrail(pos, color) {
+                const m = new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshBasicMaterial({color:color}));
+                m.position.copy(pos); this.scene.add(m); return m;
+            }
+            explode(fw) {
+                this.scene.remove(fw.trail); fw.phase = 'explode';
+                const count = 100; const pos = []; const vels = [];
+                for(let i=0; i<count; i++) {
+                    pos.push(fw.pos.x, fw.pos.y, fw.pos.z);
+                    const theta = Math.random()*Math.PI*2; const phi = Math.acos(2*Math.random()-1); const s = 0.5+Math.random()*0.5;
+                    vels.push(Math.sin(phi)*Math.cos(theta)*s, Math.sin(phi)*Math.sin(theta)*s, Math.cos(phi)*s);
+                }
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                const mat = new THREE.PointsMaterial({
+                    color: fw.color, size: CONFIG.fireworkSize, map: this.texture,
+                    transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false
+                });
+                fw.particles = new THREE.Points(geo, mat);
+                fw.particles.userData = { vels: vels, life: 1.0 };
+                this.scene.add(fw.particles);
+            }
+            update() {
+                for(let i=this.fireworks.length-1; i>=0; i--) {
+                    const fw = this.fireworks[i];
+                    if(fw.phase === 'rise') {
+                        fw.pos.add(fw.vel); fw.vel.y *= 0.98; fw.trail.position.copy(fw.pos);
+                        if(fw.pos.y >= fw.destY || fw.vel.y < 0.1) this.explode(fw);
+                    } else {
+                        const pts = fw.particles; const p = pts.geometry.attributes.position.array; const v = pts.userData.vels;
+                        pts.userData.life -= 0.01;
+                        for(let k=0; k<p.length/3; k++) {
+                            v[k*3]*=0.96; v[k*3+1]*=0.96; v[k*3+2]*=0.96; v[k*3+1]-=0.005;
+                            p[k*3]+=v[k*3]; p[k*3+1]+=v[k*3+1]; p[k*3+2]+=v[k*3+2];
+                        }
+                        pts.geometry.attributes.position.needsUpdate = true;
+                        pts.material.opacity = pts.userData.life;
+                        if(pts.userData.life <= 0) {
+                            this.scene.remove(pts); pts.geometry.dispose(); pts.material.dispose(); this.fireworks.splice(i, 1);
+                        }
+                    }
+                }
+            }
         }
-    } else {
-        train.rotation.z = Math.sin(time * 2) * 0.05; 
-    }
 
-    // 5. 雪花交互与下落 (已修复融化/重生)
-    const snowPositions = snowParticles.geometry.attributes.position.array;
-    const interactionRadius = 20; 
-    const mouse3D = new THREE.Vector3(mouse.x, mouse.y, 0.5).unproject(camera);
-    
-    for (let i = 0; i < SNOW_COUNT * 3; i += 3) {
-        const x = snowPositions[i];
-        const y = snowPositions[i+1];
-        const z = snowPositions[i+2];
-
-        snowPositions[i+1] -= 0.15; 
-        snowPositions[i] += Math.sin(y * 0.1 + time) * 0.005;
-
-        // 鼠标交互推开
-        const distVector = new THREE.Vector3(x, y, z).sub(mouse3D);
-        const dist = distVector.length();
-
-        if (dist < interactionRadius) {
-            const repulsion = (1 - dist / interactionRadius) * 0.5;
-            snowPositions[i] += distVector.x * repulsion * 0.01;
-            snowPositions[i+1] += repulsion * 0.5; 
+        // ============================
+        // 杂项
+        // ============================
+        let smokes = [];
+        function spawnSmoke(pos) {
+            const offset = new THREE.Vector3(0, 5, 0).applyQuaternion(train.group.quaternion);
+            const m = new THREE.Mesh(new THREE.SphereGeometry(0.6), new THREE.MeshBasicMaterial({color:0xaaaaaa, transparent:true, opacity:0.3}));
+            m.position.copy(pos.clone().add(offset));
+            scene.add(m); smokes.push({m, life:1.2});
+        }
+        function updateSmoke() {
+            for(let i=smokes.length-1; i>=0; i--) {
+                const s = smokes[i]; s.life -= 0.02; s.m.position.y += 0.1; s.m.scale.multiplyScalar(1.03); s.m.material.opacity = s.life*0.3;
+                if(s.life<=0) { scene.remove(s.m); smokes.splice(i,1); }
+            }
         }
 
-        // 雪花融化/重生
-        if (snowPositions[i+1] < 0) {
-            snowPositions[i] = Math.random() * 200 - 100;
-            snowPositions[i+1] = SNOW_HEIGHT + Math.random() * 10;
-            snowPositions[i+2] = Math.random() * 200 - 100;
+        function createGround() {
+            const geo = new THREE.CircleGeometry(120, 64);
+            const mat = new THREE.MeshStandardMaterial({ color: CONFIG.groundColor, roughness: 0.6 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.rotation.x = -Math.PI / 2; mesh.receiveShadow = true;
+            scene.add(mesh);
+            const tGeo = new THREE.TorusGeometry(CONFIG.trainRadius, 0.4, 6, 120);
+            const track = new THREE.Mesh(tGeo, new THREE.MeshStandardMaterial({color:0x000000}));
+            track.rotation.x = Math.PI/2; track.position.y=0.1; scene.add(track);
         }
-    }
-    snowParticles.geometry.attributes.position.needsUpdate = true;
-    snowParticles.rotation.y = time * 0.05;
 
-    controls.update();
-    composer.render();
-}
+        function createTree() {
+            const grp = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 3, 6, 8), new THREE.MeshStandardMaterial({color:0x3e2723}));
+            trunk.position.y = 3; grp.add(trunk);
+            const colors = [0x1b5e20, 0x2e7d32, 0x388e3c];
+            for(let i=0; i<5; i++) {
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(12-i*2, 7, 10), new THREE.MeshStandardMaterial({color:colors[i%3], flatShading:true}));
+                cone.position.y = 6+i*4; cone.castShadow = true; grp.add(cone);
+                for(let j=0; j<6; j++) {
+                    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.6), new THREE.MeshStandardMaterial({color: Math.random()>0.5?0xff0000:0xffd700}));
+                    const a=(j/6)*Math.PI*2; const r=(12-i*2)*0.5;
+                    ball.position.set(Math.cos(a)*r, 6+i*4-3, Math.sin(a)*r); grp.add(ball);
+                }
+            }
+            const star = new THREE.Mesh(new THREE.OctahedronGeometry(2), new THREE.MeshStandardMaterial({color:0xffd700, emissive:0xffaa00, emissiveIntensity:0.5}));
+            star.position.y=26; grp.add(star);
+            scene.add(grp);
+        }
 
-// --- 启动程序 ---
-init();
+        function onPointerDown(e) {
+            mouse.x = (e.clientX/window.innerWidth)*2-1; mouse.y = -(e.clientY/window.innerHeight)*2+1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            let hit = false;
+            if(intersects.length>0) {
+                let obj = intersects[0].object;
+                while(obj) { if(obj.userData.isTrain) { train.toggle(); hit=true; break; } obj = obj.parent; }
+            }
+            if(!hit) {
+                const plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+                const t = new THREE.Vector3(); raycaster.ray.intersectPlane(plane, t);
+                if(t) fireworkMgr.launch(t);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            if(train) train.update(delta);
+            if(fireworkMgr) fireworkMgr.update();
+            if(snowSystem) snowSystem.update();
+            updateSmoke();
+            controls.update();
+            composer.render();
+        }
+
+        init();
     </script>
 </body>
 </html>
