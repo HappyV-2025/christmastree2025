@@ -594,133 +594,250 @@
         // 🎇 烟花管理器
         // ============================
         class FireworkManager {
-            constructor(scene) {
-                this.scene = scene; 
-                this.list = [];
-                // 生成圆形发光贴图
-                const c = document.createElement('canvas'); c.width=32; c.height=32;
-                const x = c.getContext('2d');
-                const g = x.createRadialGradient(16,16,0,16,16,16);
-                g.addColorStop(0,'#fff'); g.addColorStop(1,'transparent');
-                x.fillStyle = g; x.fillRect(0,0,32,32);
-                this.tex = new THREE.CanvasTexture(c);
-            }
+    constructor(scene) {
+        this.scene = scene;
+        this.rockets = [];   // 存储上升阶段的烟花
+        this.sparkles = [];  // 存储爆炸后的粒子
+        
+        // 1. 生成高清光晕贴图 (128x128，边缘更柔和)
+        const canvas = document.createElement('canvas');
+        canvas.width = 128; canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        g.addColorStop(0, 'rgba(255,255,255,1)');    // 中心极亮
+        g.addColorStop(0.2, 'rgba(255,255,255,0.8)'); // 过渡
+        g.addColorStop(0.5, 'rgba(255,255,255,0.2)'); // 光晕
+        g.addColorStop(1, 'rgba(0,0,0,0)');           // 边缘透明
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 128, 128);
+        this.texture = new THREE.CanvasTexture(canvas);
 
-            launch(targetPos) {
-                // 在点击的目标位置发射
-                let pos;
-    			if (targetPos) {
-    			    // 如果有点击坐标，就直接使用点击坐标
-    			    pos = targetPos.clone();
-    			} else {
-    			    // 否则（自动发射时）保持原来的随机逻辑
-    			    _vec3.set(0, 0, -40).applyQuaternion(camera.quaternion).add(camera.position);
-    			    pos = _vec3.clone().add(new THREE.Vector3((Math.random()-0.5)*50, -20, (Math.random()-0.5)*50));
-    			}
-    
-                const c = new THREE.Color().setHSL(Math.random(), 1, 0.6);
-                
-                this.list.push({
-                    phase: 'up',
-                    pos: pos,
-                    vel: new THREE.Vector3(0, 1.2 + Math.random(), 0),
-                    destY: pos.y + 40 + Math.random() * 20,
-                    color: c,
-                    trail: new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshBasicMaterial({color:c})),
-                    particles: null
-                });
-                this.scene.add(this.list[this.list.length-1].trail);
-            }
+        // 2. 预设专业节日配色盘
+        this.palettes = [
+            [0xff0000, 0xffaa00, 0xffffff], // 经典金红
+            [0x00ffff, 0x0000ff, 0xffffff], // 冰雪蓝
+            [0xff00ff, 0xaa00ff, 0xffaaaa], // 赛博紫
+            [0x00ff00, 0xffff00, 0xffffff], // 圣诞绿
+            [0xffffff, 0xffdd88, 0x88ccff], // 银河白
+        ];
+    }
 
-            update() {
-                for(let i=this.list.length-1; i>=0; i--) {
-                    const f = this.list[i];
-                    if(f.phase === 'up') {
-                        f.pos.add(f.vel); f.vel.y *= 0.98; f.trail.position.copy(f.pos);
-                        if(f.vel.y < 0.1 || f.pos.y > f.destY) {
-                            this.scene.remove(f.trail); 
-                            f.phase = 'pop'; 
-                            this.explode(f);
-                        }
-                    } else {
-                        const p = f.particles.geometry.attributes.position.array;
-                        f.life -= 0.006;
-                        for(let k=0; k<p.length/3; k++) {
-                            p[k*3] += f.vels[k*3]; 
-                            p[k*3+1] += f.vels[k*3+1]; 
-                            p[k*3+2] += f.vels[k*3+2];
-                            f.vels[k*3+1] -= 0.005; // 重力
-                        }
-                        f.particles.geometry.attributes.position.needsUpdate = true;
-                        f.particles.material.opacity = f.life;
-                        if(f.life <= 0) {
-                            this.scene.remove(f.particles); 
-                            this.list.splice(i, 1);
-                        }
-                    }
-                }
-            }
-
-            explode(f) {
-                const count = 400; const pos = [], vels = [];
-                for(let i=0; i<count; i++) {
-                    pos.push(f.pos.x, f.pos.y, f.pos.z);
-                    const s = 0.5 + Math.random() * 1.2;
-                    const th = Math.random() * 6.28, ph = Math.acos(2 * Math.random() - 1);
-                    vels.push(Math.sin(ph)*Math.cos(th)*s, Math.sin(ph)*Math.sin(th)*s, Math.cos(ph)*s);
-                }
-                const geo = new THREE.BufferGeometry();
-                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-                const mat = new THREE.PointsMaterial({
-                    color: f.color, size: 2, map: this.tex, 
-                    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
-                });
-                f.particles = new THREE.Points(geo, mat);
-                f.life = 2.0; 
-                f.vels = vels;
-                this.scene.add(f.particles);
-            }
-            
-			launchBurst() {
-			    // 安全检查：如果火车还没加载好，就不发射
-			    if (!train || !trackCurve) return;
-			
-			    // 随机决定发射 3 到 5 颗烟花
-			    const count = 3 + Math.floor(Math.random() * 3);
-			    
-			    for(let i=0; i<count; i++) {
-			        // 1. 计算“前方”的进度值
-			        // train.progress 是 0~1 的值。
-			        // 我们在当前位置的基础上，往后取 0.05 ~ 0.15 的距离（大约前方 5%~15% 的路程）
-			        const lookAhead = 0.05 + Math.random() * 0.10;
-			        
-			        // 使用 % 1.0 确保如果数值超过 1，会回到轨道开头（循环）
-			        const t = (train.progress + lookAhead) % 1.0;
-			
-			        // 2. 获取轨道上该点的坐标
-			        const trackPos = trackCurve.getPointAt(t);
-			
-			        // 3. 给坐标加一点随机偏移（散布在铁轨两侧）
-			        // 这样烟花不会死板地在铁轨正中间发射，而是在铁轨附近 40米 范围内
-			        const spread = 40; 
-			        const randomX = (Math.random() - 0.5) * spread;
-			        const randomZ = (Math.random() - 0.5) * spread;
-			
-			        // 4. 设定最终发射点
-			        const startPos = new THREE.Vector3(
-			            trackPos.x + randomX,
-			            -5, // y设为负数，让烟花轨迹看起来是从地底/雪地里窜出来的
-			            trackPos.z + randomZ
-			        );
-			        
-			        // 5. 稍微延迟发射，制造错落感
-			        setTimeout(() => {
-			            // 调用之前写好的 launch 方法
-			            this.launch(startPos);
-			        }, Math.random() * 800);
-			    }
-			}
+    // 发射逻辑：支持点击坐标，也支持自动计算
+    launch(targetPos) {
+        let startPos;
+        // 如果没有传入坐标（比如自动发射），则在相机前方随机生成
+        if (!targetPos) {
+            const vec = new THREE.Vector3(0, 0, -60).applyQuaternion(camera.quaternion).add(camera.position);
+            startPos = vec.add(new THREE.Vector3((Math.random()-0.5)*80, -20, (Math.random()-0.5)*80));
+        } else {
+            startPos = targetPos.clone();
         }
+
+        // 随机爆炸高度：30 ~ 60
+        const targetHeight = startPos.y + 60 + Math.random() * 30;
+        
+        // 随机选择一种配色
+        const palette = this.palettes[Math.floor(Math.random() * this.palettes.length)];
+
+        // 创建上升的“火箭”粒子
+        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]);
+        const mat = new THREE.PointsMaterial({
+            color: 0xffddaa, // 火箭尾焰颜色
+            size: 2.5,
+            map: this.texture,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            transparent: true
+        });
+        
+        const rocket = {
+            mesh: new THREE.Points(geo, mat),
+            pos: startPos.clone(),
+            // 物理公式：初速度 = sqrt(2 * 重力 * 高度差)，确保刚好飞到目标高度
+            vel: new THREE.Vector3(
+                (Math.random()-0.5)*0.5, 
+                Math.sqrt(2 * 0.02 * (targetHeight - startPos.y)), 
+                (Math.random()-0.5)*0.5
+            ),
+            targetY: targetHeight,
+            palette: palette
+        };
+        
+        rocket.mesh.position.copy(startPos);
+        this.scene.add(rocket.mesh);
+        this.rockets.push(rocket);
+    }
+
+    // 自动齐射：保留了你写的“顺着铁轨前方”的优秀逻辑
+    launchBurst() {
+        if (!train || !trackCurve) return;
+        
+        // 随机 3-5 发
+        const count = 3 + Math.floor(Math.random() * 3);
+        
+        for(let i=0; i<count; i++) {
+            // 1. 预测火车前方位置 (5% ~ 15% 的路程)
+            const lookAhead = 0.05 + Math.random() * 0.10;
+            const t = (train.progress + lookAhead) % 1.0;
+
+            // 2. 获取铁轨坐标
+            const trackPos = trackCurve.getPointAt(t);
+
+            // 3. 散布在铁轨两侧 40米范围
+            const spread = 40; 
+            const randomX = (Math.random() - 0.5) * spread;
+            const randomZ = (Math.random() - 0.5) * spread;
+
+            // 4. 设定起点 (Y=-5 让它看起来从雪地里钻出来)
+            const startPos = new THREE.Vector3(trackPos.x + randomX, -5, trackPos.z + randomZ);
+            
+            // 5. 错峰发射，避免同时升空太死板
+            setTimeout(() => {
+                this.launch(startPos);
+            }, Math.random() * 800);
+        }
+    }
+
+    update() {
+        // --- 阶段1：更新上升的火箭 ---
+        for (let i = this.rockets.length - 1; i >= 0; i--) {
+            const r = this.rockets[i];
+            
+            // 物理运动
+            r.pos.add(r.vel);
+            r.vel.y -= 0.02; // 重力：越来越慢
+            r.mesh.position.copy(r.pos);
+
+            // 当速度接近0（到达最高点）时引爆
+            if (r.vel.y <= 0.5) {
+                this.scene.remove(r.mesh);
+                this.explode(r.pos, r.palette); // 传入位置和颜色盘
+                this.rockets.splice(i, 1);
+            }
+        }
+
+        // --- 阶段2：更新爆炸后的烟花粒子 ---
+        for (let i = this.sparkles.length - 1; i >= 0; i--) {
+            const s = this.sparkles[i];
+            const positions = s.mesh.geometry.attributes.position.array;
+            const sizes = s.mesh.geometry.attributes.size.array;
+            
+            // 寿命衰减
+            s.life -= 0.008; 
+
+            for (let k = 0; k < s.count; k++) {
+                const idx = k * 3;
+                
+                // 位置 += 速度
+                positions[idx]   += s.velocities[idx];
+                positions[idx+1] += s.velocities[idx+1];
+                positions[idx+2] += s.velocities[idx+2];
+
+                // 关键物理：空气阻力 (模拟爆炸后的急剧减速)
+                s.velocities[idx]   *= 0.96;
+                s.velocities[idx+1] *= 0.96;
+                s.velocities[idx+2] *= 0.96;
+
+                // 关键物理：重力下坠
+                s.velocities[idx+1] -= 0.03;
+
+                // 视觉特效：闪烁 (Twinkle)
+                if(Math.random() > 0.5) {
+                    // 基于基础大小进行随机缩放
+                    sizes[k] = s.baseSizes[k] * (0.5 + Math.random() * 0.5) * s.life;
+                }
+            }
+
+            s.mesh.geometry.attributes.position.needsUpdate = true;
+            s.mesh.geometry.attributes.size.needsUpdate = true;
+            s.mesh.material.opacity = s.life;
+
+            if (s.life <= 0) {
+                // 消失处理
+                this.scene.remove(s.mesh);
+                if(s.light) this.scene.remove(s.light);
+                this.sparkles.splice(i, 1);
+            } else if (s.light) {
+                // 灯光跟随粒子中心并渐隐
+                s.light.intensity = s.life * 15; 
+                s.light.position.set(positions[0], positions[1], positions[2]);
+            }
+        }
+    }
+
+    explode(pos, palette) {
+        const count = 1000; // 粒子数量 (更多)
+        const positions = new Float32Array(count * 3);
+        const velocities = []; 
+        const colors = new Float32Array(count * 3);
+        const sizes = new Float32Array(count);
+        const baseSizes = []; // 记录基础大小用于闪烁
+
+        const colorObj = new THREE.Color();
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = pos.x;
+            positions[i * 3 + 1] = pos.y;
+            positions[i * 3 + 2] = pos.z;
+
+            // 球形爆炸速度计算
+            // 速度范围 0.5 ~ 2.2 (炸得更开)
+            const speed = 0.5 + Math.random() * 2.2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            const theta = Math.random() * Math.PI * 2;
+
+            velocities.push(
+                speed * Math.sin(phi) * Math.cos(theta),
+                speed * Math.sin(phi) * Math.sin(theta),
+                speed * Math.cos(phi)
+            );
+
+            // 从调色盘随机取色
+            const hex = palette[Math.floor(Math.random() * palette.length)];
+            colorObj.setHex(hex);
+            colors[i * 3] = colorObj.r;
+            colors[i * 3 + 1] = colorObj.g;
+            colors[i * 3 + 2] = colorObj.b;
+
+            // 随机粒子大小
+            const s = 1.5 + Math.random() * 2.5; 
+            sizes[i] = s;
+            baseSizes.push(s);
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        // 材质：使用 vertexColors 和 AdditiveBlending 实现高亮叠加
+        const mat = new THREE.PointsMaterial({
+            size: 1.0,
+            map: this.texture,
+            transparent: true,
+            depthWrite: false, // 防止遮挡
+            blending: THREE.AdditiveBlending, // 越重叠越亮
+            vertexColors: true // 启用顶点颜色
+        });
+
+        const mesh = new THREE.Points(geo, mat);
+        this.scene.add(mesh);
+
+        // 额外特效：添加一个点光源，照亮周围的雪和车
+        const light = new THREE.PointLight(palette[0], 15, 60);
+        light.position.copy(pos);
+        this.scene.add(light);
+
+        this.sparkles.push({
+            mesh, 
+            light,
+            count, 
+            velocities, 
+            baseSizes,
+            life: 1.5 + Math.random() * 0.5 // 寿命 1.5~2.0秒
+        });
+    }
+}
 
         // ============================
         // ❄️ 天气系统
@@ -734,13 +851,27 @@
                 }
                 const geo = new THREE.BufferGeometry();
                 geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-                this.mesh = new THREE.Points(geo, new THREE.PointsMaterial({
-    				color: 0x888888, // 1. 改为灰色。这样在辉光阈值(threshold=1.0)下，雪花就不会发光了，只有烟花会亮
-    				size: 0.6, // 2. 稍微调小一点，更显精致
-					transparent: true, // 3. 降低不透明度，让它看起来更轻盈，不会遮挡烟花
-					opacity: 0.88,
-					sizeAttenuation: true // 4. (可选) 如果你想让雪花完全不受光照影响，可以使用 sizeAttenuation: true
-                }));
+                // 1. 生成一个简单的圆形贴图
+const canvas = document.createElement('canvas');
+canvas.width = 32; canvas.height = 32;
+const context = canvas.getContext('2d');
+context.fillStyle = '#ffffff';
+context.beginPath();
+context.arc(16, 16, 16, 0, Math.PI * 2);
+context.fill();
+const snowTexture = new THREE.CanvasTexture(canvas);
+
+// 2. 应用到材质
+this.mesh = new THREE.Points(geo, new THREE.PointsMaterial({
+    color: 0xaaaaaa, // 灰色
+    map: snowTexture, // 应用圆形贴图
+    alphaMap: snowTexture, // 使用透明度贴图
+    transparent: true,
+    opacity: 0.6,
+    size: 0.8, // 有了贴图后，size 可以稍微大一点点
+    depthWrite: false, // 关键：禁止写入深度，防止雪花遮挡烟花时产生黑边
+    blending: THREE.AdditiveBlending // 可选：叠加混合模式，会让重叠的雪花变亮一点，但不像烟花那么亮
+}));
                 scene.add(this.mesh);
             }
             update() {
