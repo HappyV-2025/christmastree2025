@@ -123,8 +123,8 @@
             wheelSpeed: 2.0,
             
             // 🎥 相机
-            camFollowDist: 25.0,  
-            camHeightOffset: 8.0, 
+            camFollowDist: 8.0,  
+            camHeightOffset: 30.0, 
             camSmooth: 0.03,      
             
             // 💡 环境
@@ -160,7 +160,7 @@
             scene.fog = new THREE.FogExp2(0x020408, PARAMS.fogDensity);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
-            camera.position.set(0, 150, 150);
+            camera.position.set(0, 25, 25);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -556,7 +556,7 @@
                 obj.position.copy(pos);
                 // 修正朝向：让 +Z (车头) 指向切线方向
                 // lookAt 默认让 -Z 对准目标，所以我们要对准 "位置 - 切线" 的方向
-                obj.lookAt(pos.clone().sub(tangent)); 
+                obj.lookAt(pos.clone().add(tangent)); 
             }
 
             spawnSmoke(pos) {
