@@ -1,0 +1,759 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Christmas Window View</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #000; 
+            font-family: "Microsoft YaHei", sans-serif;
+            touch-action: none; /* 禁止默认触摸行为 */
+        }
+        
+        #ui-layer {
+            position: absolute; bottom: 30px; left: 50%;
+            transform: translateX(-50%);
+            color: #fff; z-index: 10;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+            text-align: center;
+            width: 100%;
+        }
+        
+        .title {
+            font-size: 24px;
+            color: #ffd700;
+            margin-bottom: 5px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        .tips {
+            font-size: 14px;
+            color: rgba(255,255,255,0.8);
+            background: rgba(0,0,0,0.4);
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: inline-block;
+            backdrop-filter: blur(4px);
+        }
+
+        #canvas-container { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="title">MERRY CHRISTMAS</div>
+        <div class="tips">✨ 点击夜空绽放烟花 | 🎄 点击圣诞树切换灯光</div>
+    </div>
+    
+    <div id="canvas-container"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- 核心配置 ---
+        const CONFIG = {
+            colors: {
+                skyTop: 0x0a1a3a,      // 深蓝夜空
+                skyBottom: 0x4a6a8a,   // 地平线微光
+                indoorLight: 0xffaa44, // 室内暖光 (壁炉感)
+                outdoorLight: 0x88ccff,// 室外冷月光
+                windowFrame: 0x3e2723, // 深木色窗框
+            },
+            fireworks: {
+                gravity: 0.008,        // 烟花下落重力
+                drag: 0.96,            // 空气阻力
+                count: 150             // 爆炸粒子数
+            }
+        };
+
+        let scene, camera, renderer;
+        let fireworkSystem, snowSystem;
+        let treeGroup, treeLightPoints;
+        let raycaster, mouse;
+        const clock = new THREE.Clock();
+
+        // 纹理缓存
+        const textures = {};
+
+        function init() {
+            // 1. 初始化场景
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x051020, 0.012); // 远处雾气
+
+            // 2. 相机 (由 resize 控制)
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
+
+            // 3. 渲染器 (针对移动端优化，不开启昂贵的后处理，用贴图模拟发光)
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); 
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            // 开启物理光照修正
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // 4. 生成资源
+            textures.glow = createGlowTexture();
+            textures.star = createStarTexture();
+
+            // 5. 构建世界
+            setupLighting();
+            createEnvironment(); // 天空、地面、远处建筑
+            createRoomAndWindow(); // 室内结构
+            createChristmasTree(); // 树
+            
+            // 6. 系统
+            snowSystem = new SnowSystem(scene);
+            fireworkSystem = new FireworkSystem(scene);
+
+            // 7. 交互
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            window.addEventListener('resize', onResize);
+            window.addEventListener('pointerdown', onPointerDown);
+            window.addEventListener('mousemove', onMouseMove);
+            
+            onResize(); // 初始适配
+            animate();
+        }
+
+        // --- 光照系统 (冷暖对比) ---
+        function setupLighting() {
+            // 1. 室内暖光 (照亮树和窗框内部)
+            const indoorPoint = new THREE.PointLight(CONFIG.colors.indoorLight, 5, 15);
+            indoorPoint.position.set(2, 3, 4); // 位于室内右上方
+            indoorPoint.castShadow = true;
+            indoorPoint.shadow.bias = -0.001;
+            scene.add(indoorPoint);
+
+            // 2. 室外月光 (照亮雪地和窗外)
+            const moonLight = new THREE.DirectionalLight(CONFIG.colors.outdoorLight, 1.5);
+            moonLight.position.set(-10, 20, -20);
+            moonLight.castShadow = true;
+            moonLight.shadow.camera.left = -20;
+            moonLight.shadow.camera.right = 20;
+            moonLight.shadow.camera.top = 20;
+            moonLight.shadow.camera.bottom = -20;
+            scene.add(moonLight);
+
+            // 3. 补光 (半球光：天空蓝 + 地面反射白)
+            const hemiLight = new THREE.HemisphereLight(CONFIG.colors.skyTop, 0x222222, 0.4);
+            scene.add(hemiLight);
+        }
+
+        // --- 环境构建 ---
+        function createEnvironment() {
+            // 1. 动态渐变天空球
+            const skyGeo = new THREE.SphereGeometry(200, 32, 32);
+            const skyMat = new THREE.ShaderMaterial({
+                side: THREE.BackSide,
+                uniforms: {
+                    topColor: { value: new THREE.Color(CONFIG.colors.skyTop) },
+                    bottomColor: { value: new THREE.Color(CONFIG.colors.skyBottom) },
+                    offset: { value: 10 },
+                    exponent: { value: 0.6 }
+                },
+                vertexShader: `
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
+                        vWorldPosition = worldPosition.xyz;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 topColor;
+                    uniform vec3 bottomColor;
+                    uniform float offset;
+                    uniform float exponent;
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        float h = normalize( vWorldPosition + offset ).y;
+                        gl_FragColor = vec4( mix( bottomColor, topColor, max( pow( max( h , 0.0), exponent ), 0.0 ) ), 1.0 );
+                    }
+                `
+            });
+            scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+            // 2. 室外雪地 (低面数起伏地形)
+            const groundGeo = new THREE.PlaneGeometry(100, 100, 40, 40);
+            const pos = groundGeo.attributes.position;
+            for(let i=0; i<pos.count; i++) {
+                pos.setZ(i, Math.random() * 1.5); // Z轴是高度（旋转后）
+            }
+            groundGeo.computeVertexNormals();
+            const groundMat = new THREE.MeshStandardMaterial({ 
+                color: 0xeef5ff, 
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.set(0, -8, -30); // 放在窗户下方很远，制造二楼感
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // 3. 远处城市光影 (InstancedMesh优化性能)
+            const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+            const boxMat = new THREE.MeshBasicMaterial({ color: 0x111111 }); // 黑色剪影
+            const winMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 }); // 亮窗户
+            
+            // 简单的背景房子
+            const houseGroup = new THREE.Group();
+            for(let i=0; i<30; i++) {
+                const w = 4 + Math.random() * 5;
+                const h = 5 + Math.random() * 10;
+                const d = 4 + Math.random() * 5;
+                const x = (Math.random() - 0.5) * 80;
+                const z = -20 - Math.random() * 40;
+                
+                const house = new THREE.Mesh(boxGeo, boxMat);
+                house.position.set(x, -8 + h/2, z);
+                house.scale.set(w, h, d);
+                houseGroup.add(house);
+
+                // 随机亮点 (窗户)
+                if(Math.random() > 0.4) {
+                    const win = new THREE.Mesh(boxGeo, winMat);
+                    win.position.set(x, -8 + h * 0.7, z + d/2 + 0.1);
+                    win.scale.set(0.5, 0.8, 0.1);
+                    houseGroup.add(win);
+                }
+            }
+            scene.add(houseGroup);
+        }
+
+        // --- 房间与窗户 ---
+        function createRoomAndWindow() {
+            const roomGroup = new THREE.Group();
+            
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x221105, roughness: 1.0 }); // 暗墙
+            const frameMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.windowFrame, roughness: 0.6 }); // 窗框
+
+            // 墙体 (挖空的窗户)
+            // 上
+            const topWall = new THREE.Mesh(new THREE.BoxGeometry(20, 4, 1), wallMat);
+            topWall.position.set(0, 5, 0); roomGroup.add(topWall);
+            // 下 (墙裙)
+            const botWall = new THREE.Mesh(new THREE.BoxGeometry(20, 4, 1), wallMat);
+            botWall.position.set(0, -5, 0); roomGroup.add(botWall);
+            // 左
+            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(6, 14, 1), wallMat);
+            leftWall.position.set(-7, 0, 0); roomGroup.add(leftWall);
+            // 右
+            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(6, 14, 1), wallMat);
+            rightWall.position.set(7, 0, 0); roomGroup.add(rightWall);
+
+            // 窗台 (宽厚一点，可以放东西)
+            const sill = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.5, 2.5), frameMat);
+            sill.position.set(0, -3.2, 0.5); 
+            sill.receiveShadow = true;
+            roomGroup.add(sill);
+
+            // 窗框格栅
+            const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 6, 0.5), frameMat);
+            roomGroup.add(vBar);
+            const hBar = new THREE.Mesh(new THREE.BoxGeometry(8, 0.2, 0.5), frameMat);
+            hBar.position.y = 1; // 稍微偏上一点
+            roomGroup.add(hBar);
+
+            // 玻璃 (高亮反射，但不阻挡视线)
+            const glassGeo = new THREE.PlaneGeometry(8, 6);
+            const glassMat = new THREE.MeshStandardMaterial({
+                color: 0xaaccff,
+                transparent: true,
+                opacity: 0.15,
+                metalness: 0.9,
+                roughness: 0.0,
+                side: THREE.DoubleSide
+            });
+            const glass = new THREE.Mesh(glassGeo, glassMat);
+            glass.position.z = -0.1;
+            roomGroup.add(glass);
+
+            scene.add(roomGroup);
+        }
+
+        // --- 圣诞树 (高精度) ---
+        function createChristmasTree() {
+            treeGroup = new THREE.Group();
+            // 放在窗户右侧，室内地板上
+            treeGroup.position.set(2.5, -3.0, 3.5); 
+            treeGroup.rotation.y = -0.3;
+
+            // 1. 树叶 (多层不规则圆锥)
+            const leafMat = new THREE.MeshStandardMaterial({ 
+                color: 0x053305, // 深绿
+                roughness: 0.8,
+                flatShading: true // 低多边形风格，增强光影感
+            });
+
+            const layers = 7;
+            for(let i=0; i<layers; i++) {
+                const ratio = i / layers;
+                const r = 1.8 * (1 - ratio) + 0.2;
+                const h = 1.2;
+                const y = i * 0.8;
+                
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 12), leafMat);
+                cone.position.y = y + 0.6;
+                cone.scale.set(1, 1, 1);
+                cone.castShadow = true;
+                
+                // 随机扰动顶点，让树看起来自然蓬松
+                const pos = cone.geometry.attributes.position;
+                for(let k=0; k<pos.count; k++) {
+                    pos.setY(k, pos.getY(k) - Math.random()*0.3);
+                }
+                cone.geometry.computeVertexNormals();
+                
+                treeGroup.add(cone);
+                
+                // 每层加装饰球
+                if(i < layers - 1) addBaubles(cone, r, h);
+            }
+
+            // 2. 树干
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 1.5, 8), new THREE.MeshStandardMaterial({color: 0x3e2723}));
+            trunk.position.y = 0;
+            treeGroup.add(trunk);
+
+            // 3. 树顶星 (自发光)
+            const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0xffd700 }));
+            star.position.y = layers * 0.8 + 0.5;
+            treeGroup.add(star);
+            
+            // 星星光晕
+            const starGlow = new THREE.Sprite(new THREE.SpriteMaterial({ 
+                map: textures.glow, 
+                color: 0xffaa00, 
+                blending: THREE.AdditiveBlending 
+            }));
+            starGlow.scale.set(2, 2, 1);
+            star.add(starGlow);
+
+            // 4. 树下的礼物
+            addGifts(treeGroup);
+
+            // 5. 彩灯系统
+            setupTreeLights(layers);
+
+            treeGroup.userData = { isTree: true };
+            scene.add(treeGroup);
+        }
+
+        function addBaubles(parent, r, h) {
+            const count = Math.floor(r * 6);
+            const geo = new THREE.SphereGeometry(0.12, 8, 8);
+            const colors = [0xff0000, 0xffd700, 0xc0c0c0, 0x0000ff];
+            
+            for(let i=0; i<count; i++) {
+                const mat = new THREE.MeshStandardMaterial({
+                    color: colors[Math.floor(Math.random()*colors.length)],
+                    metalness: 0.7, roughness: 0.2
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                const angle = Math.random() * Math.PI * 2;
+                // 挂在圆锥边缘
+                mesh.position.set(Math.cos(angle)*r*0.85, -h*0.35, Math.sin(angle)*r*0.85);
+                parent.add(mesh);
+            }
+        }
+
+        function addGifts(group) {
+            const colors = [0xd32f2f, 0x1976d2, 0xfbc02d];
+            for(let i=0; i<5; i++) {
+                const size = 0.4 + Math.random()*0.4;
+                const box = new THREE.Mesh(
+                    new THREE.BoxGeometry(size, size, size),
+                    new THREE.MeshStandardMaterial({ color: colors[i%3] })
+                );
+                const angle = Math.random() * Math.PI; // 只在前半圆
+                const dist = 1.0 + Math.random() * 1.0;
+                box.position.set(Math.cos(angle)*dist, size/2, Math.sin(angle)*dist + 0.5);
+                box.rotation.y = Math.random();
+                box.castShadow = true;
+                group.add(box);
+            }
+        }
+
+        function setupTreeLights(height) {
+            const count = 120;
+            const pos = [];
+            const colors = [];
+            const colorPalette = [
+                new THREE.Color(1, 0.1, 0.1), // 红
+                new THREE.Color(1, 0.8, 0.1), // 金
+                new THREE.Color(0.1, 0.5, 1), // 蓝
+                new THREE.Color(0.1, 1, 0.2), // 绿
+            ];
+
+            for(let i=0; i<count; i++) {
+                const t = i/count; // 0 to 1
+                const y = t * (height * 0.8) + 0.5;
+                const r = (1 - t) * 1.6 + 0.2;
+                const angle = t * 25.0; // 螺旋上升
+                
+                pos.push(Math.cos(angle)*r, y, Math.sin(angle)*r);
+                
+                const c = colorPalette[i % 4];
+                colors.push(c.r, c.g, c.b);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            const mat = new THREE.PointsMaterial({
+                size: 0.25, // 灯泡更大
+                map: textures.glow,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending, // 加法混合，发光更亮
+                depthWrite: false, // 避免遮挡问题
+                transparent: true,
+                opacity: 0.9
+            });
+
+            treeLightPoints = new THREE.Points(geo, mat);
+            treeGroup.add(treeLightPoints);
+        }
+
+        // --- 物理烟花系统 ---
+        class FireworkSystem {
+            constructor(scene) {
+                this.scene = scene;
+                this.activeFireworks = [];
+                // 预创建爆炸音效(可选，这里只做视觉)
+            }
+
+            launch(startPos, endPos) {
+                // 1. 发射阶段对象
+                const color = new THREE.Color().setHSL(Math.random(), 1.0, 0.6);
+                const rocketGeo = new THREE.BufferGeometry().setFromPoints([startPos, startPos]);
+                const rocketMat = new THREE.LineBasicMaterial({ 
+                    color: 0xffffff, linewidth: 2, transparent: true, opacity: 0.8 
+                });
+                
+                const rocket = {
+                    phase: 'launch',
+                    mesh: new THREE.Line(rocketGeo, rocketMat),
+                    pos: startPos.clone(),
+                    vel: endPos.clone().sub(startPos).normalize().multiplyScalar(0.6 + Math.random()*0.2), // 速度
+                    targetY: endPos.y,
+                    color: color
+                };
+                
+                this.scene.add(rocket.mesh);
+                
+                // 尾焰粒子 (简单Sprite)
+                const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                    map: textures.glow, color: 0xffaa55, blending: THREE.AdditiveBlending
+                }));
+                sprite.scale.set(1.5, 1.5, 1.5);
+                rocket.head = sprite;
+                this.scene.add(sprite);
+
+                this.activeFireworks.push(rocket);
+            }
+
+            explode(pos, color) {
+                // 2. 爆炸阶段
+                const pCount = CONFIG.fireworks.count;
+                const geo = new THREE.BufferGeometry();
+                const pPos = new Float32Array(pCount * 3);
+                const pVel = []; // 自定义速度数组
+                
+                for(let i=0; i<pCount; i++) {
+                    pPos[i*3] = pos.x;
+                    pPos[i*3+1] = pos.y;
+                    pPos[i*3+2] = pos.z;
+                    
+                    // 球形随机速度
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(Math.random() * 2 - 1);
+                    const speed = 0.1 + Math.random() * 0.4;
+                    
+                    pVel.push({
+                        x: Math.sin(phi) * Math.cos(theta) * speed,
+                        y: Math.sin(phi) * Math.sin(theta) * speed,
+                        z: Math.cos(phi) * speed
+                    });
+                }
+                
+                geo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+                
+                const mat = new THREE.PointsMaterial({
+                    size: 0.8,
+                    color: color,
+                    map: textures.star, // 星星形状
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    transparent: true,
+                    opacity: 1.0
+                });
+                
+                const points = new THREE.Points(geo, mat);
+                this.scene.add(points);
+                
+                // 爆炸中心闪光
+                const flash = new THREE.PointLight(color, 10, 30);
+                flash.position.copy(pos);
+                this.scene.add(flash);
+                setTimeout(() => this.scene.remove(flash), 100); // 闪一下就没
+
+                return {
+                    phase: 'explode',
+                    mesh: points,
+                    vels: pVel,
+                    life: 1.0
+                };
+            }
+
+            update() {
+                for(let i=this.activeFireworks.length-1; i>=0; i--) {
+                    const fw = this.activeFireworks[i];
+                    
+                    if(fw.phase === 'launch') {
+                        // 更新位置
+                        fw.pos.add(fw.vel);
+                        fw.head.position.copy(fw.pos);
+                        
+                        // 更新尾迹线条
+                        const positions = fw.mesh.geometry.attributes.position.array;
+                        // 简单的拖尾效果：起点慢慢跟进
+                        positions[0] += (positions[3] - positions[0]) * 0.15;
+                        positions[1] += (positions[4] - positions[1]) * 0.15;
+                        positions[2] += (positions[5] - positions[2]) * 0.15;
+                        positions[3] = fw.pos.x;
+                        positions[4] = fw.pos.y;
+                        positions[5] = fw.pos.z;
+                        fw.mesh.geometry.attributes.position.needsUpdate = true;
+
+                        // 到达高度
+                        if(fw.vel.y < 0.1 || fw.pos.y >= fw.targetY) {
+                            // 移除发射体
+                            this.scene.remove(fw.mesh);
+                            this.scene.remove(fw.head);
+                            fw.mesh.geometry.dispose();
+                            
+                            // 产生爆炸
+                            this.activeFireworks[i] = this.explode(fw.pos, fw.color);
+                        } else {
+                            // 模拟重力减速
+                            fw.vel.y *= 0.98;
+                        }
+                    } 
+                    else if (fw.phase === 'explode') {
+                        fw.life -= 0.015; // 寿命衰减
+                        
+                        if(fw.life <= 0) {
+                            this.scene.remove(fw.mesh);
+                            fw.mesh.geometry.dispose();
+                            fw.mesh.material.dispose();
+                            this.activeFireworks.splice(i, 1);
+                            continue;
+                        }
+                        
+                        const positions = fw.mesh.geometry.attributes.position.array;
+                        for(let k=0; k<fw.vels.length; k++) {
+                            const v = fw.vels[k];
+                            // 物理更新
+                            v.x *= CONFIG.fireworks.drag;
+                            v.y *= CONFIG.fireworks.drag;
+                            v.z *= CONFIG.fireworks.drag;
+                            v.y -= CONFIG.fireworks.gravity; // 重力下落
+                            
+                            positions[k*3] += v.x;
+                            positions[k*3+1] += v.y;
+                            positions[k*3+2] += v.z;
+                        }
+                        fw.mesh.geometry.attributes.position.needsUpdate = true;
+                        fw.mesh.material.opacity = fw.life;
+                        fw.mesh.material.size = fw.life * 1.5; // 慢慢变小
+                    }
+                }
+            }
+        }
+
+        // --- 雪花系统 ---
+        class SnowSystem {
+            constructor(scene) {
+                const count = 1500;
+                const geo = new THREE.BufferGeometry();
+                const pos = [];
+                const vels = []; // 每个雪花的独特速度
+                for(let i=0; i<count; i++) {
+                    pos.push(
+                        (Math.random()-0.5) * 80,
+                        Math.random() * 50,
+                        (Math.random()-0.5) * 40 - 20 // 也是主要在窗外
+                    );
+                    vels.push((Math.random() * 0.05) + 0.02);
+                }
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                geo.userData = { vels: vels };
+                
+                const mat = new THREE.PointsMaterial({
+                    color: 0xffffff, size: 0.3, 
+                    map: textures.glow, transparent: true, opacity: 0.8,
+                    depthWrite: false, blending: THREE.AdditiveBlending
+                });
+                this.mesh = new THREE.Points(geo, mat);
+                scene.add(this.mesh);
+            }
+            update(time) {
+                const pos = this.mesh.geometry.attributes.position.array;
+                const vels = this.mesh.geometry.userData.vels;
+                
+                for(let i=0; i<vels.length; i++) {
+                    const idx = i*3;
+                    // 下落
+                    pos[idx+1] -= vels[i];
+                    // 左右飘荡
+                    pos[idx] += Math.sin(time + pos[idx+1]*0.1) * 0.02;
+                    
+                    // 重置
+                    if(pos[idx+1] < -10) {
+                        pos[idx+1] = 40;
+                        pos[idx] = (Math.random()-0.5) * 80;
+                    }
+                }
+                this.mesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        // --- 辅助函数: 程序化纹理 ---
+        function createGlowTexture() {
+            const c = document.createElement('canvas'); c.width=64; c.height=64;
+            const ctx = c.getContext('2d');
+            const g = ctx.createRadialGradient(32,32,0,32,32,32);
+            g.addColorStop(0, 'rgba(255,255,255,1)');
+            g.addColorStop(0.4, 'rgba(255,255,255,0.3)');
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = g; ctx.fillRect(0,0,64,64);
+            return new THREE.CanvasTexture(c);
+        }
+        
+        function createStarTexture() {
+            const c = document.createElement('canvas'); c.width=64; c.height=64;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            // 画个简单的十字星
+            ctx.moveTo(32, 0); ctx.lineTo(32, 64);
+            ctx.moveTo(0, 32); ctx.lineTo(64, 32);
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            // 中心亮斑
+            ctx.beginPath(); ctx.arc(32,32,8,0,Math.PI*2); ctx.fill();
+            return new THREE.CanvasTexture(c);
+        }
+
+        // --- 事件处理 ---
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            // 响应式视角调整
+            if(window.innerWidth < window.innerHeight) {
+                // 手机竖屏：离远一点，看到更多内容
+                camera.position.set(0, 0, 12);
+            } else {
+                // 电脑横屏
+                camera.position.set(0, 0, 8);
+            }
+            camera.lookAt(0, 0, -10);
+        }
+        
+        function onMouseMove(e) {
+            // 视差微动
+            const x = (e.clientX / window.innerWidth - 0.5) * 0.5;
+            const y = (e.clientY / window.innerHeight - 0.5) * 0.5;
+            camera.position.x += (x - camera.position.x) * 0.05;
+            camera.position.y += (-y - camera.position.y) * 0.05;
+            camera.lookAt(0, 0, -10);
+        }
+
+        function onPointerDown(e) {
+            e.preventDefault();
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            
+            // 1. 圣诞树互动
+            const intersects = raycaster.intersectObjects(treeGroup.children);
+            if(intersects.length > 0) {
+                // 切换灯光颜色模式
+                if(treeLightPoints) {
+                    const colors = treeLightPoints.geometry.attributes.color;
+                    for(let i=0; i<colors.count; i++) {
+                        colors.setXYZ(i, Math.random(), Math.random(), Math.random());
+                    }
+                    colors.needsUpdate = true;
+                    // 闪一下
+                    treeLightPoints.material.size = 0.5;
+                    setTimeout(()=> treeLightPoints.material.size = 0.25, 200);
+                }
+                return;
+            }
+
+            // 2. 燃放烟花 (投射到远处天空平面)
+            // 假设烟花炸点平面在 Z = -30 左右
+            const vec = new THREE.Vector3(mouse.x, mouse.y, 0.5);
+            vec.unproject(camera);
+            const dir = vec.sub(camera.position).normalize();
+            const distance = (-30 - camera.position.z) / dir.z;
+            const targetPos = camera.position.clone().add(dir.multiplyScalar(distance));
+            
+            // 稍微随机化高度
+            targetPos.y = Math.max(-5, targetPos.y); 
+            
+            // 计算发射起点 (从屏幕底部升起)
+            const startPos = targetPos.clone();
+            startPos.y = -20;
+            
+            fireworkSystem.launch(startPos, targetPos);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = clock.getElapsedTime();
+            
+            fireworkSystem.update();
+            snowSystem.update(t);
+            
+            // 圣诞树彩灯呼吸效果
+            if(treeLightPoints) {
+                const intensity = 0.8 + Math.sin(t * 3) * 0.2;
+                treeLightPoints.material.opacity = intensity;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
