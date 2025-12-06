@@ -304,43 +304,59 @@ class AudioEngine {
             src.start(t); src.stop(t + 0.2);
         }
     }
+    // 💥 终极版：随机音调 + 重低音冲击 + 空间感
     explode() {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
         
-        // 随机因子
-        const isBigBoom = Math.random() < 0.6; // 60% 概率是大爆炸
-        const randomPitch = 0.8 + Math.random() * 0.4; // 随机音调变化
-        
+        // 1. 随机参数生成
+        // 音调：0.5 (低沉大爆炸) ~ 1.5 (尖锐小爆炸)
+        const pitch = 0.5 + Math.random() * 1.0; 
+        // 随机声像：-0.8 (左) ~ 0.8 (右)
+        const pan = (Math.random() - 0.5) * 1.6;
+
+        // --- 层级 A: 爆裂噪音 (纹理) ---
         const src = this.ctx.createBufferSource();
         src.buffer = this.noiseBuf;
-        // 改变播放速度来改变音调 (模拟不同大小的烟花)
-        src.playbackRate.value = randomPitch; 
-        
+        src.playbackRate.value = pitch; // 关键：随机改变音高
+
         const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        // 频率随音高变化
+        filter.frequency.setValueAtTime(800 * pitch, t);
+        filter.frequency.exponentialRampToValueAtTime(100, t + 0.8);
+
+        // 声像定位 (Stereo Panner)
+        const panner = this.ctx.createStereoPanner();
+        panner.pan.value = pan;
+
         const env = this.ctx.createGain();
-        
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(3.0, t + 0.02); // 瞬间极大音量
+        env.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+
         src.connect(filter);
-        filter.connect(env);
+        filter.connect(panner);
+        panner.connect(env);
         env.connect(this.nodes.fw);
+        src.start(t); src.stop(t + 1.6);
+
+        // --- 层级 B: 超重低音 Kick (冲击力) ---
+        // 模拟爆炸时的空气压缩感 "咚!"
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
         
-        if (isBigBoom) {
-            // 大爆炸：偏低频
-            filter.type = 'lowpass';
-            filter.frequency.value = 300;
-            
-            env.gain.setValueAtTime(3.0, t);
-            env.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
-            src.start(t); src.stop(t + 1.6);
-        } else {
-            // 小炸裂：偏高频
-            filter.type = 'highpass';
-            filter.frequency.value = 800;
-            
-            env.gain.setValueAtTime(1.5, t);
-            env.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
-            src.start(t); src.stop(t + 0.6);
-        }
+        // 频率快速下潜：60Hz -> 0Hz
+        osc.frequency.setValueAtTime(60, t);
+        osc.frequency.exponentialRampToValueAtTime(1, t + 0.3);
+        
+        const oscGain = this.ctx.createGain();
+        oscGain.gain.setValueAtTime(2.5, t); // 震感强烈
+        oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.3); // 短促有力
+        
+        osc.connect(oscGain);
+        oscGain.connect(this.nodes.fw);
+        osc.start(t); osc.stop(t + 0.4);
     }
 }
 let lastOut = 0; // 辅助变量
@@ -1208,10 +1224,10 @@ class Train {
 class Fireworks {
     constructor(sc) {
         this.sc = sc; 
-        this.r = []; // 升空的火箭数组
-        this.s = []; // 炸开的粒子数组
+        this.r = []; 
+        this.s = [];
         
-        // 纹理 (保持 32x32 极速版)
+        // 纹理 (32x32 极小纹理)
         const c = document.createElement('canvas'); c.width = 32; c.height = 32;
         const x = c.getContext('2d'); 
         const g = x.createRadialGradient(16,16,0,16,16,16);
@@ -1222,15 +1238,11 @@ class Fireworks {
     }
 
     launch(pos) {
-        // [🛑 核心修复] 同屏数量限制
-        // 如果当前正在飞的火箭 + 正在炸的烟花总数超过 8 个，
-        // 直接忽略本次发射请求。这能彻底防止卡死。
-        if (this.r.length + this.s.length >= 8) return;
+        // [性能锁] 限制同屏最大爆炸数，防止卡死
+        if (this.r.length + this.s.length > 6) return;
 
-        // 位置计算
         if(!pos) {
-            // 自动模式：固定在地图中心区域随机，不跟随相机
-            const range = 100;
+            const range = 80;
             pos = new THREE.Vector3(
                 (Math.random() - 0.5) * 2 * range, 
                 -5, 
@@ -1238,13 +1250,12 @@ class Fireworks {
             );
         }
         
-        const ty = pos.y + 60 + Math.random()*40;
+        const ty = pos.y + 50 + Math.random()*40;
         const pal = this.cols[Math.floor(Math.random()*this.cols.length)];
         
-        // 创建火箭粒子
         const m = new THREE.Points(
             new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]), 
-            new THREE.PointsMaterial({color:0xffddaa, size:4, map:this.tex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true})
+            new THREE.PointsMaterial({color:0xffddaa, size:5, map:this.tex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true})
         );
         m.position.copy(pos); 
         this.sc.add(m);
@@ -1257,7 +1268,7 @@ class Fireworks {
     }
 
     update() {
-        // 更新火箭
+        // 火箭上升
         for(let i = this.r.length - 1; i >= 0; i--) {
             const r = this.r[i]; 
             r.pos.add(r.vel); 
@@ -1265,26 +1276,31 @@ class Fireworks {
             r.m.position.copy(r.pos);
             if(r.vel.y <= 0.5) { 
                 this.sc.remove(r.m); 
+                // 记得释放内存
+                r.m.geometry.dispose();
+                r.m.material.dispose();
+                
                 this.explode(r.pos, r.pal); 
                 this.r.splice(i, 1); 
             }
         }
         
-        // 更新爆炸粒子
+        // 爆炸粒子
         for(let i = this.s.length - 1; i >= 0; i--) {
             const s = this.s[i]; 
-            s.life -= 0.015;
-            const p = s.geo.attributes.position.array;
+            s.life -= 0.018; // 加快消失，减少同屏压力
             
+            const p = s.geo.attributes.position.array;
             for(let k = 0; k < s.count; k++) {
                 const idx = k * 3;
                 p[idx] += s.vels[idx]; 
                 p[idx+1] += s.vels[idx+1]; 
                 p[idx+2] += s.vels[idx+2];
-                s.vels[idx] *= 0.93; 
-                s.vels[idx+1] *= 0.93; 
-                s.vels[idx+2] *= 0.93; 
-                s.vels[idx+1] -= 0.015;
+                // 阻力
+                s.vels[idx] *= 0.92; 
+                s.vels[idx+1] *= 0.92; 
+                s.vels[idx+2] *= 0.92; 
+                s.vels[idx+1] -= 0.02; // 重力
             }
             s.geo.attributes.position.needsUpdate = true; 
             s.mat.opacity = s.life;
@@ -1292,7 +1308,12 @@ class Fireworks {
             
             if(s.life <= 0) { 
                 this.sc.remove(s.m); 
-                if(s.l) this.sc.remove(s.l); 
+                if(s.l) this.sc.remove(s.l);
+                
+                // [关键] 显存释放
+                s.geo.dispose();
+                s.mat.dispose();
+                
                 this.s.splice(i, 1); 
             }
         }
@@ -1300,7 +1321,9 @@ class Fireworks {
 
     explode(pos, pal) {
         audio.explode();
-        const cnt = 80; // 保持低粒子数
+        
+        // [性能关键] 粒子数降为 120，解决卡顿的核心
+        const cnt = 120; 
         const posA = new Float32Array(cnt * 3); 
         const colA = new Float32Array(cnt * 3); 
         const vels = [];
@@ -1308,10 +1331,13 @@ class Fireworks {
 
         for(let i = 0; i < cnt; i++) {
             posA[i*3] = pos.x; posA[i*3+1] = pos.y; posA[i*3+2] = pos.z;
+            
             const speed = 0.5 + Math.random() * 2.8; 
             const phi = Math.acos(2 * Math.random() - 1);
             const theta = Math.random() * Math.PI * 2;
+            
             vels.push(speed * Math.sin(phi) * Math.cos(theta), speed * Math.sin(phi) * Math.sin(theta), speed * Math.cos(phi));
+            
             c.setHex(pal[Math.floor(Math.random() * pal.length)]); 
             colA[i*3] = c.r; colA[i*3+1] = c.g; colA[i*3+2] = c.b;
         }
@@ -1319,12 +1345,25 @@ class Fireworks {
         const geo = new THREE.BufferGeometry(); 
         geo.setAttribute('position', new THREE.BufferAttribute(posA, 3)); 
         geo.setAttribute('color', new THREE.BufferAttribute(colA, 3));
+        
+        // [视觉补偿] 粒子尺寸增大到 6.0，虽然数量少了，但看着依然很壮观
         const mat = new THREE.PointsMaterial({
-            size: 3.5, map: this.tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, vertexColors: true
+            size: 6.0, 
+            map: this.tex, 
+            transparent: true, 
+            depthWrite: false, 
+            blending: THREE.AdditiveBlending, 
+            vertexColors: true
         });
         
-        const m = new THREE.Points(geo, mat); this.sc.add(m);
-        const l = new THREE.PointLight(pal[0], 20, 60); l.position.copy(pos); this.sc.add(l);
+        const m = new THREE.Points(geo, mat); 
+        this.sc.add(m);
+        
+        // 闪光灯
+        const l = new THREE.PointLight(pal[0], 15, 50); 
+        l.position.copy(pos); 
+        this.sc.add(l);
+        
         this.s.push({m, geo, mat, vels, l, count: cnt, life: 1.5});
     }
 }
