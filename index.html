@@ -199,13 +199,13 @@ class AudioEngine {
                 };
 
                 // 1. 基音 (Sine) - 温暖的主体
-                playLayer(note.n, 'sine', 0.4, dur * 1.5);
+                playLayer(note.n, 'sine', 0.6, dur * 1.5);
                 // 2. 二次谐波 (Sine) - 增加厚度
-                playLayer(note.n * 2, 'sine', 0.2, dur * 1.2);
+                playLayer(note.n * 2, 'sine', 0.3, dur * 1.2);
                 // 3. 敲击声 (Triangle) - 瞬间的高频，模拟敲击金属片
-                playLayer(note.n * 4, 'triangle', 0.05, 0.1); 
+                playLayer(note.n * 4, 'triangle', 0.06, 0.1); 
                 // 4. 空灵感 (Detuned Sine)
-                playLayer(note.n + 5, 'sine', 0.1, dur);
+                playLayer(note.n + 5, 'sine', 0.6, dur);
             }
             this.bgmTimer = setTimeout(playNext, note.d);
             idx = (idx + 1) % melody.length;
@@ -219,66 +219,50 @@ class AudioEngine {
     whistle() {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
-        const g = this.ctx.createGain();
-        g.connect(this.nodes.train);
+        const g = this.ctx.createGain(); g.connect(this.nodes.train);
 
-        // 1. 双音调 (模拟走音的铜管)
-        const freqs = [350, 420]; 
-        freqs.forEach(f => {
-            const o = this.ctx.createOscillator(); 
-            o.type = 'sawtooth'; 
-            // 低通滤波让声音变暖
-            const lpf = this.ctx.createBiquadFilter();
-            lpf.type = 'lowpass'; lpf.frequency.value = 1000;
+        // 低频和弦 (C# + F)
+        [277, 349, 415].forEach(f => {
+            const o = this.ctx.createOscillator(); o.type = 'sawtooth';
+            const lpf = this.ctx.createBiquadFilter(); lpf.type='lowpass'; lpf.frequency.value=800;
             o.connect(lpf); lpf.connect(g);
             o.frequency.setValueAtTime(f, t);
-            o.frequency.linearRampToValueAtTime(f + 5, t + 0.5); // 气压上升导致的音高微升
-            o.start(t); o.stop(t + 2.5);
+            o.frequency.exponentialRampToValueAtTime(f-10, t+2.0); // 音调微降
+            o.start(t); o.stop(t+2.5);
         });
 
-        // 2. 气流噪音 (模拟喷气声)
-        const noise = this.ctx.createBufferSource();
-        noise.buffer = this.noiseBuf;
-        const nFilter = this.ctx.createBiquadFilter();
-        nFilter.type = 'bandpass'; nFilter.frequency.value = 700;
-        const nGain = this.ctx.createGain(); nGain.gain.value = 0.5;
-        noise.connect(nFilter); nFilter.connect(nGain); nGain.connect(g);
-        noise.start(t); noise.stop(t + 2.5);
+        // 强劲的气流
+        const n = this.ctx.createBufferSource(); n.buffer=this.noiseBuf;
+        const nf = this.ctx.createBiquadFilter(); nf.type='lowpass'; nf.frequency.value=1200;
+        const ng = this.ctx.createGain(); ng.gain.value=0.8;
+        n.connect(nf); nf.connect(ng); ng.connect(g); n.start(t); n.stop(t+2.5);
 
-        // 3. 关键：音量包络 (淡入淡出)
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(0.8, t + 0.3); // 0.3秒淡入 (气压建立)
-        g.gain.setValueAtTime(0.8, t + 1.5); // 保持
-        g.gain.exponentialRampToValueAtTime(0.001, t + 2.5); // 1秒长尾音淡出
+        g.gain.linearRampToValueAtTime(1.0, t+0.4); 
+        g.gain.exponentialRampToValueAtTime(0.001, t+2.5);
     }
 
     // 🚂 行驶声 (节奏随速度变化)
-    chug(speed) { // 注意：去掉 max 参数，不需要它了
-        if (!this.ctx || speed < 0.001) return;
+    // 🚂 方案A：沉重撞击行驶声
+    chug(speed) {
+        if (!this.ctx || speed < 0.01) return;
         const t = this.ctx.currentTime;
-        
-        // 算法修正：速度越快，间隔越小 (反比关系)
-        // 0.05(慢速) -> 间隔 0.3s
-        // 0.30(快速) -> 间隔 0.1s
-        // 限制最小间隔 0.08s，防止快成电流声
-        const interval = Math.max(0.08, 1.0 / (speed * 45)); 
+        const interval = Math.max(0.1, 1.0 / (speed * 40)); 
         
         if (t >= this.nextChug) {
             this.nextChug = t + interval;
             const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf;
             
-            // 速度越快，声音越脆 (Filter频率升高)
+            // 低通滤波，模拟重物撞击
             const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; 
-            f.frequency.value = 200 + speed * 2500; // 基于绝对速度
+            f.frequency.value = 150 + speed * 1500; 
 
             const g = this.ctx.createGain();
-            // 音量也基于绝对速度
-            const vol = 0.2 + speed * 1.5; 
-            g.gain.setValueAtTime(vol, t);
-            g.gain.exponentialRampToValueAtTime(0.001, t + 0.1); 
+            g.gain.setValueAtTime(0.5 + speed, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.15); // 长一点的尾音
 
             src.connect(f); f.connect(g); g.connect(this.nodes.train);
-            src.start(t); src.stop(t + 0.15);
+            src.start(t); src.stop(t + 0.2);
         }
     }
 
@@ -439,64 +423,65 @@ function animate() {
     const dt = clock.getDelta();
     const time = clock.getElapsedTime();
 
-    if(STATE.running) { if(STATE.curSpeed < CFG.maxSpeed) STATE.curSpeed += CFG.accel; } 
-    else { if(STATE.curSpeed > 0) STATE.curSpeed -= CFG.decel; if(STATE.curSpeed < 0) STATE.curSpeed = 0; }
+    // 1. 物理惯性 (修复速度降不下来的问题)
+    if(STATE.running) {
+        // 加速逻辑
+        if(STATE.curSpeed < CFG.maxSpeed) {
+            STATE.curSpeed += CFG.accel;
+            if(STATE.curSpeed > CFG.maxSpeed) STATE.curSpeed = CFG.maxSpeed; // 钳制
+        } 
+        // 减速逻辑 (当你在设置里把极速调低时，火车会慢慢减速适应新设置)
+        else if(STATE.curSpeed > CFG.maxSpeed) {
+            STATE.curSpeed -= CFG.decel;
+        }
+    } else {
+        // 停车逻辑
+        if(STATE.curSpeed > 0) STATE.curSpeed -= CFG.decel;
+        if(STATE.curSpeed < 0) STATE.curSpeed = 0;
+    }
 
     if(train) train.update(dt, STATE.curSpeed);
     if(fwMgr) fwMgr.update();
-    if(snowMgr) snowMgr.update(dt);
+    if(snowMgr) snowMgr.update();
 
-    // 🌟 灯光动画
+    // 灯光动画
     emissives.forEach(obj => {
-        // [LED Instanced]
         if(obj.userData.type === 'led_instanced') {
-            const data = obj.userData.data;
-            const tempCol = new THREE.Color();
-            
+            const data = obj.userData.data; const tempCol = new THREE.Color();
             for(let i=0; i<obj.count; i++) {
                 const item = data[i];
                 const val = Math.sin(time * item.speed + item.offset);
-                // [优化] 亮度范围：0.5 ~ 3.0 (HDR)
-                // 提高上限，让 Bloom 炸开，模拟“照亮周围”的视觉假象
                 const intensity = 0.5 + 1.25 * (val + 1); 
-                
-                tempCol.copy(item.baseCol).multiplyScalar(intensity);
-                obj.setColorAt(i, tempCol);
+                tempCol.copy(item.baseCol).multiplyScalar(intensity); obj.setColorAt(i, tempCol);
             }
             if(obj.instanceColor) obj.instanceColor.needsUpdate = true;
         }
-
-        // [普通灯泡] (路灯等)
-        if(obj.userData.type === 'bulb') {
-            if(obj.userData.baseCol) {
-                const blink = 0.6 + 0.4 * Math.sin(time * 3.0 + obj.userData.phase);
-                const intensity = 1.0 + blink * (CFG.bulbBri / 8); 
-                obj.material.color.copy(obj.userData.baseCol).multiplyScalar(intensity);
-            }
+        if(obj.userData.type === 'bulb' && obj.userData.baseCol) {
+            const blink = 0.6 + 0.4 * Math.sin(time * 3.0 + obj.userData.phase);
+            const intensity = 1.0 + blink * (CFG.bulbBri / 8); 
+            obj.material.color.copy(obj.userData.baseCol).multiplyScalar(intensity);
         }
-        
-        // [星星]
-        if(obj.userData.type === 'star') {
-            // 金色 -> 白金色 呼吸
-            obj.material.color.setHSL(0.14, 1.0, 0.5 + 0.4 * Math.sin(time * 1.5));
-        }
-        
-        if(obj.userData.type === 'headlight') { 
-             obj.material.color.setHex(0xffdd88).multiplyScalar(CFG.lightPow/30);
-        }
-        if(obj.userData.type === 'headlight_spot') {
-            obj.intensity = CFG.lightPow;
-        }
+        if(obj.userData.type === 'star') obj.material.color.setHSL(0.14, 1.0, 0.6 + 0.3 * Math.sin(time));
+        if(obj.userData.type === 'headlight') obj.material.color.setHex(0xffdd88).multiplyScalar(CFG.lightPow/30);
+        if(obj.userData.type === 'headlight_spot') obj.intensity = CFG.lightPow;
     });
 
+    // 🎥 相机逻辑 (修复自由视角)
     if(STATE.started && train && train.loco) {
         const locoPos = train.loco.position;
-        controls.target.copy(locoPos);
-        if(STATE.viewMode === 'FOLLOW' && STATE.curSpeed > 0.001 && !STATE.interacting) {
-            const dist = camera.position.distanceTo(locoPos);
-            const back = new THREE.Vector3(0,0,-1).applyQuaternion(train.loco.quaternion).normalize();
-            const ideal = locoPos.clone().add(back.multiplyScalar(dist)).add(new THREE.Vector3(0, CFG.camHeight, 0));
-            camera.position.lerp(ideal, CFG.camSmooth);
+
+        // [关键修改] 只有在 FOLLOW 模式下才锁定目标
+        // 如果是 FREE 模式，controls.target 不会动，你可以随意拖拽平移
+        if (STATE.viewMode === 'FOLLOW') {
+            controls.target.copy(locoPos);
+            
+            // 自动回正逻辑 (仅在非交互时生效)
+            if (STATE.curSpeed > 0.001 && !STATE.interacting) {
+                const dist = camera.position.distanceTo(locoPos);
+                const back = new THREE.Vector3(0,0,-1).applyQuaternion(train.loco.quaternion).normalize();
+                const ideal = locoPos.clone().add(back.multiplyScalar(dist)).add(new THREE.Vector3(0, CFG.camHeight, 0));
+                camera.position.lerp(ideal, CFG.camSmooth);
+            }
         }
     }
 
