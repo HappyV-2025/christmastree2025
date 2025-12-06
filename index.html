@@ -181,46 +181,32 @@ class AudioEngine {
         const playNext = () => {
             if(!this.isBgmPlaying) return;
             const note = melody[idx];
-            
             if(note.n > 0) {
-                const t = this.ctx.currentTime;
-                // Note duration: 稍微缩短一点发声时间，留出间隔，听起来更清脆
-                const dur = (note.d / 1000) * 0.9; 
+                const t = this.ctx.currentTime, dur = note.d/1000;
                 
-                // 🎹 “冬日风铃”音色合成
-                // 1. 主音 (Sine): 纯净
-                // 2. 泛音 (Triangle): 增加一点点金属感
-                // 3. 高频 (Sine * 2, Sine * 4): 模拟铃铛的高频共振
-                
-                const playOsc = (freq, type, vol, decayMult) => {
+                // 🎹 音色核心：高频泛音叠加
+                const playLayer = (freq, type, vol, decay) => {
                     const osc = this.ctx.createOscillator();
                     osc.type = type;
                     osc.frequency.value = freq;
-                    
-                    const env = this.ctx.createGain();
-                    env.connect(this.nodes.bgm);
-                    osc.connect(env);
-                    
-                    // Envelope (包络)
-                    // 快速 Attack (敲击感)，指数 Decay (延音)
-                    env.gain.setValueAtTime(0, t);
-                    env.gain.linearRampToValueAtTime(vol, t + 0.02); 
-                    env.gain.exponentialRampToValueAtTime(0.001, t + dur * decayMult);
-                    
-                    osc.start(t);
-                    osc.stop(t + dur * decayMult + 0.1);
+                    const gain = this.ctx.createGain();
+                    gain.connect(this.nodes.bgm);
+                    osc.connect(gain);
+                    gain.gain.setValueAtTime(0, t);
+                    gain.gain.linearRampToValueAtTime(vol, t + 0.01); // 极快起音
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
+                    osc.start(t); osc.stop(t + decay + 0.1);
                 };
 
-                // 核心音
-                playOsc(note.n, 'sine', 0.5, 2.0); 
-                // 亮色泛音 (高八度)
-                playOsc(note.n * 2, 'sine', 0.2, 1.5);
-                // 空灵泛音 (高两个八度)
-                playOsc(note.n * 4, 'sine', 0.05, 1.0);
-                // 轻微的敲击声
-                playOsc(note.n, 'triangle', 0.1, 0.5);
+                // 1. 基音 (Sine) - 温暖的主体
+                playLayer(note.n, 'sine', 0.4, dur * 1.5);
+                // 2. 二次谐波 (Sine) - 增加厚度
+                playLayer(note.n * 2, 'sine', 0.2, dur * 1.2);
+                // 3. 敲击声 (Triangle) - 瞬间的高频，模拟敲击金属片
+                playLayer(note.n * 4, 'triangle', 0.05, 0.1); 
+                // 4. 空灵感 (Detuned Sine)
+                playLayer(note.n + 5, 'sine', 0.1, dur);
             }
-            
             this.bgmTimer = setTimeout(playNext, note.d);
             idx = (idx + 1) % melody.length;
         };
