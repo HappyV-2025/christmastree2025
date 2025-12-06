@@ -1,1291 +1,1510 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Christmas Express - Ultimate Edition</title>
-    <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; }
-        #canvas-container { width: 100vw; height: 100vh; display: block; }
-        
-        /* --- 启动页样式 --- */
-        #start-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); backdrop-filter: blur(12px);
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 100; color: white; transition: opacity 0.6s ease-out;
-        }
-        h1 { 
-            font-size: 36px; color: #ffb300; margin-bottom: 20px; letter-spacing: 4px; 
-            text-shadow: 0 0 30px rgba(255, 165, 0, 0.5); text-transform: uppercase; text-align: center;
-        }
-        .intro-card {
-            background: rgba(255,255,255,0.05); padding: 30px; border-radius: 20px;
-            border: 1px solid rgba(255,255,255,0.1); text-align: center; max-width: 90%; width: 400px;
-        }
-        .tips { color: #ccc; font-size: 14px; line-height: 2.2; margin-bottom: 30px; text-align: left; }
-        .key { color: #4fc3f7; font-weight: bold; margin-right: 8px; border-bottom: 1px dashed #4fc3f7; }
-        
-        #start-btn {
-            background: linear-gradient(135deg, #d32f2f, #b71c1c);
-            color: white; border: none; padding: 15px 80px; font-size: 20px; border-radius: 50px;
-            cursor: pointer; box-shadow: 0 0 30px rgba(211, 47, 47, 0.4);
-            transition: transform 0.1s; border: 1px solid rgba(255,255,255,0.2);
-        }
-        #start-btn:active { transform: scale(0.95); }
+    <head>
+        <meta charset="UTF-8"><meta name="viewport"
+            content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <title>Christmas Express: Definitive Edition</title>
+        <style>
+    body{margin:0;overflow:hidden;background:#000;font-family:'Segoe UI',sans-serif;user-select:none}
+    #canvas-container{width:100vw;height:100vh;display:block}
+    /* UI Overlay */
+    #start-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(circle at center,#1b2028 0%,#000 100%);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:100;transition:opacity 0.8s}
+    .card{background:rgba(255,255,255,0.06);padding:40px;border-radius:24px;border:1px solid rgba(255,255,255,0.1);text-align:center;backdrop-filter:blur(20px);box-shadow:0 40px 80px rgba(0,0,0,0.6);width:400px}
+    h1{color:#ffb300;margin:0 0 20px;letter-spacing:4px;text-shadow:0 0 30px rgba(255,165,0,0.5);text-transform:uppercase}
+    .tips{color:#ccc;font-size:14px;line-height:2.2;text-align:left;margin-bottom:30px}
+    .k{color:#4fc3f7;font-weight:bold;margin-right:8px;border-bottom:1px dashed #4fc3f7}
+    button{background:linear-gradient(135deg,#d32f2f,#b71c1c);color:#fff;border:none;padding:16px 60px;font-size:20px;border-radius:50px;cursor:pointer;box-shadow:0 10px 30px rgba(211,47,47,0.4);transition:0.2s;font-weight:bold;letter-spacing:1px}
+    button:hover{transform:scale(1.05);box-shadow:0 15px 40px rgba(211,47,47,0.6)}
+    #hud{position:absolute;top:20px;left:20px;z-index:10;opacity:0;transition:1s}
+    .tag{background:rgba(0,0,0,0.7);color:#fff;padding:8px 18px;border-radius:30px;font-size:14px;border:1px solid #ffffff22;backdrop-filter:blur(5px);display:flex;align-items:center;gap:10px}
+    .dot{width:8px;height:8px;background:#00ff00;border-radius:50%;box-shadow:0 0 8px #00ff00;transition:0.3s}
+    .dot.stop{background:#ff3300;box-shadow:0 0 8px #ff3300}
+    #settings-btn{position:absolute;top:20px;right:20px;z-index:20;width:44px;height:44px;background:rgba(255,255,255,0.1);border-radius:50%;border:1px solid #ffffff33;color:#fff;font-size:20px;display:flex;justify-content:center;align-items:center;cursor:pointer;opacity:0;backdrop-filter:blur(5px)}
+    #settings-modal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;display:none;width:320px}
+    #modal-overlay{position:absolute;top:0;left:0;width:100%;height:100%;z-index:25;display:none;background:rgba(0,0,0,0.5)}
+    #loading{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#666;font-size:12px;letter-spacing:2px}
+</style>
+    </head>
+    <body>
+        <div id="start-screen"><div class="card">
+                <h1>🎄 圣诞快乐</h1>
+                <div class="tips">
+                    <div><span class="k">🚂 点击火车</span> 启动 / 停止 (惯性滑行)</div>
+                    <div><span class="k">🎆 点击空地</span> 燃放物理烟花</div>
+                    <div><span class="k">🖱️ 滚轮缩放</span> 调整跟随距离 (自动记忆)</div>
+                    <div><span class="k">👆 拖动旋转</span> 360° 自由观察</div>
+                </div>
+                <button id="start-btn">鸣笛发车</button>
+            </div></div>
+        <div id="hud"><div class="tag"><div id="d-status"
+                    class="dot"></div><span
+                    id="t-status">智能驾驶模式</span></div></div>
+        <div id="settings-btn">⚙️</div>
+        <div id="modal-overlay"></div><div id="settings-modal"></div>
+        <div id="loading">正在装载礼物与魔法...</div>
+        <div id="canvas-container"></div>
 
-        /* --- 游戏内 UI --- */
-        #hud { 
-            position: absolute; top: 20px; left: 20px; z-index: 10; 
-            pointer-events: none; opacity: 0; transition: opacity 1s; 
-        }
-        .tag { 
-            background: rgba(0,0,0,0.6); color: #fff; padding: 8px 16px; 
-            border-radius: 30px; font-size: 14px; border: 1px solid #ffffff22; 
-            backdrop-filter: blur(4px); display: flex; align-items: center; gap: 8px;
-        }
-        .dot { width: 8px; height: 8px; background: #00ff00; border-radius: 50%; box-shadow: 0 0 5px #00ff00; }
+        <script
+            type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+        <script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-        #settings-btn {
-            position: absolute; top: 20px; right: 20px; z-index: 20;
-            width: 44px; height: 44px; background: rgba(255,255,255,0.1); 
-            backdrop-filter: blur(10px); border-radius: 50%; border: 1px solid rgba(255,255,255,0.2);
-            color: white; font-size: 22px; display: flex; justify-content: center; align-items: center;
-            cursor: pointer; opacity: 0; transition: opacity 1s;
-        }
-        
-        /* --- 设置弹窗 --- */
-        #settings-modal { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 30; display: none; width: 340px; 
-        }
-        #modal-overlay { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            z-index: 25; display: none; background: rgba(0,0,0,0.5); 
-        }
-        
-        #loading { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); color: #666; font-size: 12px; letter-spacing: 2px; }
-    </style>
-</head>
-<body>
 
-    <!-- 启动页 -->
-    <div id="start-screen">
-        <div class="intro-card">
-            <h1>圣诞节🚂小火车</h1>
-            <div class="tips">
-                <div><span class="key">🎆 点击屏幕</span> 燃放节日烟花</div>
-                <div><span class="key">🖱️ 滚轮缩放</span> 调整跟随距离 (距离记忆)</div>
-                <div><span class="key">👆 单指拖动</span> 360° 观察列车 (松手回正)</div>
-                <div><span class="key">⚡ 双击屏幕</span> 切换 上帝/驾驶 视角</div>
-            </div>
-            <button id="start-btn">开始旅程</button>
-        </div>
-    </div>
-
-    <!-- HUD -->
-    <div id="hud">
-        <div class="tag">
-            <div class="dot"></div>
-            <span id="view-text">智能驾驶模式</span>
-        </div>
-    </div>
-    <div id="settings-btn">⚙️</div>
-
-    <div id="modal-overlay"></div>
-    <div id="settings-modal"></div>
-    
-    <div id="loading">正在装载烟花与礼物...</div>
-    <div id="canvas-container"></div>
-
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-
-        // --- 核心参数 ---
-        const PARAMS = {
-            // 🚂 列车
-            trainSpeed: 0.15,
-            carriageGap: 0.009, 
-            wheelSpeed: 2.0,
-            
-            // 🎥 相机
-            camFollowDist: 2.0,  
-            camHeightOffset: 40.0, 
-            camSmooth: 0.02,      
-            
-            // 💡 环境
-            moonIntensity: 1.8,
-            fogDensity: 0.002,
-            bloomStrength: 0.8,
-            bloomThreshold: 1.0,
-            
-            // ✨ 灯光
-            trainLightPower: 60.0,
-            bulbBrightness: 15.0,
-            starBrightness: 25.0,
-            
-            // 🎆 烟花控制
-    		autoFireworks: false,   // 自动开关
-    		fwInterval: 5.0,        // 发射间隔(秒)
-        };
-
-        const STATE = { 
-            started: false, 
-            viewMode: 'FOLLOW', 
-            settingsOpen: false,
-            isUserInteracting: false 
-        };
-
-        let scene, camera, renderer, composer, controls, gui;
-        let train, fireworkMgr, snowSystem;
-        let lights = {}, bloomPass;
-        let groundMesh;
-        let emissiveObjects = []; 
-        let trackCurve, trackPointsSample = [];
-        let autoFwTimer = null; // 用于存储定时器ID
-        const clock = new THREE.Clock();
-        const _vec3 = new THREE.Vector3();
-
-        function init() {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x020408);
-            scene.fog = new THREE.FogExp2(0x020408, PARAMS.fogDensity);
-
-            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
-            camera.position.set(0, 25, 25);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-            renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            document.getElementById('canvas-container').appendChild(renderer.domElement);
-
-            // 模块初始化 (将在后续部分定义)
-            setupLights();
-            generateTrack();
-            createTrackMesh();
-            createEnvironment(); 
-
-            const renderScene = new RenderPass(scene, camera);
-            bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-            bloomPass.threshold = 1.0;
-            bloomPass.strength = PARAMS.bloomStrength;
-            composer = new EffectComposer(renderer);
-            composer.addPass(renderScene);
-            composer.addPass(bloomPass);
-
-            train = new TrainSystem(scene, trackCurve);
-            fireworkMgr = new FireworkManager(scene);
-            snowSystem = new SnowSystem(scene);
-
-            setupControls();
-            setupUI();
-
-            document.getElementById('loading').style.display = 'none';
-            animate();
-        }
-        
-        // (Part 1 结束，请回复 "2" 继续)
-// (接 Part 1)
-
-        // ============================
-        // 🌍 世界构建系统
-        // ============================
-        function setupLights() {
-            // 月光 (HDR)
-            lights.moon = new THREE.DirectionalLight(0xaaccff, PARAMS.moonIntensity);
-            lights.moon.position.set(-80, 120, -80);
-            lights.moon.castShadow = true;
-            lights.moon.shadow.mapSize.set(2048, 2048);
-            lights.moon.shadow.camera.left = -200; lights.moon.shadow.camera.right = 200;
-            lights.moon.shadow.camera.top = 200; lights.moon.shadow.camera.bottom = -200;
-            scene.add(lights.moon);
-
-            // 环境光
-            const ambient = new THREE.AmbientLight(0x404060, 0.3);
-            scene.add(ambient);
-
-            // 地面
-            groundMesh = new THREE.Mesh(
-    			new THREE.CircleGeometry(600, 64), 
-    			new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 1.0, metalness: 0.0 })
-			);
-			groundMesh.rotation.x = -Math.PI / 2; 
-			groundMesh.receiveShadow = true;
-			scene.add(groundMesh); // 2. 这里也要改成 groundMesh
-        }
-
-        function generateTrack() {
-            // 生成复杂的“三叶草”闭合回路
-            const s = 1.4; // 缩放系数
-            const points = [
-                new THREE.Vector3(10*s, 0, 20*s), new THREE.Vector3(50*s, 2, 50*s), new THREE.Vector3(90*s, 0, 0),
-                new THREE.Vector3(50*s, 0, -50*s), new THREE.Vector3(10*s, 0, -20*s), new THREE.Vector3(-20*s, 0, -20*s),
-                new THREE.Vector3(-50*s, 3, -70*s), new THREE.Vector3(-90*s, 0, -50*s), new THREE.Vector3(-60*s, 0, -10*s),
-                new THREE.Vector3(-60*s, 0, 10*s), new THREE.Vector3(-90*s, 0, 50*s), new THREE.Vector3(-50*s, 3, 70*s),
-                new THREE.Vector3(-20*s, 0, 20*s), new THREE.Vector3(0, 0, 0)
-            ];
-            trackCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
-            // 采样600个点用于避障计算
-            trackPointsSample = trackCurve.getPoints(600);
-        }
-
-        function createTrackMesh() {
-            const divisions = 600;
-            // 1. 路基 (黑色防穿帮)
-            const bed = new THREE.Mesh(
-                new THREE.TubeGeometry(trackCurve, divisions, 3.5, 8, true), 
-                new THREE.MeshStandardMaterial({color: 0x080808, roughness: 1})
-            );
-            bed.position.y = -0.2; bed.scale.y = 0.1; 
-            scene.add(bed);
-
-            // 2. 枕木 (InstanceMesh 优化性能)
-            const plankGeo = new THREE.BoxGeometry(5.5, 0.3, 1.2);
-            const plankMat = new THREE.MeshStandardMaterial({color: 0x3e2723});
-            const planks = new THREE.InstancedMesh(plankGeo, plankMat, divisions);
-            const dummy = new THREE.Object3D();
-            
-            for(let i=0; i<divisions; i++) {
-                const t = i/divisions;
-                const pos = trackCurve.getPointAt(t);
-                const tangent = trackCurve.getTangentAt(t);
-                dummy.position.copy(pos); 
-                dummy.lookAt(pos.clone().add(tangent)); 
-                dummy.updateMatrix();
-                planks.setMatrixAt(i, dummy.matrix);
-            }
-            planks.receiveShadow = true; 
-            scene.add(planks);
-        }
-
-        // 🛡️ 核心避障算法：检查坐标是否安全
-        function isSafePosition(x, z) {
-            const safeDistSq = 18 * 18; // 18米安全距离
-            for(let i=0; i<trackPointsSample.length; i+=3) { // 步进3优化性能
-                const dx = trackPointsSample[i].x - x;
-                const dz = trackPointsSample[i].z - z;
-                if ((dx*dx + dz*dz) < safeDistSq) return false;
-            }
-            return true;
-        }
-
-        function createEnvironment() {
-            // 1. 放置地标巨树 (位于环路中心)
-            createHeroTree(60, 0, 2.5); 
-            createHeroTree(-70, 50, 1.1);
-            createHeroTree(-70, -50, 1.4);
-            
-            // 2. 生成森林背景 (自动避障)
-            let planted = 0, attempts = 0;
-            while(planted < 150 && attempts < 4000) {
-                attempts++;
-                const r = 35 + Math.random() * 180;
-                const a = Math.random() * 6.28;
-                const x = Math.cos(a)*r; const z = Math.sin(a)*r;
-                
-                if(isSafePosition(x, z)) {
-                    createNatureTree(x, z);
-                    planted++;
-                }
-            }
-
-            // 3. 生成装饰品 (礼物/雪人/路灯)
-            for(let i=0; i<40; i++) {
-                const x = (Math.random()-0.5)*350; 
-                const z = (Math.random()-0.5)*350;
-                if(isSafePosition(x, z)) {
-                    const r = Math.random();
-                    if(r < 0.3) createGift(x, z);
-                    else if(r < 0.6) createSnowman(x, z);
-                    else createLamp(x, z);
-                }
-            }
-        }
-
-        // --- 物体工厂函数 ---
-
-        function createHeroTree(x, z, scaleFactor) {
-            const group = new THREE.Group();
-            group.position.set(x, 0, z);
-            // 放大树的体积
-            group.scale.set(scaleFactor, scaleFactor, scaleFactor);
-
-            // --- 1. 树干 ---
-            const trunkGeo = new THREE.CylinderGeometry(2.2, 2.8, 14, 16);
-            const trunkMat = new THREE.MeshStandardMaterial({
-                color: 0x3e2723, roughness: 0.9 
-            });
-            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-            trunk.position.y = 7;
-            group.add(trunk);
-
-            // --- 2. 树冠 (7层结构) ---
-            // 定义每一层的参数，供后续计算灯带位置使用
-            const layers = 7;
-            const layerData = []; // 存储每一层的几何信息
-            
-            const leafMat = new THREE.MeshStandardMaterial({
-                color: 0x0f5515, // 经典的深松绿
-                roughness: 0.8,
-                flatShading: true // 低多边形风格
-            });
-
-            for(let i=0; i<layers; i++) {
-                // 越往上越窄
-                const radius = 19 - i * 2.4; 
-                const h = 13; 
-                const y = 11 + i * 6.8; // 层层堆叠
-                
-                const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, h, 16), leafMat);
-                cone.position.y = y;
-                cone.castShadow = true;
-                cone.receiveShadow = true;
-                group.add(cone);
-
-                // 存下数据用于计算灯带贴合
-                // 锥体底部y, 顶部y, 底部半径
-                layerData.push({
-                    yBottom: y - h/2,
-                    yTop: y + h/2,
-                    radius: radius
-                });
-
-                // --- 增加装饰球 (Baubles) ---
-                // 让球挂在树枝末梢
-                if (i < layers - 1) { 
-                    const orbCount = 7 + i;
-                    for(let k=0; k<orbCount; k++) {
-                        const angle = (k / orbCount) * Math.PI * 2 + (i * 1.5); // 错落角度
-                        const r = radius - 0.8; // 挂在边缘往里一点点
-                        const bx = Math.cos(angle) * r;
-                        const bz = Math.sin(angle) * r;
-                        
-                        // 装饰球配色 (红/金/银/蓝)
-                        const cols = [0xd50000, 0xffd700, 0xc0c0c0, 0x2962ff]; 
-                        const orbCol = cols[Math.floor(Math.random()*cols.length)];
-                        
-                        const ball = new THREE.Mesh(
-                            new THREE.SphereGeometry(0.7, 8, 8), 
-                            new THREE.MeshStandardMaterial({
-                                color: orbCol, metalness: 0.8, roughness: 0.2 
-                            })
-                        );
-                        // 让球稍微垂下来一点
-                        ball.position.set(bx, y - h/2 + 0.2, bz);
-                        group.add(ball);
-                    }
-                }
-            }
-
-            // --- 3. 智能贴合表面的五彩灯带 ---
-            
-            // 核心算法：获取任意高度 y 处的树冠表面半径
-            const getTreeRadiusAtY = (y) => {
-                let maxR = 0;
-                // 遍历所有层，看 y 落在哪里
-                layerData.forEach(layer => {
-                    if(y >= layer.yBottom && y <= layer.yTop) {
-                        // 线性插值计算圆锥表面的半径
-                        // 半径 r = BaseR * (1 - (currentY - bottomY) / height)
-                        const h = layer.yTop - layer.yBottom;
-                        const ratio = (y - layer.yBottom) / h;
-                        const r = layer.radius * (1 - ratio);
-                        // 取最大值（因为层与层有重叠，我们要最外面的那个面）
-                        if(r > maxR) maxR = r;
-                    }
-                });
-                return maxR;
-            };
-
-            const lightColors = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff]; // 五颜六色
-            const totalBulbs = 110; // 灯泡总数
-            const spiralTurns = 4.0; // 缠绕圈数
-            const startY = 5;       // 起始高度
-            const endY = 60;         // 结束高度
-
-            for(let i=0; i<totalBulbs; i++) {
-                const t = i / totalBulbs;
-                
-                // 1. 基础高度 (线性上升)
-                let y = startY + t * (endY - startY);
-                
-                // 2. 计算当前高度对应的树表面半径 (关键！)
-                // +0.6 是为了让灯泡浮在树叶表面，不要陷进去
-                const surfaceR = getTreeRadiusAtY(y) + 0.6; 
-                
-                // 如果半径太小(比如到了树尖以上)，就不生成了
-                if(surfaceR <= 0.5) continue;
-
-                // 3. 计算螺旋角度
-                const angle = t * Math.PI * 2 * spiralTurns;
-
-                // 4. 计算坐标
-                const x = Math.cos(angle) * surfaceR;
-                const z = Math.sin(angle) * surfaceR;
-
-                // 5. 增加一点“自然垂坠感” (Noise)
-                // 让 y 轴稍微随机一点点，模拟电线不规则的挂着
-                y -= Math.random() * 0.3;
-
-                // 6. 随机颜色
-                const color = lightColors[Math.floor(Math.random() * lightColors.length)];
-
-                const bulb = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.45, 8, 8),
-                    new THREE.MeshStandardMaterial({
-                        color: color,
-                        emissive: color,
-                        // 绑定全局亮度参数
-                        emissiveIntensity: PARAMS.bulbBrightness 
-                    })
-                );
-                bulb.position.set(x, y, z);
-                bulb.userData = { type: 'bulb' }; // 标记用于GUI控制
-                emissiveObjects.push(bulb);
-                group.add(bulb);
-            }
-
-            // --- 4. 树顶巨星 (加亮) ---
-            const starGeo = new THREE.OctahedronGeometry(4.0, 0);
-            const starMat = new THREE.MeshBasicMaterial({ color: 0xffeb3b }); 
-            const star = new THREE.Mesh(starGeo, starMat);
-            star.position.y = 62; // 树顶高度
-            
-            // 星星外发光 (Halo)
-            const glow = new THREE.Mesh(
-                new THREE.OctahedronGeometry(6.0, 0),
-                new THREE.MeshBasicMaterial({ 
-                    color: 0xffaa00, 
-                    transparent: true, 
-                    opacity: 0.25, 
-                    blending: THREE.AdditiveBlending,
-                    side: THREE.BackSide
-                })
-            );
-            star.add(glow);
-
-            // 树顶专属点光源 (照亮迷雾)
-            const topLight = new THREE.PointLight(0xffaa00, 150, 80);
-            topLight.position.set(0, 2, 0);
-            star.add(topLight);
-
-            star.userData = { type: 'star' };
-            emissiveObjects.push(star);
-            group.add(star);
-
-            scene.add(group);
-        }
-
-        function createNatureTree(x, z) {
-            const g = new THREE.Group(); g.position.set(x,0,z); 
-            const s = 0.8 + Math.random()*0.8; g.scale.set(s,s,s);
-            const t = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.8,3,5), new THREE.MeshStandardMaterial({color:0x3e2723})); 
-            t.position.y=1.5; g.add(t);
-            const m = new THREE.MeshStandardMaterial({color:0x1b3e20});
-            for(let i=0;i<3;i++){
-                const c = new THREE.Mesh(new THREE.ConeGeometry(4-i, 5, 7), m); 
-                c.position.y = 3.5 + i*3; c.castShadow = true; g.add(c);
-            }
-            scene.add(g);
-        }
-
-        function createGift(x, z) {
-            const g = new THREE.Group(); g.position.set(x,0,z); g.rotation.y = Math.random();
-            const b = new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5), new THREE.MeshStandardMaterial({color:Math.random()*0xffffff}));
-            b.position.y = 0.75; b.castShadow = true; g.add(b); scene.add(g);
-        }
-
-        function createSnowman(x, z) {
-            const g = new THREE.Group(); g.position.set(x,0,z); g.rotation.y = Math.random();
-            const m = new THREE.MeshStandardMaterial({color:0xffffff});
-            const b1 = new THREE.Mesh(new THREE.SphereGeometry(1.2,8,8), m); b1.position.y=1; g.add(b1);
-            const b2 = new THREE.Mesh(new THREE.SphereGeometry(0.8,8,8), m); b2.position.y=2.5; g.add(b2);
-            scene.add(g);
-        }
-
-        function createLamp(x, z) {
-            const g = new THREE.Group(); g.position.set(x,0,z);
-            const p = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,7), new THREE.MeshStandardMaterial({color:0x111})); 
-            p.position.y=3.5; g.add(p);
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshStandardMaterial({
-                color:0xffaa00, emissive:0xffaa00, emissiveIntensity:10
-            }));
-            b.position.y=7; b.userData={type:'bulb'}; emissiveObjects.push(b); g.add(b); 
-            scene.add(g); 
-        }
-
-        // (Part 2 结束，请回复 "3" 继续)
-      
-      // (接 Part 2)
-
-        // ============================
-// 🚂 火车系统 (修正版：Q版比例 + 紧密连接 + 12节长编组)
 // ============================
-class TrainSystem {
-    constructor(scene, curve) {
-        this.scene = scene; 
-        this.curve = curve;
-        this.group = new THREE.Group();
-        this.smokes = []; 
-        this.progress = 0;
-        this.wheels = []; 
+// 3. 替换 AudioEngine 类 (拟真蒸汽鸣笛 + 响亮行驶声)
+// ============================
+class AudioEngine {
+    constructor() {
+        this.ctx = null;
+        this.nodes = {};
+        this.nextChug = 0;
+        this.bgmTimer = null;
+        this.isBgmPlaying = false;
         
-        // 0. 光晕贴图 (保持之前的好效果)
-        const canvas = document.createElement('canvas');
-        canvas.width = 64; canvas.height = 64;
-        const ctx = canvas.getContext('2d');
-        const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');     
-        gradient.addColorStop(0.2, 'rgba(255, 220, 100, 0.8)'); 
-        gradient.addColorStop(0.5, 'rgba(255, 150, 0, 0.3)');   
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');           
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, 64, 64);
-        this.glareTexture = new THREE.CanvasTexture(canvas);
-
-        // 1. 创建车头 (缩短)
-        this.loco = this.createDetailedLoco();
-        this.group.add(this.loco);
-        
-        // 2. 创建车厢 (增加到 12 节！)
-        this.cars = [];
-        for(let i=1; i<=12; i++) {
-            const car = this.createDetailedCar(i);
-            this.group.add(car);
-            this.cars.push(car);
-        }
-        
-        // 3. 初始化间距
-        this.refreshGap();
-        scene.add(this.group);
+        // 🎚️ 默认音量配置
+        this.vol = {
+            master: 0.7,    // 总音量稍大
+            bgm: 0.6,       // BGM 适中，不要盖过音效
+            train: 0.8,     // 火车声清晰
+            firework: 1.0   // 烟花震撼
+        };
     }
 
-    // --- 间距核心修正 ---
-    refreshGap() { 
-        this.cars.forEach((c, i) => {
-            // 关键调整：
-            // 车身现在约 5个单位长。轨道总长约 600-700。
-            // 0.007 是经过计算匹配短车身的最佳间距，保证连接杆正好接触
-            const gapStep = 0.0075 + (PARAMS.carriageGap * 0.2); 
-            c.userData.tOffset = (i + 1) * gapStep;
-        }); 
+    init() {
+        if (!this.ctx) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // 混音链路
+            this.nodes.master = this.ctx.createGain();
+            this.nodes.bgm = this.ctx.createGain();
+            this.nodes.train = this.ctx.createGain();
+            this.nodes.fw = this.ctx.createGain();
+
+            this.nodes.bgm.connect(this.nodes.master);
+            this.nodes.train.connect(this.nodes.master);
+            this.nodes.fw.connect(this.nodes.master);
+            this.nodes.master.connect(this.ctx.destination);
+
+            this.updateVols();
+
+            // 生成通用噪音 Buffer (用于模拟气流、爆炸)
+            const bSize = this.ctx.sampleRate * 2;
+            this.noiseBuf = this.ctx.createBuffer(1, bSize, this.ctx.sampleRate);
+            const out = this.noiseBuf.getChannelData(0);
+            for (let i = 0; i < bSize; i++) {
+                // 混合白噪音和粉红噪音，质感更好
+                const white = Math.random() * 2 - 1;
+                out[i] = (lastOut + (0.02 * white)) / 1.02; // 简单的低通滤波模拟粉红噪音
+                lastOut = out[i];
+                out[i] *= 3.5; // 补偿音量
+            }
+        }
+        if (this.ctx.state === 'suspended') this.ctx.resume();
     }
     
-    createDetailedLoco() {
-        const g = new THREE.Group();
+    updateVols() {
+        if(!this.ctx) return;
+        const t = this.ctx.currentTime;
+        this.nodes.master.gain.setTargetAtTime(this.vol.master, t, 0.1);
+        this.nodes.bgm.gain.setTargetAtTime(this.vol.bgm, t, 0.1);
+        this.nodes.train.gain.setTargetAtTime(this.vol.train, t, 0.1);
+        this.nodes.fw.gain.setTargetAtTime(this.vol.firework, t, 0.1);
+    }
+
+    // 🎵 BGM: 绝对标准版《Jingle Bells》 (主歌+副歌完整循环)
+    playBGM() {
+        if(!this.ctx || this.isBgmPlaying) return;
+        this.isBgmPlaying = true;
         
-        const bodyMat = new THREE.MeshStandardMaterial({
-            color: 0xb71c1c, roughness: 0.3, metalness: 0.6,
-            emissive: 0x550000, emissiveIntensity: 0.4
-        });
-        const blackMat = new THREE.MeshStandardMaterial({color:0x111111, roughness:0.7});
-        const goldMat = new THREE.MeshStandardMaterial({color:0xffb300, roughness:0.2, metalness:0.8});
-
-        // 1. 锅炉 (缩短到 5.0，比例更协调)
-        const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 5.0, 16), bodyMat);
-        boiler.rotation.x = Math.PI/2; boiler.position.set(0, 3.6, 1.0); g.add(boiler);
-
-        // 驾驶室
-        const cab = new THREE.Mesh(new THREE.BoxGeometry(3.8, 5.2, 3.2), bodyMat);
-        cab.position.set(0, 4.1, -2.5); g.add(cab);
-        
-        // 烟囱
-        this.chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.6, 1.8), blackMat);
-        this.chimney.position.set(0, 4.5, 2.5); g.add(this.chimney);
-        this.smokeSource = this.chimney; 
-
-        // 排障器
-        const cow = new THREE.Mesh(new THREE.ConeGeometry(2.0, 1.5, 4), blackMat);
-        cow.rotation.x = -Math.PI/2; cow.rotation.y = Math.PI/4; 
-        cow.scale.set(1, 0.5, 1); cow.position.set(0, 1.0, 4.5); g.add(cow);
-
-        // 轮组 (更紧凑)
-        const addWheel = (z, radius) => {
-            const wGeo = new THREE.CylinderGeometry(radius, radius, 0.5, 16); wGeo.rotateZ(Math.PI/2);
-            const w1 = new THREE.Mesh(wGeo, blackMat); w1.position.set(1.9, radius, z);
-            const w2 = new THREE.Mesh(wGeo, blackMat); w2.position.set(-1.9, radius, z);
-            g.add(w1); g.add(w2);
-            this.wheels.push(w1, w2);
-            if(radius > 1.0) { 
-                const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.7,8), goldMat);
-                hub.rotation.z = Math.PI/2; w1.add(hub); w2.add(hub.clone());
-            }
+        // 标准音高 (C大调)
+        const N = { 
+            G3:196, A3:220, B3:247, 
+            C4:262, D4:294, E4:330, F4:349, G4:392, A4:440, B4:494, 
+            C5:523, D5:587, E5:659 
         };
-        addWheel(0, 1.3); addWheel(2.2, 1.3); addWheel(-1.5, 1.3); // 动轮
-        addWheel(4.0, 0.8); // 导轮
+        
+        // 基础拍速 (BPM 约 100)
+        const Q = 500;  // 四分音符 (1拍)
+        const H = 1000; // 二分音符 (2拍)
+        const W = 2000; // 全音符 (4拍)
+        
+        const melody = [
+            // === 主歌 Verse (Dashing through the snow) ===
+            // 1. Dashing through the snow
+            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.G3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+            // 2. In a one horse open sleigh
+            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.A3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+            // 3. O'er the fields we go
+            {n:N.A3,d:Q}, {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.B3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+            // 4. Laughing all the way
+            {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.E4,d:H}, {n:0,d:Q}, {n:0,d:Q},
+            
+            // 5. Bells on bobtail ring
+            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.G3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+            // 6. Making spirits bright
+            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.A3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+            // 7. What fun it is to ride and sing
+            {n:N.A3,d:Q}, {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q},
+            // 8. A sleighing song tonight
+            {n:N.A4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:H}, {n:N.G4,d:H}, // 最后G4是过渡
 
-        // 灯光 (保持)
-        const bulb = new THREE.Mesh(new THREE.CircleGeometry(0.5, 32), new THREE.MeshBasicMaterial({color: 0xffaa00}));
-        bulb.position.set(0, 5.2, 3.6); g.add(bulb);
+            // === 副歌 Chorus (Jingle Bells) ===
+            // 9. Jingle bells, jingle bells
+            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+            // 10. Jingle all the way
+            {n:N.E4,d:Q}, {n:N.G4,d:Q}, {n:N.C4,d:Q*1.5}, {n:N.D4,d:Q/2}, {n:N.E4,d:W},
+            // 11. Oh what fun it is to ride
+            {n:N.F4,d:Q}, {n:N.F4,d:Q}, {n:N.F4,d:Q*1.5}, {n:N.F4,d:Q/2},
+            {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, 
+            // 12. In a one horse open sleigh
+            {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.D4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:H}, {n:N.G4,d:H},
 
-        const spriteMat = new THREE.SpriteMaterial({ 
-            map: this.glareTexture, color: 0xffdd88, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false 
+            // 13. Jingle bells, jingle bells (Repeat)
+            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+            // 14. Jingle all the way
+            {n:N.E4,d:Q}, {n:N.G4,d:Q}, {n:N.C4,d:Q*1.5}, {n:N.D4,d:Q/2}, {n:N.E4,d:W},
+            // 15. Oh what fun it is to ride
+            {n:N.F4,d:Q}, {n:N.F4,d:Q}, {n:N.F4,d:Q*1.5}, {n:N.F4,d:Q/2},
+            {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, 
+            // 16. In a one horse open sleigh! (Ending)
+            {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:W}, {n:0,d:W}
+        ];
+
+        let idx = 0;
+        const playNext = () => {
+            if(!this.isBgmPlaying) return;
+            const note = melody[idx];
+            
+            if(note.n > 0) {
+                const t = this.ctx.currentTime;
+                // Note duration: 稍微缩短一点发声时间，留出间隔，听起来更清脆
+                const dur = (note.d / 1000) * 0.9; 
+                
+                // 🎹 “冬日风铃”音色合成
+                // 1. 主音 (Sine): 纯净
+                // 2. 泛音 (Triangle): 增加一点点金属感
+                // 3. 高频 (Sine * 2, Sine * 4): 模拟铃铛的高频共振
+                
+                const playOsc = (freq, type, vol, decayMult) => {
+                    const osc = this.ctx.createOscillator();
+                    osc.type = type;
+                    osc.frequency.value = freq;
+                    
+                    const env = this.ctx.createGain();
+                    env.connect(this.nodes.bgm);
+                    osc.connect(env);
+                    
+                    // Envelope (包络)
+                    // 快速 Attack (敲击感)，指数 Decay (延音)
+                    env.gain.setValueAtTime(0, t);
+                    env.gain.linearRampToValueAtTime(vol, t + 0.02); 
+                    env.gain.exponentialRampToValueAtTime(0.001, t + dur * decayMult);
+                    
+                    osc.start(t);
+                    osc.stop(t + dur * decayMult + 0.1);
+                };
+
+                // 核心音
+                playOsc(note.n, 'sine', 0.5, 2.0); 
+                // 亮色泛音 (高八度)
+                playOsc(note.n * 2, 'sine', 0.2, 1.5);
+                // 空灵泛音 (高两个八度)
+                playOsc(note.n * 4, 'sine', 0.05, 1.0);
+                // 轻微的敲击声
+                playOsc(note.n, 'triangle', 0.1, 0.5);
+            }
+            
+            this.bgmTimer = setTimeout(playNext, note.d);
+            idx = (idx + 1) % melody.length;
+        };
+        playNext();
+    }
+    
+    stopBGM() { this.isBgmPlaying = false; clearTimeout(this.bgmTimer); }
+
+    // 🚂 蒸汽鸣笛 (带ADSR包络，解决突然消失的问题)
+    whistle() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        const g = this.ctx.createGain();
+        g.connect(this.nodes.train);
+
+        // 1. 双音调 (模拟走音的铜管)
+        const freqs = [350, 420]; 
+        freqs.forEach(f => {
+            const o = this.ctx.createOscillator(); 
+            o.type = 'sawtooth'; 
+            // 低通滤波让声音变暖
+            const lpf = this.ctx.createBiquadFilter();
+            lpf.type = 'lowpass'; lpf.frequency.value = 1000;
+            o.connect(lpf); lpf.connect(g);
+            o.frequency.setValueAtTime(f, t);
+            o.frequency.linearRampToValueAtTime(f + 5, t + 0.5); // 气压上升导致的音高微升
+            o.start(t); o.stop(t + 2.5);
         });
-        const glare = new THREE.Sprite(spriteMat);
-        glare.position.set(0, 5.2, 4.0); glare.scale.set(10, 10, 1); g.add(glare);
 
-        const s = new THREE.SpotLight(0xffccaa, 400, 120, 0.8, 0.5); 
-        s.position.set(0, 5.2, 3.8); s.target.position.set(0, -5, 30); 
-        s.castShadow = true; s.shadow.bias = -0.0001;
-        g.add(s); g.add(s.target);
+        // 2. 气流噪音 (模拟喷气声)
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = this.noiseBuf;
+        const nFilter = this.ctx.createBiquadFilter();
+        nFilter.type = 'bandpass'; nFilter.frequency.value = 700;
+        const nGain = this.ctx.createGain(); nGain.gain.value = 0.5;
+        noise.connect(nFilter); nFilter.connect(nGain); nGain.connect(g);
+        noise.start(t); noise.stop(t + 2.5);
+
+        // 3. 关键：音量包络 (淡入淡出)
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.8, t + 0.3); // 0.3秒淡入 (气压建立)
+        g.gain.setValueAtTime(0.8, t + 1.5); // 保持
+        g.gain.exponentialRampToValueAtTime(0.001, t + 2.5); // 1秒长尾音淡出
+    }
+
+    // 🚂 行驶声 (节奏随速度变化)
+    chug(speed) { // 注意：去掉 max 参数，不需要它了
+        if (!this.ctx || speed < 0.001) return;
+        const t = this.ctx.currentTime;
         
-        // 关键：车头后方的连接器 (凸出)
-        const coupler = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.0, 8), blackMat);
-        coupler.rotation.x = Math.PI/2; coupler.position.set(0, 2.0, -4.2); g.add(coupler);
+        // 算法修正：速度越快，间隔越小 (反比关系)
+        // 0.05(慢速) -> 间隔 0.3s
+        // 0.30(快速) -> 间隔 0.1s
+        // 限制最小间隔 0.08s，防止快成电流声
+        const interval = Math.max(0.08, 1.0 / (speed * 45)); 
         
+        if (t >= this.nextChug) {
+            this.nextChug = t + interval;
+            const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf;
+            
+            // 速度越快，声音越脆 (Filter频率升高)
+            const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; 
+            f.frequency.value = 200 + speed * 2500; // 基于绝对速度
+
+            const g = this.ctx.createGain();
+            // 音量也基于绝对速度
+            const vol = 0.2 + speed * 1.5; 
+            g.gain.setValueAtTime(vol, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.1); 
+
+            src.connect(f); f.connect(g); g.connect(this.nodes.train);
+            src.start(t); src.stop(t + 0.15);
+        }
+    }
+
+    // 🎆 烟花爆炸 (3种随机类型)
+    explode() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        const rnd = Math.random();
+        
+        const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf;
+        const f = this.ctx.createBiquadFilter(); 
+        const g = this.ctx.createGain();
+        
+        // 随机音高微调
+        const detune = (Math.random() - 0.5) * 200;
+
+        if(rnd < 0.33) {
+            // A. 沉闷巨响 (Boom)
+            f.type = 'lowpass'; f.frequency.value = 200 + detune;
+            g.gain.setValueAtTime(3.0, t); 
+            g.gain.exponentialRampToValueAtTime(0.01, t + 1.5); // 长尾
+        } else if (rnd < 0.66) {
+            // B. 清脆炸裂 (Crack)
+            f.type = 'highpass'; f.frequency.value = 800 + detune;
+            g.gain.setValueAtTime(1.5, t); 
+            g.gain.exponentialRampToValueAtTime(0.01, t + 0.4); // 短促
+        } else {
+            // C. 标准爆炸 (Standard)
+            f.type = 'lowpass'; f.frequency.setValueAtTime(800, t); 
+            f.frequency.linearRampToValueAtTime(50, t + 0.5); // 扫频
+            g.gain.setValueAtTime(2.0, t); 
+            g.gain.exponentialRampToValueAtTime(0.01, t + 1.0);
+        }
+        
+        src.connect(f); f.connect(g); g.connect(this.nodes.fw);
+        src.start(t); src.stop(t + 1.6);
+    }
+}
+let lastOut = 0; // 辅助变量
+const audio = new AudioEngine();
+
+// ============================
+// ⚙️ 全局配置 & 状态
+// ============================
+// 1. 修改 CFG 配置 (调低雾浓度，调整Bloom)
+const CFG = {
+    // 🚂 物理
+    maxSpeed: 0.22, accel: 0.005, decel: 0.003, wheelMult: 2.0, carriageGap: 0.009,
+    
+    // 🎥 相机
+    camHeight: 20, camSmooth: 0.04,
+    
+    // 💡 视觉修正
+    moonInt: 2.5, 
+    // [修复] 雾气极淡，配合黑色背景
+    fogDen: 0.0004, 
+    
+    // [修复] 阈值设为 0.05 (稍稍抬高一点点，防止背景底噪发光)，强度适中
+    bloomStr: 0.7,  
+    bloomThr: 0.02, 
+    
+    lightPow: 100, bulbBri: 30,
+    autoFw: false, fwRate: 5
+};
+
+const STATE = {
+    started: false,
+    viewMode: 'FOLLOW', // FOLLOW | FREE
+    settings: false,
+    interacting: false, // 用户正在拖动
+    running: true, // 目标状态：是否应该跑
+    curSpeed: 0,   // 当前实际物理速度
+    clickTime: 0
+};
+
+let scene, camera, renderer, composer, controls, gui;
+let train, fwMgr, snowMgr, trackCurve;
+let lights={}, bloomPass;
+let ground, trackPoints=[];
+let autoTimer=null;
+const clock = new THREE.Clock();
+const ray = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const vec3 = new THREE.Vector3();
+const emissives = []; // 用于统一调光
+
+// ============================
+// 🚀 初始化与循环
+// ============================
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000); // 纯黑背景
+    scene.fog = new THREE.FogExp2(0x000000, CFG.fogDen);
+
+    camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 4000);
+    camera.position.set(0, 150, 150);
+
+    // [兼容性] 1. 强制关闭抗锯齿，降低显存消耗
+    renderer = new THREE.WebGLRenderer({
+        antialias: false, 
+        powerPreference: "high-performance",
+        depth: true,
+        stencil: false // 关闭模板缓冲，省显存
+    });
+    renderer.setSize(innerWidth, innerHeight);
+    
+    // [性能] 2. 锁死像素比。高分屏手机渲染压力太大，限制在 1.5 足够清晰且流畅
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.3;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    buildLights();
+    buildTrack();
+    buildEnv();
+
+    // [兼容性] 3. 使用 UnsignedByteType 替代 HalfFloatType
+    // 很多老安卓机不支持浮点纹理，这是导致黑屏的元凶
+    const rt = new THREE.WebGLRenderTarget(
+        innerWidth * renderer.getPixelRatio(),
+        innerHeight * renderer.getPixelRatio(),
+        { 
+            type: THREE.UnsignedByteType, // 标准格式，兼容性 100%
+            stencilBuffer: false,
+            depthBuffer: true
+        }
+    );
+
+    const rp = new RenderPass(scene, camera);
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 1.5, 0.4, 0.85);
+    bloomPass.threshold = CFG.bloomThr; 
+    bloomPass.strength = CFG.bloomStr; 
+    bloomPass.radius = 0.5;
+
+    composer = new EffectComposer(renderer, rt);
+    composer.addPass(rp);
+    composer.addPass(bloomPass);
+
+    train = new Train(scene, trackCurve);
+    fwMgr = new Fireworks(scene);
+    snowMgr = new Snow(scene);
+
+    setupControls();
+    setupUI();
+    
+    document.getElementById('loading').style.display='none';
+    animate();
+}
+
+// ============================
+// animate 函数 (支持 Instanced LED 闪烁)
+// ============================
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    const time = clock.getElapsedTime();
+
+    if(STATE.running) { if(STATE.curSpeed < CFG.maxSpeed) STATE.curSpeed += CFG.accel; } 
+    else { if(STATE.curSpeed > 0) STATE.curSpeed -= CFG.decel; if(STATE.curSpeed < 0) STATE.curSpeed = 0; }
+
+    if(train) train.update(dt, STATE.curSpeed);
+    if(fwMgr) fwMgr.update();
+    if(snowMgr) snowMgr.update(dt);
+
+    // 🌟 灯光动画
+    emissives.forEach(obj => {
+        // [LED Instanced]
+        if(obj.userData.type === 'led_instanced') {
+            const data = obj.userData.data;
+            const tempCol = new THREE.Color();
+            
+            for(let i=0; i<obj.count; i++) {
+                const item = data[i];
+                const val = Math.sin(time * item.speed + item.offset);
+                // [优化] 亮度范围：0.5 ~ 3.0 (HDR)
+                // 提高上限，让 Bloom 炸开，模拟“照亮周围”的视觉假象
+                const intensity = 0.5 + 1.25 * (val + 1); 
+                
+                tempCol.copy(item.baseCol).multiplyScalar(intensity);
+                obj.setColorAt(i, tempCol);
+            }
+            if(obj.instanceColor) obj.instanceColor.needsUpdate = true;
+        }
+
+        // [普通灯泡] (路灯等)
+        if(obj.userData.type === 'bulb') {
+            if(obj.userData.baseCol) {
+                const blink = 0.6 + 0.4 * Math.sin(time * 3.0 + obj.userData.phase);
+                const intensity = 1.0 + blink * (CFG.bulbBri / 8); 
+                obj.material.color.copy(obj.userData.baseCol).multiplyScalar(intensity);
+            }
+        }
+        
+        // [星星]
+        if(obj.userData.type === 'star') {
+            // 金色 -> 白金色 呼吸
+            obj.material.color.setHSL(0.14, 1.0, 0.5 + 0.4 * Math.sin(time * 1.5));
+        }
+        
+        if(obj.userData.type === 'headlight') { 
+             obj.material.color.setHex(0xffdd88).multiplyScalar(CFG.lightPow/30);
+        }
+        if(obj.userData.type === 'headlight_spot') {
+            obj.intensity = CFG.lightPow;
+        }
+    });
+
+    if(STATE.started && train && train.loco) {
+        const locoPos = train.loco.position;
+        controls.target.copy(locoPos);
+        if(STATE.viewMode === 'FOLLOW' && STATE.curSpeed > 0.001 && !STATE.interacting) {
+            const dist = camera.position.distanceTo(locoPos);
+            const back = new THREE.Vector3(0,0,-1).applyQuaternion(train.loco.quaternion).normalize();
+            const ideal = locoPos.clone().add(back.multiplyScalar(dist)).add(new THREE.Vector3(0, CFG.camHeight, 0));
+            camera.position.lerp(ideal, CFG.camSmooth);
+        }
+    }
+
+    controls.update();
+    composer.render();
+}
+
+// ============================
+// 🌍 世界构建
+// ============================
+function buildLights() {
+    const moon = new THREE.DirectionalLight(0xaaccff, CFG.moonInt);
+    moon.position.set(-80, 150, -80);
+    moon.castShadow=true; 
+    moon.shadow.mapSize.set(2048,2048);
+    moon.shadow.camera.left=-400; moon.shadow.camera.right=400;
+    moon.shadow.camera.top=400; moon.shadow.camera.bottom=-400;
+    scene.add(moon); lights.moon = moon;
+
+    // 月亮实体
+    const mMesh = new THREE.Mesh(new THREE.SphereGeometry(15,32,32), new THREE.MeshBasicMaterial({color:0xffffee, fog:false}));
+    mMesh.position.copy(moon.position).normalize().multiplyScalar(900);
+    scene.add(mMesh);
+
+    // 星空
+    const sg = new THREE.BufferGeometry();
+    const sp = [];
+    for(let i=0;i<3000;i++) {
+        const r=800+Math.random()*200;
+        const th=Math.random()*Math.PI*2;
+        const ph=Math.acos(2*Math.random()-1);
+        if(Math.cos(ph)<0) continue; // 只在天上
+        sp.push(r*Math.sin(ph)*Math.cos(th), Math.abs(r*Math.cos(ph)), r*Math.sin(ph)*Math.sin(th));
+    }
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(sp,3));
+    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0xffffff, size:1.5, transparent:true, opacity:0.8, fog:false})));
+
+    scene.add(new THREE.AmbientLight(0x303050, 0.4));
+    
+    // 地面
+    ground = new THREE.Mesh(new THREE.CircleGeometry(1000,64), new THREE.MeshStandardMaterial({color:0x8899aa, roughness:1, metalness:0.1}));
+    ground.rotation.x = -Math.PI/2; ground.receiveShadow=true;
+    scene.add(ground);
+}
+
+function buildTrack() {
+    // 复杂闭合轨道
+    const s = 1.5; 
+    const pts = [
+        new THREE.Vector3(10*s, 0, 20*s), new THREE.Vector3(50*s, 2, 50*s), new THREE.Vector3(90*s, 0, 0),
+        new THREE.Vector3(50*s, 0, -50*s), new THREE.Vector3(10*s, 0, -20*s), new THREE.Vector3(-20*s, 0, -20*s),
+        new THREE.Vector3(-50*s, 3, -70*s), new THREE.Vector3(-90*s, 0, -50*s), new THREE.Vector3(-60*s, 0, -10*s),
+        new THREE.Vector3(-60*s, 0, 10*s), new THREE.Vector3(-90*s, 0, 50*s), new THREE.Vector3(-50*s, 3, 70*s),
+        new THREE.Vector3(-20*s, 0, 20*s), new THREE.Vector3(0, 0, 0)
+    ];
+    trackCurve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
+    trackPoints = trackCurve.getPoints(600);
+
+    const divs = 900;
+    // 路基
+    const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
+    bed.position.y=-0.2; bed.scale.y=0.1; scene.add(bed);
+    
+    // 枕木
+    const pg = new THREE.BoxGeometry(6, 0.3, 1.2);
+    const pm = new THREE.MeshStandardMaterial({color:0x3e2723});
+    const pi = new THREE.InstancedMesh(pg, pm, divs);
+    const dum = new THREE.Object3D();
+    for(let i=0;i<divs;i++){
+        const t=i/divs; const p=trackCurve.getPointAt(t); const tan=trackCurve.getTangentAt(t);
+        dum.position.copy(p); dum.lookAt(p.clone().add(tan)); dum.updateMatrix();
+        pi.setMatrixAt(i, dum.matrix);
+    }
+    pi.receiveShadow=true; scene.add(pi);
+
+    // 双铁轨 (Visual Hack)
+    const rm = new THREE.MeshStandardMaterial({color:0x666666, metalness:0.8, roughness:0.3});
+    const trL = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 0.15, 6, true), rm); trL.position.y=0.35; 
+    // 右轨用一个宽扁管模拟
+    const trFlat = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 2.4, 3, true), new THREE.MeshStandardMaterial({color:0x444444, metalness:0.7, roughness:0.4}));
+    trFlat.scale.y=0.04; trFlat.position.y=0.32; scene.add(trFlat);
+}
+
+function buildEnv() {
+    // 英雄树 (保持不变)
+    createHeroTree(60, 0, 2.5); createHeroTree(-70, 50, 1.2); createHeroTree(-70, -50, 1.4);
+
+    // 🌲 升级版森林：合并几何体制作层级松树
+    const treeGeo = new THREE.BufferGeometry();
+    
+    // 创建三层树叶
+    const c1 = new THREE.ConeGeometry(3, 5, 8); c1.translate(0, 2.5, 0); // 底层
+    const c2 = new THREE.ConeGeometry(2.2, 4, 8); c2.translate(0, 5.5, 0); // 中层
+    const c3 = new THREE.ConeGeometry(1.5, 3, 8); c3.translate(0, 8.0, 0); // 顶层
+    
+    // *注意*：为了简便合并，这里直接使用 BufferGeometryUtils 的逻辑简化版，或者直接手动合并
+    // 为了不引入新库，我们只用 Instance 渲染最主要的一层，或者我们简单点：
+    // 使用一个形状更好的 Geometry: 
+    // 直接用一个高圆锥模拟，或者... 还是用圆锥吧，但是调好比例
+    // 更好的方案：我们创建 3 个 InstancedMesh 分别对应树的下中上层，这样造型最好
+    
+    const matTree = new THREE.MeshStandardMaterial({color:0x0f3315, roughness:0.9});
+    const matSnow = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.6}); // 树顶雪
+    
+    const count = 700; // 减少数量，避免太密
+    
+    // 我们用三个 Mesh 拼成一棵树
+    const meshBot = new THREE.InstancedMesh(new THREE.ConeGeometry(3.5, 5, 7), matTree, count);
+    const meshMid = new THREE.InstancedMesh(new THREE.ConeGeometry(2.5, 4, 7), matTree, count);
+    const meshTop = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 3, 7), matSnow, count); // 顶层做成雪
+    
+    meshBot.castShadow=true; meshBot.receiveShadow=true;
+    meshMid.castShadow=true; meshMid.receiveShadow=true;
+    
+    const dummy = new THREE.Object3D();
+    let idx = 0;
+    
+    for(let i=0; i<3000; i++) {
+        if(idx >= count) break;
+        
+        // 范围扩大
+        const r = 60 + Math.random()*380;
+        const a = Math.random()*6.28;
+        const x = Math.cos(a)*r, z = Math.sin(a)*r;
+        
+        // 避障检测
+        let safe=true;
+        const distSq = 25*25; // 加大安全距离
+        for(let k=0; k<trackPoints.length; k+=10) { // 降低采样频率优化性能
+            const dx = trackPoints[k].x - x, dz = trackPoints[k].z - z;
+            if((dx*dx + dz*dz) < distSq) { safe=false; break; }
+        }
+
+        if(safe) {
+            // 🌲 随机大小：0.6 到 2.2 倍，差异化巨大
+            const s = 0.6 + Math.random() * 1.6; 
+            
+            // 随机旋转
+            const rotY = Math.random() * Math.PI;
+            
+            // 底层
+            dummy.position.set(x, 2.5*s, z); 
+            dummy.scale.set(s,s,s); 
+            dummy.rotation.y = rotY; 
+            dummy.updateMatrix();
+            meshBot.setMatrixAt(idx, dummy.matrix);
+            
+            // 中层
+            dummy.position.set(x, 5.5*s, z); 
+            dummy.scale.set(s,s,s); 
+            dummy.updateMatrix();
+            meshMid.setMatrixAt(idx, dummy.matrix);
+            
+            // 顶层(雪)
+            dummy.position.set(x, 8.0*s, z); 
+            dummy.scale.set(s,s,s); 
+            dummy.updateMatrix();
+            meshTop.setMatrixAt(idx, dummy.matrix);
+            
+            idx++;
+        }
+    }
+    
+    scene.add(meshBot);
+    scene.add(meshMid);
+    scene.add(meshTop);
+
+    // 装饰品
+    for(let i=0; i<30; i++){
+        const x=(Math.random()-0.5)*350, z=(Math.random()-0.5)*350;
+        let safe=true; 
+        for(let k=0;k<trackPoints.length;k+=10) {
+            const dx=trackPoints[k].x-x, dz=trackPoints[k].z-z;
+            if((dx*dx+dz*dz)<400) { safe=false; break; }
+        }
+        if(safe) {
+            const r=Math.random();
+            if(r<0.3) createGift(x,z);
+            else if(r<0.6) createSnowman(x,z);
+            else createLamp(x,z);
+        }
+    }
+}
+
+// ============================
+// createHeroTree (随机布线 + 环境光照 + 完美星星)
+// ============================
+function createHeroTree(x, z, scale) {
+    const g = new THREE.Group(); 
+    g.position.set(x, 0, z); 
+    g.scale.set(scale, scale, scale);
+
+    // 1. 树干
+    const matTrunk = new THREE.MeshStandardMaterial({ color: 0x4a2e16, roughness: 1.0 });
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(3, 5, 15, 8), matTrunk);
+    trunk.position.y = 6; 
+    g.add(trunk);
+
+    // 2. 树叶
+    const matFoliage = new THREE.MeshStandardMaterial({ color: 0x0f5515, roughness: 0.8, flatShading: true });
+
+    // 装饰材质
+    const matRed = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.3 });
+    const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
+    const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+    const matSilver = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3 });
+    const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
+
+    // 辅助生成器
+    const createCandyCane = () => {
+        const cane = new THREE.Group();
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.2, 6), matWhite);
+        stick.position.y = 0.6;
+        const hook = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.15, 4, 8, Math.PI), matRed);
+        hook.position.y = 1.2; hook.position.x = 0.35; hook.rotation.z = Math.PI/2;
+        for(let i=0; i<3; i++) {
+            const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 4, 6), matRed);
+            stripe.position.y = 0.3 + i*0.4; stripe.rotation.x = Math.PI/2; cane.add(stripe);
+        }
+        cane.add(stick, hook);
+        cane.scale.set(1.2, 1.2, 1.2);
+        return cane;
+    };
+    const createMiniGift = () => {
+        const boxG = new THREE.Group();
+        const color = Math.random() > 0.5 ? matRed : matGold;
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.0), color);
+        const r1 = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.02, 0.25), matWhite);
+        const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.02, 1.02), matWhite);
+        boxG.add(box, r1, r2);
+        return boxG;
+    };
+
+    const tiers = [
+        { r: 24, h: 16, y: 14 }, { r: 20, h: 15, y: 24 },
+        { r: 16, h: 14, y: 34 }, { r: 11, h: 12, y: 43 },
+        { r: 6,  h: 10, y: 51 }
+    ];
+    let treeTopY = 0;
+
+    tiers.forEach((tier, index) => {
+        const geo = new THREE.ConeGeometry(tier.r, tier.h, 8);
+        const mesh = new THREE.Mesh(geo, matFoliage);
+        mesh.position.y = tier.y;
+        mesh.rotation.y = (index % 2) * (Math.PI / 8); 
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        g.add(mesh);
+        treeTopY = tier.y + tier.h / 2;
+
+        // --- 装饰品：内收在表面 ---
+        const decorCount = Math.floor(tier.r * 0.8) + 2; 
+        for (let k = 0; k < decorCount; k++) {
+            const angle = Math.random() * Math.PI * 2;
+            const v = 0.1 + Math.random() * 0.5; 
+            const surfR = tier.r * (1 - v);
+            const embed = 0.85 + Math.random() * 0.15; // 稍微内嵌
+            
+            const lx = Math.cos(angle) * surfR * embed;
+            const lz = Math.sin(angle) * surfR * embed;
+            const ly = -tier.h / 2 + v * tier.h;
+
+            const type = Math.random();
+            let decor;
+            if (type < 0.4) {
+                decor = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 12), Math.random()>.5?matRed:matGold);
+                decor.position.set(lx, ly, lz);
+            } else if (type < 0.7) {
+                decor = createMiniGift();
+                decor.position.set(lx, ly + 0.5, lz); 
+                decor.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
+            } else {
+                decor = createCandyCane();
+                decor.position.set(lx, ly, lz);
+                decor.lookAt(0, ly, 0); 
+                decor.rotateX(Math.PI/4);
+            }
+            mesh.add(decor);
+        }
+    });
+
+    // --- 🌟 3. 实体电线 (随机布线逻辑) ---
+    const wirePoints = [];
+    wirePoints.push(new THREE.Vector3(0, 2, 2)); // 起点
+    let currentAngle = 0;
+
+    tiers.forEach((tier) => {
+        // A. 钻出：从树干内部延伸到表面
+        const startH = tier.y - tier.h/2 + 2; // 层底部偏上
+        // 初始半径小(树干)，结束半径大(表面)
+        
+        // B. 盘旋：0.5 ~ 1.5 圈
+        const loops = 0.5 + Math.random() * 1.0; 
+        const steps = 15; // 细分
+        
+        for(let s=0; s <= steps; s++) {
+            const t = s / steps;
+            
+            // 角度推进
+            const angleStep = (Math.PI * 2 * loops) / steps;
+            currentAngle += angleStep;
+            
+            // 高度：在当前层爬升
+            // 只爬到 70% 高度，留出钻回去的空间
+            const py = (tier.y - tier.h/2) + (tier.h * 0.7) * t;
+            
+            // 半径：从表面稍微浮起
+            const surfR = tier.r * (1 - t * 0.7); // 随高度变细
+            const r = surfR * 1.05 + Math.random(); // 随机松弛
+            
+            const px = Math.cos(currentAngle) * r;
+            const pz = Math.sin(currentAngle) * r;
+            wirePoints.push(new THREE.Vector3(px, py, pz));
+        }
+
+        // C. 钻回：回到树干附近，准备去下一层
+        const endH = tier.y + tier.h/2 - 1;
+        wirePoints.push(new THREE.Vector3(2 * Math.cos(currentAngle), endH, 2 * Math.sin(currentAngle)));
+    });
+    // 终点
+    wirePoints.push(new THREE.Vector3(0, treeTopY, 0));
+
+    const curve = new THREE.CatmullRomCurve3(wirePoints);
+    const tubeGeo = new THREE.TubeGeometry(curve, 300, 0.08, 6, false);
+    const wireMesh = new THREE.Mesh(tubeGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }));
+    g.add(wireMesh);
+
+    // --- 🌟 4. LED 灯珠 (稀疏分布 + 局部点光源) ---
+    const totalLength = curve.getLength();
+    // [优化] 降低采样率，让灯珠更稀疏
+    const bulbCountRaw = Math.floor(totalLength * 1.8); 
+    
+    const bulbGeo = new THREE.SphereGeometry(0.45, 8, 8);
+    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
+    const ledMesh = new THREE.InstancedMesh(bulbGeo, bulbMat, bulbCountRaw);
+    
+    const dummy = new THREE.Object3D();
+    const ledData = [];
+    let realCount = 0;
+    let clusterState = false; 
+    let clusterCounter = 0;
+
+    for(let i=0; i<bulbCountRaw; i++) {
+        const t = i / bulbCountRaw;
+        
+        // [优化] 聚类逻辑：有灯的段短，没灯的段长
+        if (clusterCounter <= 0) {
+            clusterState = !clusterState;
+            // 有灯：4~8个，无灯：8~20个 (更稀疏)
+            clusterCounter = clusterState ? Math.floor(Math.random() * 5 + 4) : Math.floor(Math.random() * 12 + 8);
+        }
+        clusterCounter--;
+        if (!clusterState) continue;
+
+        const pos = curve.getPointAt(t);
+        // 随机偏移
+        pos.x += (Math.random()-0.5)*0.3;
+        pos.y += (Math.random()-0.5)*0.3;
+        pos.z += (Math.random()-0.5)*0.3;
+
+        dummy.position.copy(pos);
+        dummy.scale.setScalar(1.0);
+        dummy.updateMatrix();
+        ledMesh.setMatrixAt(realCount, dummy.matrix);
+        
+        const colHex = bulbCols[Math.floor(Math.random() * bulbCols.length)];
+        const color = new THREE.Color(colHex);
+        ledMesh.setColorAt(realCount, color);
+        
+        ledData.push({ id: realCount, baseCol: color, speed: 0.5 + Math.random() * 3.0, offset: Math.random() * 100 });
+        realCount++;
+    }
+    
+    ledMesh.count = realCount;
+    ledMesh.instanceColor.needsUpdate = true;
+    ledMesh.userData = { type: 'led_instanced', data: ledData };
+    emissives.push(ledMesh);
+    g.add(ledMesh);
+
+    // [新增] 内部环境光 (模拟灯带照亮树叶)
+    // 增加强度 (30 -> 150)，增加范围 (25 -> 40)
+    // 颜色改为暖金色，让树叶看起来有节日气氛
+    for(let i=1; i<=4; i++) { // 增加到 4 个光源
+        const innerLight = new THREE.PointLight(0xffaa33, 150, 45); 
+        // 稍微往外移一点点，不要完全在树干中心
+        innerLight.position.set(5 * Math.sin(i), i * 12, 5 * Math.cos(i)); 
+        g.add(innerLight);
+    }
+
+    // --- 🌟 5. 树顶星星 (修复版：无缺口) ---
+    const starShape = new THREE.Shape();
+    const pts = 5;
+    const outerR = 4.2; 
+    const innerR = 2.0; 
+    // 从正上方开始画 (Angle = -PI/2)
+    for (let i = 0; i < pts * 2; i++) {
+        const r = (i % 2 === 0) ? outerR : innerR;
+        const a = (i / 10) * Math.PI * 2 - Math.PI/2;
+        if(i===0) starShape.moveTo(Math.cos(a)*r, Math.sin(a)*r);
+        else starShape.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+    }
+    starShape.closePath();
+
+    // 减小 bevel 防止自相交缺口
+    const starGeo = new THREE.ExtrudeGeometry(starShape, { 
+        depth: 1.0, 
+        bevelEnabled: true, 
+        bevelThickness: 0.1, 
+        bevelSize: 0.1, 
+        bevelSegments: 1 
+    });
+    starGeo.center();
+    
+    const star = new THREE.Mesh(starGeo, new THREE.MeshBasicMaterial({ color: 0xffeb3b, fog: false }));
+    star.position.set(0, treeTopY + 3.5, 0);
+    star.userData = { type: 'star' }; 
+    emissives.push(star); 
+    g.add(star);
+    
+    scene.add(g);
+}
+
+function createGift(x,z) {
+    const b=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5), new THREE.MeshStandardMaterial({color:Math.random()*0xffffff}));
+    b.position.set(x,0.75,z); b.rotation.y=Math.random(); b.castShadow=true; scene.add(b);
+}
+function createSnowman(x,z) {
+    const g=new THREE.Group(); g.position.set(x,0,z);
+    const m=new THREE.MeshStandardMaterial({color:0xffffff});
+    const b1=new THREE.Mesh(new THREE.SphereGeometry(1.2), m); b1.position.y=1;
+    const b2=new THREE.Mesh(new THREE.SphereGeometry(0.8), m); b2.position.y=2.5;
+    g.add(b1,b2); scene.add(g);
+}
+function createLamp(x,z) {
+    const g=new THREE.Group(); g.position.set(x,0,z);
+    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,7), new THREE.MeshStandardMaterial({color:0x111})); p.position.y=3.5;
+    
+    // [修复] 使用 BasicMaterial + fog:false，并定义 baseCol
+    const col = 0xffaa00;
+    const b=new THREE.Mesh(
+        new THREE.SphereGeometry(0.5), 
+        new THREE.MeshBasicMaterial({color:col, fog:false}) // 关键：fog:false
+    );
+    b.position.y=7; 
+    
+    // [关键] 必须定义 baseCol，否则 animate 会崩溃
+    b.userData={type:'bulb', phase: Math.random()*Math.PI, baseCol: new THREE.Color(col)}; 
+    
+    emissives.push(b); g.add(p,b); scene.add(g);
+}
+
+// ============================
+// 🚂 火车系统
+// ============================
+class Train {
+    constructor(sc, curve) {
+        this.grp=new THREE.Group(); sc.add(this.grp);
+        this.curve=curve; this.prog=0; this.wheels=[]; this.smokes=[];
+        
+        // Glare
+        const cv=document.createElement('canvas'); cv.width=64;cv.height=64;
+        const cx=cv.getContext('2d'); const gr=cx.createRadialGradient(32,32,0,32,32,32);
+        gr.addColorStop(0,'#fff'); gr.addColorStop(1,'transparent'); cx.fillStyle=gr; cx.fillRect(0,0,64,64);
+        this.glare=new THREE.CanvasTexture(cv);
+
+        this.loco=this.mkLoco(); this.grp.add(this.loco);
+        this.cars=[]; for(let i=1;i<=12;i++) { const c=this.mkCar(i); this.grp.add(c); this.cars.push(c); }
+        this.gap();
+    }
+    gap() { this.cars.forEach((c,i)=>c.userData.off=(i+1)*(0.0075+CFG.carriageGap*0.2)); }
+    
+    mkLoco() {
+        const g=new THREE.Group();
+        const red=new THREE.MeshStandardMaterial({color:0xb71c1c, roughness:0.3});
+        const blk=new THREE.MeshStandardMaterial({color:0x111});
+        const boil=new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,5,16), red); boil.rotation.x=Math.PI/2; boil.position.set(0,3.6,1);
+        const cab=new THREE.Mesh(new THREE.BoxGeometry(3.8,5.2,3.2), red); cab.position.set(0,4.1,-2.5);
+        this.chim=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.6,2.5), blk); this.chim.position.set(0,4.8,2.5);
+        const cow=new THREE.Mesh(new THREE.ConeGeometry(2,1.5,4), blk); cow.rotation.set(-Math.PI/2,Math.PI/4,0); cow.scale.set(1,0.5,1); cow.position.set(0,1,4.5);
+        
+        const aw=(z,r)=>{
+            const w=new THREE.Mesh(new THREE.CylinderGeometry(r,r,0.5,16).rotateZ(Math.PI/2), blk);
+            w.position.set(1.9,r,z); const w2=w.clone(); w2.position.set(-1.9,r,z);
+            g.add(w,w2); this.wheels.push(w,w2);
+        };
+        aw(0,1.3); aw(2.2,1.3); aw(-1.5,1.3); aw(4.0,0.8);
+        
+        const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:this.glare, color:0xffdd88, blending:THREE.AdditiveBlending}));
+        sp.position.set(0,5.2,4); sp.scale.set(10,10,1);
+        const sl=new THREE.SpotLight(0xffccaa, CFG.lightPow, 150, 0.8, 0.5);
+        sl.position.set(0,5.2,3.8); sl.target.position.set(0,-5,30); sl.castShadow=true;
+        sl.userData={type:'headlight'};
+        g.add(boil,cab,this.chim,cow,sp,sl,sl.target);
         return g;
     }
 
-    createDetailedCar(i) {
+    mkCar(i) {
         const g = new THREE.Group();
-        const colors = [0xb71c1c, 0x1b5e20, 0x0d47a1, 0xff6f00];
-        const col = colors[(i-1) % 4];
+        // 经典的圣诞特快配色：深红、墨绿、海军蓝
+        const cols = [0x8b0000, 0x004d26, 0x003366, 0xb8860b];
+        const col = cols[(i - 1) % 4];
         
-        const bodyMat = new THREE.MeshStandardMaterial({
-            color: col, roughness: 0.4, emissive: col, emissiveIntensity: 0.15
-        });
-        const blackMat = new THREE.MeshStandardMaterial({color:0x111111, roughness: 0.9});
-        const winMat = new THREE.MeshStandardMaterial({color:0x000000, emissive: 0xffcc88, emissiveIntensity: 1.5});
+        const matBody = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.2 });
+        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.8 }); // 金色材质
+        const matRoof = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
 
-        // 1. 车身 (你设定的 7.8)
-        const carLen = 7.8;
-        const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.8, carLen), bodyMat); 
-        body.position.y = 3.3; g.add(body);
+        // 1. 车身主体
+        const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.8, 7.8), matBody);
+        body.position.y = 3.3;
         
-        // 2. 车顶 (适配长度)
-        const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 1.9, carLen+0.2, 12, 1, false, 0, Math.PI), new THREE.MeshStandardMaterial({color:0x222222}));
-        roof.rotation.z = Math.PI/2; roof.rotation.y = Math.PI/2; 
-        roof.position.set(0, 5.2, 0); g.add(roof);
+        // 2. 金色装饰腰线 (新加细节)
+        const goldBand = new THREE.Mesh(new THREE.BoxGeometry(3.45, 0.2, 7.85), matGold);
+        goldBand.position.y = 3.0; // 位于车窗下方
+        g.add(goldBand);
         
-        // 3. 窗户优化 (均匀分布 3 个窗户)
-        // 窗户尺寸稍微缩小一点点(1.2*1.5)，看起来更精致
-        const winGeo = new THREE.PlaneGeometry(1.2, 1.5);
-        const winCount = 3; // 增加窗户数量
-        
-        // 计算窗户分布：
-        // 让窗户分布在车身中间 5.0 米的范围内，两头留白 1.4 米
-        const spread = 5.0; 
-        const startZ = -spread / 2;
-        const step = spread / (winCount - 1);
+        // 3. 车顶 (改为稍微扁平一点的圆弧，更像火车站)
+        // 使用 scale 压扁圆柱
+        const roof = new THREE.Mesh(
+            new THREE.CylinderGeometry(2.05, 2.05, 13, 13, 1, false, 0, Math.PI), 
+            new THREE.MeshStandardMaterial({color:0x222, roughness:0.9}) // 黑色磨砂顶
+        );
+        roof.rotation.set(0, Math.PI/2, Math.PI/2); 
+        roof.scale.set(1, 0.65, 1); // 稍微压扁一点点，更像车顶
+        roof.position.set(0, 5.1, 0); // 稍微提一点高度
 
-        for(let side = -1; side <= 1; side += 2) {
-            for(let k = 0; k < winCount; k++) {
+        // [已删除] 车顶礼物盒生成代码
+
+        // 4. 车窗 (Basic材质防遮罩)
+        const winGeo = new THREE.PlaneGeometry(1.3, 1.6);
+        const winMat = new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false }); 
+        
+        for (let side = -1; side <= 1; side += 2) {
+            for (let k = 0; k < 3; k++) {
                 const w = new THREE.Mesh(winGeo, winMat);
-                // 动态计算 Z 轴坐标
-                const zPos = startZ + k * step;
-                w.position.set(1.71*side, 3.6, zPos);
-                w.rotation.y = side*Math.PI/2;
+                // 窗户带一点金色边框? 这里的 scale 稍微大一点做边框
+                const border = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.7), matGold);
+                
+                w.position.set(1.76 * side, 3.8, -2.5 + k * 2.5);
+                w.rotation.y = side * Math.PI / 2;
+                
+                border.position.copy(w.position);
+                border.position.x -= 0.01 * side; // 往里一点
+                border.rotation.copy(w.rotation);
+                
+                g.add(border);
                 g.add(w);
             }
         }
 
-        // 4. 风琴连接 (Gangway) - 自动适配 carLen
-        const gangwayGeo = new THREE.BoxGeometry(2.4, 2.8, 1.2);
-        const gangway = new THREE.Mesh(gangwayGeo, blackMat);
-        // 放在车头最前端
-        gangway.position.set(0, 3.0, carLen/2 + 0.3); 
-        g.add(gangway);
+        // 5. 连接处 & 轮子 (保持不变)
+        const gw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x111 }));
+        gw.position.set(0, 3, 4.2);
 
-        // 5. 转向架 (Bogie) - 位置优化
-        // 车身变长了，轮子必须往两头移，否则车会显得很晃
-        const createBogie = (z) => {
-            const b = new THREE.Group(); b.position.set(0, 0, z);
-            const wGeo = new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12); wGeo.rotateZ(Math.PI/2);
-            const w1 = new THREE.Mesh(wGeo, blackMat); w1.position.set(1.6, 0.65, 0);
-            const w2 = new THREE.Mesh(wGeo, blackMat); w2.position.set(-1.6, 0.65, 0);
-            
-            const beam = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.4, 1.0), blackMat);
-            beam.position.y = 0.65;
-            
-            b.add(w1, w2, beam);
-            g.add(b);
-            this.wheels.push(w1, w2);
+        const ab = z => {
+            const gr = new THREE.Group(); gr.position.set(0, 0, z);
+            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x111 }));
+            w.position.set(1.6, 0.65, 0);
+            const w2 = w.clone(); w2.position.set(-1.6, 0.65, 0);
+            gr.add(w, w2); g.add(gr); this.wheels.push(w, w2);
         };
-        
-        // 之前是 1.4，现在改为 2.8，轮子支撑点更开阔
-        createBogie(2.8); 
-        createBogie(-2.8);
-        
+        ab(2.8); ab(-2.8);
+
+        g.add(body, roof, gw);
         return g;
     }
 
-    update(delta) {
-        const speed = PARAMS.trainSpeed * delta * 0.2;
-        this.progress = (this.progress + speed) % 1;
-        this.place(this.loco, this.progress);
+    update(dt, speed) {
+        audio.chug(speed);
+        
+        const dist = speed * dt * 0.2;
+        this.prog = (this.prog + dist) % 1;
+        
+        this.place(this.loco, this.prog);
         this.cars.forEach(c => {
-            let t = this.progress - c.userData.tOffset; 
-            if(t < 0) t += 1;
+            let t = this.prog - c.userData.off; if(t<0) t+=1;
             this.place(c, t);
         });
+        
+        this.wheels.forEach(w => w.rotation.x -= dist * 150 * CFG.wheelMult);
 
-        if(this.wheels) this.wheels.forEach(w => w.rotation.x -= speed * 150 * PARAMS.wheelSpeed);
-
-        if(Math.random() > 0.85) { 
-            _vec3.setFromMatrixPosition(this.smokeSource.matrixWorld); 
-            _vec3.y += 0.8; 
-            this.spawnSmoke(_vec3); 
+        // 🚂 烟雾生成逻辑优化
+        // 1. 速度越快，喷烟频率越高
+        // 2. 即使静止，也会偶尔冒一点点烟
+        const smokeProb = speed > 0.01 ? (0.2 + speed * 2.5) : 0.02;
+        
+        if(Math.random() < smokeProb) {
+            vec3.setFromMatrixPosition(this.chim.matrixWorld); 
+            // 修正烟雾出生点高度，稍微低一点，从烟囱口内部出来
+            vec3.y += 0.4; 
+            this.spawnSmoke(vec3, speed);
         }
+        
         this.updateSmoke();
     }
 
-    place(obj, t) {
-        const pos = this.curve.getPointAt(t);
-        const tangent = this.curve.getTangentAt(t);
-        obj.position.copy(pos);
-        obj.lookAt(pos.clone().add(tangent)); 
-    }
-
-    spawnSmoke(pos) {
+    spawnSmoke(pos, trainSpeed) {
+        // 1. 几何体：随机大小
+        const size = 0.3 + Math.random() * 0.3;
         const m = new THREE.Mesh(
-            new THREE.IcosahedronGeometry(0.4 + Math.random()*0.3, 0), 
+            new THREE.IcosahedronGeometry(size, 0), 
             new THREE.MeshStandardMaterial({
-                color: 0xeeeeee, transparent:true, opacity: 0.5, roughness: 1, depthWrite: false 
+                color: 0xdddddd, 
+                transparent: true, 
+                opacity: 0.8, // 初始不透明度高
+                depthWrite: false,
+                roughness: 1
             })
         );
-        m.position.copy(pos); 
-        m.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
-        this.scene.add(m); 
-        this.smokes.push({m, life: 1.0 + Math.random() * 0.5});
+        m.position.copy(pos);
+        m.rotation.set(Math.random()*6, Math.random()*6, Math.random()*6);
+        
+        // 2. 物理核心：计算初速度向量
+        // 获取火车当前朝向 (Forward Vector)
+        const trainDir = new THREE.Vector3(0, 0, 1).applyQuaternion(this.loco.quaternion).normalize();
+        
+        // A. 垂直喷射力 (Burst): 基础喷射 + 随车速增加的压力
+        const upForce = 0.3 + Math.random() * 0.3 + (trainSpeed * 0.5);
+        const upVel = new THREE.Vector3(0, 1, 0).multiplyScalar(upForce);
+        
+        // B. 水平惯性 (Inertia): 烟雾刚出来时，带有火车的速度
+        const forwardVel = trainDir.clone().multiplyScalar(trainSpeed * 1.5); // *1.5 是为了让视觉上更符合“喷出”的感觉
+        
+        // 合成初速度
+        const velocity = upVel.add(forwardVel);
+
+        // 随机扰动 (Turbulence)
+        velocity.x += (Math.random() - 0.5) * 0.1;
+        velocity.z += (Math.random() - 0.5) * 0.1;
+
+        scene.add(m); 
+        this.smokes.push({
+            m, 
+            vel: velocity, // 存储速度向量
+            life: 1.0 + Math.random() * 0.5, // 寿命
+            initScale: size
+        });
     }
 
     updateSmoke() {
-        for(let i=this.smokes.length-1; i>=0; i--) {
-            const s = this.smokes[i]; 
-            s.life -= 0.015; 
-            s.m.position.y += 0.08; 
-            s.m.rotation.x += 0.02; 
-            const expansion = 1.0 + (1.5 - s.life) * 0.05; 
-            s.m.scale.multiplyScalar(expansion); 
-            s.m.material.opacity = s.life * 0.4;
-            if(s.life <= 0){ 
-                this.scene.remove(s.m); 
-                this.smokes.splice(i, 1); 
+        for(let i = this.smokes.length - 1; i >= 0; i--) {
+            const s = this.smokes[i];
+            
+            // 1. 运动更新
+            s.m.position.add(s.vel);
+            
+            // 2. 物理模拟
+            // 空气阻力 (Drag): 模拟撞击空气，速度迅速衰减
+            // 尤其是水平方向，烟雾应该很快“停”在原地，被火车甩在后面
+            s.vel.multiplyScalar(0.92); 
+            
+            // 浮力 (Buoyancy): 速度衰减后，热气自然上升
+            s.vel.y += 0.008; 
+
+            // 3. 视觉变化
+            s.life -= 0.012; // 衰减
+            
+            // 膨胀 (Expansion): 烟雾随时间变大
+            const scale = s.initScale * (1 + (1.5 - s.life) * 3.0);
+            s.m.scale.set(scale, scale, scale);
+            
+            // 旋转
+            s.m.rotation.x += 0.03;
+            s.m.rotation.z += 0.01;
+            
+            // 透明度淡出
+            s.m.material.opacity = s.life * 0.6;
+            
+            if(s.life <= 0) {
+                scene.remove(s.m);
+                this.smokes.splice(i, 1);
             }
         }
     }
+    place(o, t) {
+        const p=this.curve.getPointAt(t), tan=this.curve.getTangentAt(t);
+        o.position.copy(p); o.lookAt(p.clone().add(tan));
+    }
 }
 
-        // ============================
-        // 🎇 烟花管理器
-        // ============================
-        class FireworkManager {
-    constructor(scene) {
-        this.scene = scene;
-        this.rockets = [];   // 存储上升阶段的烟花
-        this.sparkles = [];  // 存储爆炸后的粒子
+// ============================
+// 🎆 特效
+// ============================
+class Fireworks {
+    constructor(sc) {
+        this.sc = sc; 
+        this.r = []; // 升空的火箭数组
+        this.s = []; // 炸开的粒子数组
         
-        // 1. 生成高清光晕贴图 (128x128，边缘更柔和)
-        const canvas = document.createElement('canvas');
-        canvas.width = 128; canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-        g.addColorStop(0, 'rgba(255,255,255,1)');    // 中心极亮
-        g.addColorStop(0.2, 'rgba(255,255,255,0.8)'); // 过渡
-        g.addColorStop(0.5, 'rgba(255,255,255,0.2)'); // 光晕
-        g.addColorStop(1, 'rgba(0,0,0,0)');           // 边缘透明
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, 128, 128);
-        this.texture = new THREE.CanvasTexture(canvas);
-
-        // 2. 预设专业节日配色盘
-        this.palettes = [
-            [0xff0000, 0xffaa00, 0xffffff], // 经典金红
-            [0x00ffff, 0x0000ff, 0xffffff], // 冰雪蓝
-            [0xff00ff, 0xaa00ff, 0xffaaaa], // 赛博紫
-            [0x00ff00, 0xffff00, 0xffffff], // 圣诞绿
-            [0xffffff, 0xffdd88, 0x88ccff], // 银河白
-        ];
+        // 纹理 (保持 32x32 极速版)
+        const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+        const x = c.getContext('2d'); 
+        const g = x.createRadialGradient(16,16,0,16,16,16);
+        g.addColorStop(0,'#fff'); g.addColorStop(1,'transparent'); 
+        x.fillStyle = g; x.fillRect(0,0,32,32);
+        this.tex = new THREE.CanvasTexture(c);
+        this.cols = [[0xff0000,0xffaa00],[0x00ffff,0x0000ff],[0xff00ff,0xffaaaa],[0x00ff00,0xffff00]];
     }
 
-    // 发射逻辑：支持点击坐标，也支持自动计算
-    launch(targetPos) {
-        let startPos;
-        // 如果没有传入坐标（比如自动发射），则在相机前方随机生成
-        if (!targetPos) {
-            const vec = new THREE.Vector3(0, 0, -60).applyQuaternion(camera.quaternion).add(camera.position);
-            startPos = vec.add(new THREE.Vector3((Math.random()-0.5)*80, -20, (Math.random()-0.5)*80));
-        } else {
-            startPos = targetPos.clone();
+    launch(pos) {
+        // [🛑 核心修复] 同屏数量限制
+        // 如果当前正在飞的火箭 + 正在炸的烟花总数超过 8 个，
+        // 直接忽略本次发射请求。这能彻底防止卡死。
+        if (this.r.length + this.s.length >= 8) return;
+
+        // 位置计算
+        if(!pos) {
+            // 自动模式：固定在地图中心区域随机，不跟随相机
+            const range = 100;
+            pos = new THREE.Vector3(
+                (Math.random() - 0.5) * 2 * range, 
+                -5, 
+                (Math.random() - 0.5) * 2 * range
+            );
         }
-
-        // 随机爆炸高度：30 ~ 60
-        const targetHeight = startPos.y + 60 + Math.random() * 30;
         
-        // 随机选择一种配色
-        const palette = this.palettes[Math.floor(Math.random() * this.palettes.length)];
-
-        // 创建上升的“火箭”粒子
-        const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]);
-        const mat = new THREE.PointsMaterial({
-            color: 0xffddaa, // 火箭尾焰颜色
-            size: 2.5,
-            map: this.texture,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            transparent: true
+        const ty = pos.y + 60 + Math.random()*40;
+        const pal = this.cols[Math.floor(Math.random()*this.cols.length)];
+        
+        // 创建火箭粒子
+        const m = new THREE.Points(
+            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]), 
+            new THREE.PointsMaterial({color:0xffddaa, size:4, map:this.tex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true})
+        );
+        m.position.copy(pos); 
+        this.sc.add(m);
+        
+        this.r.push({
+            m, pos: pos.clone(), 
+            vel: new THREE.Vector3((Math.random()-0.5)*0.5, Math.sqrt(2*0.02*(ty-pos.y)), (Math.random()-0.5)*0.5), 
+            pal
         });
-        
-        const rocket = {
-            mesh: new THREE.Points(geo, mat),
-            pos: startPos.clone(),
-            // 物理公式：初速度 = sqrt(2 * 重力 * 高度差)，确保刚好飞到目标高度
-            vel: new THREE.Vector3(
-                (Math.random()-0.5)*0.5, 
-                Math.sqrt(2 * 0.02 * (targetHeight - startPos.y)), 
-                (Math.random()-0.5)*0.5
-            ),
-            targetY: targetHeight,
-            palette: palette
-        };
-        
-        rocket.mesh.position.copy(startPos);
-        this.scene.add(rocket.mesh);
-        this.rockets.push(rocket);
-    }
-
-    // 自动齐射：保留了你写的“顺着铁轨前方”的优秀逻辑
-    launchBurst() {
-        if (!train || !trackCurve) return;
-        
-        // 随机 3-5 发
-        const count = 3 + Math.floor(Math.random() * 3);
-        
-        for(let i=0; i<count; i++) {
-            // 1. 预测火车前方位置 (5% ~ 15% 的路程)
-            const lookAhead = 0.05 + Math.random() * 0.10;
-            const t = (train.progress + lookAhead) % 1.0;
-
-            // 2. 获取铁轨坐标
-            const trackPos = trackCurve.getPointAt(t);
-
-            // 3. 散布在铁轨两侧 40米范围
-            const spread = 40; 
-            const randomX = (Math.random() - 0.5) * spread;
-            const randomZ = (Math.random() - 0.5) * spread;
-
-            // 4. 设定起点 (Y=-5 让它看起来从雪地里钻出来)
-            const startPos = new THREE.Vector3(trackPos.x + randomX, -5, trackPos.z + randomZ);
-            
-            // 5. 错峰发射，避免同时升空太死板
-            setTimeout(() => {
-                this.launch(startPos);
-            }, Math.random() * 800);
-        }
     }
 
     update() {
-        // --- 阶段1：更新上升的火箭 ---
-        for (let i = this.rockets.length - 1; i >= 0; i--) {
-            const r = this.rockets[i];
-            
-            // 物理运动
-            r.pos.add(r.vel);
-            r.vel.y -= 0.02; // 重力：越来越慢
-            r.mesh.position.copy(r.pos);
-
-            // 当速度接近0（到达最高点）时引爆
-            if (r.vel.y <= 0.5) {
-                this.scene.remove(r.mesh);
-                this.explode(r.pos, r.palette); // 传入位置和颜色盘
-                this.rockets.splice(i, 1);
+        // 更新火箭
+        for(let i = this.r.length - 1; i >= 0; i--) {
+            const r = this.r[i]; 
+            r.pos.add(r.vel); 
+            r.vel.y -= 0.02; 
+            r.m.position.copy(r.pos);
+            if(r.vel.y <= 0.5) { 
+                this.sc.remove(r.m); 
+                this.explode(r.pos, r.pal); 
+                this.r.splice(i, 1); 
             }
         }
-
-        // --- 阶段2：更新爆炸后的烟花粒子 ---
-        for (let i = this.sparkles.length - 1; i >= 0; i--) {
-            const s = this.sparkles[i];
-            const positions = s.mesh.geometry.attributes.position.array;
-            const sizes = s.mesh.geometry.attributes.size.array;
+        
+        // 更新爆炸粒子
+        for(let i = this.s.length - 1; i >= 0; i--) {
+            const s = this.s[i]; 
+            s.life -= 0.015;
+            const p = s.geo.attributes.position.array;
             
-            // 寿命衰减
-            s.life -= 0.008; 
-
-            for (let k = 0; k < s.count; k++) {
+            for(let k = 0; k < s.count; k++) {
                 const idx = k * 3;
-                
-                // 位置 += 速度
-                positions[idx]   += s.velocities[idx];
-                positions[idx+1] += s.velocities[idx+1];
-                positions[idx+2] += s.velocities[idx+2];
-
-                // 关键物理：空气阻力 (模拟爆炸后的急剧减速)
-                s.velocities[idx]   *= 0.96;
-                s.velocities[idx+1] *= 0.96;
-                s.velocities[idx+2] *= 0.96;
-
-                // 关键物理：重力下坠
-                s.velocities[idx+1] -= 0.03;
-
-                // 视觉特效：闪烁 (Twinkle)
-                if(Math.random() > 0.5) {
-                    // 基于基础大小进行随机缩放
-                    sizes[k] = s.baseSizes[k] * (0.5 + Math.random() * 0.5) * s.life;
-                }
+                p[idx] += s.vels[idx]; 
+                p[idx+1] += s.vels[idx+1]; 
+                p[idx+2] += s.vels[idx+2];
+                s.vels[idx] *= 0.93; 
+                s.vels[idx+1] *= 0.93; 
+                s.vels[idx+2] *= 0.93; 
+                s.vels[idx+1] -= 0.015;
             }
-
-            s.mesh.geometry.attributes.position.needsUpdate = true;
-            s.mesh.geometry.attributes.size.needsUpdate = true;
-            s.mesh.material.opacity = s.life;
-
-            if (s.life <= 0) {
-                // 消失处理
-                this.scene.remove(s.mesh);
-                if(s.light) this.scene.remove(s.light);
-                this.sparkles.splice(i, 1);
-            } else if (s.light) {
-                // 灯光跟随粒子中心并渐隐
-                s.light.intensity = s.life * 15; 
-                s.light.position.set(positions[0], positions[1], positions[2]);
+            s.geo.attributes.position.needsUpdate = true; 
+            s.mat.opacity = s.life;
+            if(s.l) s.l.intensity = s.life * 20;
+            
+            if(s.life <= 0) { 
+                this.sc.remove(s.m); 
+                if(s.l) this.sc.remove(s.l); 
+                this.s.splice(i, 1); 
             }
         }
     }
 
-    explode(pos, palette) {
-        const count = 1000; // 粒子数量 (更多)
-        const positions = new Float32Array(count * 3);
-        const velocities = []; 
-        const colors = new Float32Array(count * 3);
-        const sizes = new Float32Array(count);
-        const baseSizes = []; // 记录基础大小用于闪烁
+    explode(pos, pal) {
+        audio.explode();
+        const cnt = 80; // 保持低粒子数
+        const posA = new Float32Array(cnt * 3); 
+        const colA = new Float32Array(cnt * 3); 
+        const vels = [];
+        const c = new THREE.Color();
 
-        const colorObj = new THREE.Color();
-
-        for (let i = 0; i < count; i++) {
-            positions[i * 3] = pos.x;
-            positions[i * 3 + 1] = pos.y;
-            positions[i * 3 + 2] = pos.z;
-
-            // 球形爆炸速度计算
-            // 速度范围 0.5 ~ 2.2 (炸得更开)
-            const speed = 0.5 + Math.random() * 2.2;
+        for(let i = 0; i < cnt; i++) {
+            posA[i*3] = pos.x; posA[i*3+1] = pos.y; posA[i*3+2] = pos.z;
+            const speed = 0.5 + Math.random() * 2.8; 
             const phi = Math.acos(2 * Math.random() - 1);
             const theta = Math.random() * Math.PI * 2;
-
-            velocities.push(
-                speed * Math.sin(phi) * Math.cos(theta),
-                speed * Math.sin(phi) * Math.sin(theta),
-                speed * Math.cos(phi)
-            );
-
-            // 从调色盘随机取色
-            const hex = palette[Math.floor(Math.random() * palette.length)];
-            colorObj.setHex(hex);
-            colors[i * 3] = colorObj.r;
-            colors[i * 3 + 1] = colorObj.g;
-            colors[i * 3 + 2] = colorObj.b;
-
-            // 随机粒子大小
-            const s = 1.5 + Math.random() * 2.5; 
-            sizes[i] = s;
-            baseSizes.push(s);
+            vels.push(speed * Math.sin(phi) * Math.cos(theta), speed * Math.sin(phi) * Math.sin(theta), speed * Math.cos(phi));
+            c.setHex(pal[Math.floor(Math.random() * pal.length)]); 
+            colA[i*3] = c.r; colA[i*3+1] = c.g; colA[i*3+2] = c.b;
         }
 
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-        // 材质：使用 vertexColors 和 AdditiveBlending 实现高亮叠加
+        const geo = new THREE.BufferGeometry(); 
+        geo.setAttribute('position', new THREE.BufferAttribute(posA, 3)); 
+        geo.setAttribute('color', new THREE.BufferAttribute(colA, 3));
         const mat = new THREE.PointsMaterial({
-            size: 1.0,
-            map: this.texture,
-            transparent: true,
-            depthWrite: false, // 防止遮挡
-            blending: THREE.AdditiveBlending, // 越重叠越亮
-            vertexColors: true // 启用顶点颜色
+            size: 3.5, map: this.tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, vertexColors: true
         });
-
-        const mesh = new THREE.Points(geo, mat);
-        this.scene.add(mesh);
-
-        // 额外特效：添加一个点光源，照亮周围的雪和车
-        const light = new THREE.PointLight(palette[0], 15, 60);
-        light.position.copy(pos);
-        this.scene.add(light);
-
-        this.sparkles.push({
-            mesh, 
-            light,
-            count, 
-            velocities, 
-            baseSizes,
-            life: 1.5 + Math.random() * 0.5 // 寿命 1.5~2.0秒
-        });
+        
+        const m = new THREE.Points(geo, mat); this.sc.add(m);
+        const l = new THREE.PointLight(pal[0], 20, 60); l.position.copy(pos); this.sc.add(l);
+        this.s.push({m, geo, mat, vels, l, count: cnt, life: 1.5});
     }
 }
 
-        // ============================
-        // ❄️ 天气系统
-        // ============================
-        class SnowSystem {
-            constructor(scene) {
-                const count = 3000;
-                const pos = [];
-                for(let i=0; i<count; i++) {
-                    pos.push(Math.random()*600-300, Math.random()*200, Math.random()*600-300);
-                }
-                const geo = new THREE.BufferGeometry();
-                geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-                // 1. 生成一个简单的圆形贴图
-const canvas = document.createElement('canvas');
-canvas.width = 32; canvas.height = 32;
-const context = canvas.getContext('2d');
-context.fillStyle = '#ffffff';
-context.beginPath();
-context.arc(16, 16, 16, 0, Math.PI * 2);
-context.fill();
-const snowTexture = new THREE.CanvasTexture(canvas);
+// ============================
+// Snow (基于时间更新，匀速下落 + 微风干扰)
+// ============================
+class Snow {
+    constructor(sc) {
+        const count = 4000;
+        const pos = [];
+        // 初始化分布：Y轴范围拉大到 600，防止重置时出现断层
+        for(let i=0; i<count; i++) {
+            pos.push(
+                Math.random()*800-400, 
+                Math.random()*600, // 0~600 高度
+                Math.random()*800-400
+            );
+        }
+        const g = new THREE.BufferGeometry(); 
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        
+        const cv = document.createElement('canvas'); cv.width=32; cv.height=32;
+        const cx = cv.getContext('2d'); cx.fillStyle='#fff'; cx.beginPath(); cx.arc(16,16,16,0,Math.PI*2); cx.fill();
+        
+        this.m = new THREE.Points(g, new THREE.PointsMaterial({
+            color: 0xeeeeee, 
+            map: new THREE.CanvasTexture(cv), 
+            transparent: true, 
+            opacity: 0.8, 
+            size: 0.8, 
+            depthWrite: false, 
+            blending: THREE.AdditiveBlending
+        }));
+        sc.add(this.m);
+    }
+    
+    // 接收 dt 参数，保证不同帧率下速度一致
+    update(dt) {
+        const p = this.m.geometry.attributes.position.array;
+        const fallSpeed = 35.0; // 每秒下落单位
+        
+        for(let i=1; i<p.length; i+=3) {
+            // Y轴下落
+            p[i] -= fallSpeed * dt;
+            
+            // X轴微风摇摆 (模拟飘雪)
+            // 利用高度 p[i] 作为噪声输入
+            p[i-1] -= Math.sin(p[i] * 0.05) * 10 * dt;
 
-// 2. 应用到材质
-this.mesh = new THREE.Points(geo, new THREE.PointsMaterial({
-    color: 0xaaaaaa, // 灰色
-    map: snowTexture, // 应用圆形贴图
-    alphaMap: snowTexture, // 使用透明度贴图
-    transparent: true,
-    opacity: 0.6,
-    size: 0.8, // 有了贴图后，size 可以稍微大一点点
-    depthWrite: false, // 关键：禁止写入深度，防止雪花遮挡烟花时产生黑边
-    blending: THREE.AdditiveBlending // 可选：叠加混合模式，会让重叠的雪花变亮一点，但不像烟花那么亮
-}));
-                scene.add(this.mesh);
+            // 循环重置
+            if(p[i] < 0) {
+                p[i] = 600; 
+                // 重置时随机X/Z，防止形成明显的循环纹理
+                // p[i-1] = Math.random()*800-400; // 可选：如果觉得雪太规律可以解开这行
             }
-            update() {
-                const p = this.mesh.geometry.attributes.position.array;
-                for(let i=1; i<p.length; i+=3) {
-                    p[i] -= 0.25; 
-                    if(p[i] < 0) p[i] = 200; // 循环下落
-                }
-                this.mesh.geometry.attributes.position.needsUpdate = true;
+        }
+        this.m.geometry.attributes.position.needsUpdate = true;
+    }
+}
+
+// ============================
+// ⚙️ 交互控制
+// ============================
+function setupControls() {
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = 0.05;
+    controls.minDistance = 15; controls.maxDistance = 400;
+    controls.addEventListener('start', () => STATE.interacting = true);
+    controls.addEventListener('end', () => STATE.interacting = false);
+}
+
+// ============================
+// setupUI 函数
+// ============================
+function setupUI() {
+    const btn = document.getElementById('start-btn');
+    
+    btn.onclick = () => {
+        STATE.started = true;
+        STATE.running = true;
+        audio.init(); 
+        audio.whistle(); 
+        audio.playBGM(); 
+
+        document.getElementById('start-screen').style.opacity = 0;
+        setTimeout(() => document.getElementById('start-screen').style.display = 'none', 800);
+        document.getElementById('hud').style.opacity = 1;
+        document.getElementById('settings-btn').style.opacity = 1;
+
+        // 启动运镜
+        const start = camera.position.clone();
+        const back = new THREE.Vector3(0, 0, -1).applyQuaternion(train.loco.quaternion).normalize();
+        const end = train.loco.position.clone().add(back.multiplyScalar(40)).add(new THREE.Vector3(0, CFG.camHeight, 0));
+        let t = 0;
+        const iv = setInterval(() => {
+            t += 0.015;
+            if (t >= 1) { clearInterval(iv); STATE.viewMode = 'FOLLOW'; }
+            else {
+                const k = 1 - Math.pow(1 - t, 3);
+                camera.position.lerpVectors(start, end, k);
+                camera.lookAt(train.loco.position);
             }
+        }, 16);
+    };
+
+    const set = document.getElementById('settings-btn'), mod = document.getElementById('settings-modal'), over = document.getElementById('modal-overlay');
+    const tog = () => { STATE.settings = !STATE.settings; const d = STATE.settings ? 'block' : 'none'; mod.style.display = d; over.style.display = d; };
+    set.onclick = tog; over.onclick = tog;
+
+    gui = new GUI({ container: mod, width: '100%' });
+    gui.title('🎄 控制中心');
+
+    const fSound = gui.addFolder('🔊 音频设置');
+    fSound.add(audio.vol, 'master', 0, 1).name('总音量').onChange(() => audio.updateVols());
+    fSound.add(audio.vol, 'bgm', 0, 1).name('背景音乐').onChange(() => audio.updateVols());
+    fSound.add(audio.vol, 'train', 0, 1).name('火车音效').onChange(() => audio.updateVols());
+    fSound.add(audio.vol, 'firework', 0, 1).name('烟花音效').onChange(() => audio.updateVols());
+
+    const fCam = gui.addFolder('🎥 镜头与物理');
+    fCam.add(CFG, 'camHeight', 5, 40).name('视角高度');
+    fCam.add(CFG, 'camSmooth', 0.01, 0.1).name('跟随柔和度');
+    fCam.add(CFG, 'maxSpeed', 0.1, 0.4).name('火车极速');
+
+    const fEnv = gui.addFolder('💡 灯光与环境');
+    fEnv.add(CFG, 'moonInt', 0, 5).name('月光亮度').onChange(v => lights.moon.intensity = v);
+    fEnv.add(CFG, 'fogDen', 0, 0.005).name('大雾浓度').onChange(v => scene.fog.density = v);
+    fEnv.add(CFG, 'bloomStr', 0, 3).name('辉光强度').onChange(v => bloomPass.strength = v);
+    fEnv.add(CFG, 'bloomThr', 0, 1).name('辉光阈值').onChange(v => bloomPass.threshold = v);
+    fEnv.add(CFG, 'lightPow', 0, 200).name('车灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'headlight') o.intensity = v }));
+    fEnv.add(CFG, 'bulbBri', 0, 50).name('彩灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'bulb') o.material.emissiveIntensity = v }));
+
+    const fFw = gui.addFolder('🎆 烟花控制');
+    
+    // [修复] 批量发射函数：增加页面可见性检查
+    const launchBatch = () => {
+        // 如果游戏没开始，或者页面在后台(不可见)，则不生成烟花
+        // 这彻底解决了“切后台回来卡死”的问题
+        if(!STATE.started || document.visibilityState === 'hidden') return;
+        
+        const count = 2 + Math.floor(Math.random() * 4); 
+        for(let i=0; i<count; i++) {
+            const delay = i * 300 + Math.random() * 200;
+            setTimeout(() => fwMgr.launch(), delay);
         }
+    };
 
-        // (Part 3 结束，请回复 "4" 继续)
-      
-      // (接 Part 3)
-
-        // ============================
-        // ⚙️ 交互与 UI 设置
-        // ============================
-        function setupUI() {
-            // 1. 启动按钮
-            const startBtn = document.getElementById('start-btn');
-            startBtn.addEventListener('click', () => {
-                STATE.started = true;
-                // UI 动画
-                document.getElementById('start-screen').style.opacity = '0';
-                setTimeout(() => document.getElementById('start-screen').style.display = 'none', 600);
-                document.getElementById('hud').style.opacity = '1';
-                document.getElementById('settings-btn').style.opacity = '1';
-            });
-
-            // 2. 设置弹窗
-            const btn = document.getElementById('settings-btn');
-            const modal = document.getElementById('settings-modal');
-            const overlay = document.getElementById('modal-overlay');
-            
-            const toggleSettings = () => { 
-                STATE.settingsOpen = !STATE.settingsOpen; 
-                const disp = STATE.settingsOpen ? 'block' : 'none';
-                modal.style.display = disp; 
-                overlay.style.display = disp; 
-            };
-            btn.addEventListener('click', toggleSettings); 
-            overlay.addEventListener('click', toggleSettings);
-
-            // 3. GUI 参数面板
-            gui = new GUI({ container: modal, width: '100%' });
-            gui.title('🔧 驾驶员控制台');
-
-            const f1 = gui.addFolder('🎥 智能镜头');
-            f1.add(PARAMS, 'camSmooth', 0.01, 0.1).name('回正柔和度');
-            f1.add(PARAMS, 'camHeightOffset', 2, 20).name('视角基础高度');
-
-            const f2 = gui.addFolder('🚂 列车物理');
-            f2.add(PARAMS, 'trainSpeed', 0, 0.4).name('引擎速度');
-            f2.add(PARAMS, 'carriageGap', 0.005, 0.02).name('车厢间距').onChange(() => train.refreshGap());
-
-            const f3 = gui.addFolder('💡 光影氛围');
-            f3.add(PARAMS, 'moonIntensity', 0, 5).name('月光亮度').onChange(v => lights.moon.intensity = v);
-            f3.add(PARAMS, 'fogDensity', 0, 0.01).name('大雾浓度').onChange(v => scene.fog.density = v);
-            f3.add(PARAMS, 'bloomStrength', 0, 3).name('辉光强度').onChange(v => bloomPass.strength = v);
-            
-            const updateEmis = () => emissiveObjects.forEach(o => {
-                if(o.userData.type === 'bulb') o.material.emissiveIntensity = PARAMS.bulbBrightness;
-                if(o.userData.type === 'headlight') o.material.emissiveIntensity = PARAMS.trainLightPower;
-            });
-            f3.add(PARAMS, 'bulbBrightness', 0, 50).name('彩灯亮度').onChange(updateEmis);
-            f3.add(PARAMS, 'trainLightPower', 0, 100).name('车头灯亮度').onChange(updateEmis);
-
-			const f4 = gui.addFolder('🎆 节日庆典');
-			
-			// 1. 手动齐射按钮
-			const fwControls = {
-			    burst: () => fireworkMgr.launchBurst()
-			};
-			f4.add(fwControls, 'burst').name('✨ 立即齐射');
-			
-			// 2. 自动播放开关逻辑
-			const toggleAuto = (enabled) => {
-			    if(autoFwTimer) clearInterval(autoFwTimer); // 先清除旧的
-			    
-			    if(enabled) {
-			        // 立即发射一次
-			        fireworkMgr.launchBurst();
-			        // 开启定时器
-			        autoFwTimer = setInterval(() => {
-			            if(STATE.started) fireworkMgr.launchBurst();
-			        }, PARAMS.fwInterval * 1000);
-			    }
-			};
-			
-			f4.add(PARAMS, 'autoFireworks').name('自动烟花秀').onChange(toggleAuto);
-			
-			// 3. 频率调整
-			f4.add(PARAMS, 'fwInterval', 0.5, 5.0).name('发射间隔(秒)').onChange(() => {
-			    // 如果当前是开启状态，需要重置定时器让新时间生效
-			    if(PARAMS.autoFireworks) toggleAuto(true);
-			});
-
-            // 4. 全局交互监听
-            // 点击放烟花 (避开设置弹窗)
-            // 需要引入 Raycaster 来检测点击位置
-			const raycaster = new THREE.Raycaster();
-			const mouse = new THREE.Vector2();
-			
-			window.addEventListener('pointerdown', (e) => {
-			    if(STATE.started && !STATE.settingsOpen) {
-			        // 1. 将鼠标坐标归一化为 -1 到 +1
-			        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-			        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-			
-			        // 2. 发射射线
-			        raycaster.setFromCamera(mouse, camera);
-			
-			        // 3. 检测射线是否击中地面
-			        // 注意：如果你改了 groundMesh 变量名，这里要对应
-			        const intersects = raycaster.intersectObject(groundMesh);
-			
-			        if (intersects.length > 0) {
-			            // 4. 获取击中点的坐标，并让烟花从这里发射
-			            // y 轴稍微加一点高度，避免完全贴在地上
-			            const point = intersects[0].point;
-			            point.y += 0.5; 
-			            fireworkMgr.launch(point);
-			        } else {
-			            // 如果点到了天空，就随机发射（可选）
-			            fireworkMgr.launch();
-			        }
-			    }
-			});
-            
-            // 双击切换视角
-            window.addEventListener('dblclick', () => {
-                if(!STATE.started) return;
-                STATE.viewMode = STATE.viewMode === 'FOLLOW' ? 'GOD' : 'FOLLOW';
-                
-                // 更新 HUD 文字
-                const text = STATE.viewMode === 'FOLLOW' ? "智能驾驶模式" : "上帝俯瞰模式";
-                document.getElementById('hud').querySelector('span').innerText = text;
-                
-                // 切换到上帝视角时，重置目标到中心，方便操作
-                if(STATE.viewMode === 'GOD') controls.target.set(0,0,0);
-            });
+    fFw.add(CFG, 'autoFw').name('自动燃放').onChange(v => {
+        if (autoTimer) clearInterval(autoTimer);
+        if (v) { 
+            launchBatch(); 
+            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000); 
         }
-
-        function setupControls() {
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; 
-            controls.dampingFactor = 0.05;
-            controls.maxPolarAngle = Math.PI / 2 - 0.05; // 防止穿地
-            controls.minDistance = 10; 
-            controls.maxDistance = 600;
-            
-            // 关键：监听用户交互状态
-            // 当用户正在拖动屏幕时，暂停相机的自动回正，避免“抢夺”控制权
-            controls.addEventListener('start', () => STATE.isUserInteracting = true);
-            controls.addEventListener('end', () => STATE.isUserInteracting = false);
+    });
+    fFw.add(CFG, 'fwRate', 3, 12).name('波次间隔(秒)').onChange(v => {
+        if (CFG.autoFw) {
+            clearInterval(autoTimer);
+            autoTimer = setInterval(launchBatch, v * 1000);
         }
+    });
 
-        // ============================
-        // 🎥 核心动画循环
-        // ============================
-        function animate() {
-            requestAnimationFrame(animate);
-            const delta = clock.getDelta();
+    const cvs = document.getElementById('canvas-container');
+    cvs.addEventListener('pointerdown', () => STATE.clickTime = Date.now());
+    cvs.addEventListener('pointerup', (e) => {
+        if (Date.now() - STATE.clickTime < 200 && STATE.started && !STATE.settings) {
+            mouse.x = (e.clientX / innerWidth) * 2 - 1; mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+            ray.setFromCamera(mouse, camera);
 
-            // 1. 更新各系统
-            if(train) train.update(delta);
-            if(fireworkMgr) fireworkMgr.update();
-            if(snowSystem) snowSystem.update();
-
-            // 2. 智能跟随逻辑 (Smart TPS)
-            if (STATE.started && STATE.viewMode === 'FOLLOW' && train) {
-                const locoPos = train.loco.position;
-                
-                // 核心 A: 锁定控制器中心到火车头
-                controls.target.copy(locoPos);
-
-                // 核心 B: 自动回正 (仅当用户松手时)
-                if (!STATE.isUserInteracting) {
-                    // 获取当前用户缩放的距离 (Distance Memory)
-                    const currentDist = camera.position.distanceTo(locoPos);
-                    
-                    // 获取火车正后方向量 (-Z方向)
-                    // (车头是指向切线的，我们假设车头模型的+Z是前方)
-                    // 注意：在 TrainSystem.place 中我们用了 lookAt(pos - tangent)
-                    // 这意味着物体的 -Z 指向了后方，+Z 指向了前方。
-                    // 所以获取后方可以直接取物体坐标系的 -Z 轴。
-                    const backVec = new THREE.Vector3(0, 0, -1).applyQuaternion(train.loco.quaternion).normalize();
-                    
-                    // 计算理想位置
-                    // 保持当前的缩放距离 (currentDist)
-                    // 并加上基础高度偏移
-                    const idealPos = locoPos.clone()
-                        .add(backVec.multiplyScalar(currentDist)) 
-                        .add(new THREE.Vector3(0, PARAMS.camHeightOffset, 0)); 
-
-                    // 柔和插值移动 (Soft Lock)
-                    camera.position.lerp(idealPos, PARAMS.camSmooth);
+            const hitTrain = ray.intersectObjects(train.grp.children, true);
+            if (hitTrain.length > 0) {
+                STATE.running = !STATE.running;
+                const d = document.getElementById('d-status'), t = document.getElementById('t-status');
+                if (STATE.running) {
+                    audio.whistle(); 
+                    d.classList.remove('stop'); t.innerText = "智能驾驶模式 (加速中)"; STATE.viewMode = 'FOLLOW';
+                } else {
+                    d.classList.add('stop'); t.innerText = "惯性滑行中 (减速)";
                 }
-            } 
-            // 3. 待机动画 (未开始时)
-            else if (!STATE.started) {
-                const t = Date.now() * 0.0001;
-                camera.position.set(Math.sin(t)*200, 120, Math.cos(t)*200);
-                camera.lookAt(0,0,0);
+                return;
             }
-
-            controls.update();
-            composer.render();
+            const hitG = ray.intersectObject(ground);
+            if (hitG.length > 0) { const p = hitG[0].point; p.y += 2; fwMgr.launch(p); }
+            else fwMgr.launch();
         }
+    });
+}
 
-        // 窗口自适应
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth/window.innerHeight; 
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight); 
-            composer.setSize(window.innerWidth, window.innerHeight);
-        });
+window.onresize = () => {
+    camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+};
 
-        init();
-    </script>
-</body> 
+init();
+</script>
+    </body>
 </html>
