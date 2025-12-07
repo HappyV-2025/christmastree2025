@@ -64,10 +64,7 @@ const SOUND_STYLES = [
     
     // 1. 巨型重炮 (Heavy/Deep) - 适合大烟花，低音重，回声长
     { name: "巨型重炮", noise: {f:300, q:0.5, vol:4, dur:2.5}, kick: {f:50, vol:4.0, dur:0.5} },
-    
-    // 2. 清脆爆裂 (Crack/Sharp) - 适合小烟花，高频多，无低音
-    { name: "清脆爆裂", noise: {f:3000, q:0, vol:2, dur:0.4}, kick: {f:100, vol:1.0, dur:0.1} },
-    
+
     // 3. 闷响 (Muffled/Distant) - 像是在远处的爆炸
     { name: "远处闷响", noise: {f:200, q:0, vol:3, dur:1.0}, kick: {f:40, vol:2.0, dur:0.4} },
     
@@ -77,23 +74,11 @@ const SOUND_STYLES = [
     // 5. 空气爆破 (Airy) - 主要是气流声，比较柔和
     { name: "空气爆破", noise: {f:600, q:0.1, vol:2, dur:0.8}, kick: {f:30, vol:3.0, dur:0.4} },
     
-    // 6. 连珠炮 (Tight) - 短促有力
-    { name: "短促有力", noise: {f:1500, q:1, vol:3.5, dur:0.3}, kick: {f:70, vol:3.0, dur:0.15} },
-    
-    // 7. 激光科幻 (Sci-Fi) - 夸张的频率滑动
-    { name: "科幻激光", noise: {f:2000, q:5, vol:2, dur:1.0, slide:true}, kick: {f:150, vol:1.0, dur:0.3} },
-    
-    // 8. 礼花弹 (Shell) - 先有一段尖啸（模拟），这里主要表现炸开的散落感
+    // 6. 礼花弹 (Shell) - 先有一段尖啸（模拟），这里主要表现炸开的散落感
     { name: "礼花散落", noise: {f:1000, q:0.5, vol:1.5, dur:3.0}, kick: {f:55, vol:2.0, dur:0.2} },
     
-    // 9. 哑炮 (Dud) - 只有一点点声音
-    { name: "小型哑炮", noise: {f:400, q:0, vol:0.5, dur:0.2}, kick: {f:100, vol:0.5, dur:0.05} },
-    
-    // 10. 极致震撼 (Impact) - 甚至会有点破音的感觉
+    // 7. 极致震撼 (Impact) - 甚至会有点破音的感觉
     { name: "极致震撼", noise: {f:500, q:2, vol:6, dur:2.0}, kick: {f:45, vol:5.0, dur:0.6} },
-    
-    // 11. 哨音爆炸 (Whistle) - 高频共振
-    { name: "尖啸爆炸", noise: {f:2500, q:15, vol:2, dur:1.2}, kick: {f:90, vol:1.5, dur:0.2} }
 ];
 
 // ============================
@@ -106,7 +91,8 @@ class AudioEngine {
         this.nextChug = 0;
         this.bgmTimer = null;
         this.isBgmPlaying = false;
-        
+        this.lastNoiseVal = 0;
+
         // 🎚️ 默认音量配置
         this.vol = {
             master: 0.7,    // 总音量稍大
@@ -140,8 +126,8 @@ class AudioEngine {
             for (let i = 0; i < bSize; i++) {
                 // 混合白噪音和粉红噪音，质感更好
                 const white = Math.random() * 2 - 1;
-                out[i] = (lastOut + (0.02 * white)) / 1.02; // 简单的低通滤波模拟粉红噪音
-                lastOut = out[i];
+                out[i] = (this.lastNoiseVal + (0.02 * white)) / 1.02; // 简单的低通滤波模拟粉红噪音
+                this.lastNoiseVal = out[i];
                 out[i] *= 3.5; // 补偿音量
             }
         }
@@ -170,9 +156,9 @@ class AudioEngine {
         };
         
         // 基础拍速 (BPM 约 100)
-        const Q = 500;  // 四分音符 (1拍)
-        const H = 1000; // 二分音符 (2拍)
-        const W = 2000; // 全音符 (4拍)
+        const Q = 360;  // 四分音符 (1拍)
+        const H = 720; // 二分音符 (2拍)
+        const W = 1080; // 全音符 (4拍)
         
         const melody = [
             // === 主歌 Verse (Dashing through the snow) ===
@@ -352,7 +338,7 @@ class AudioEngine {
         
         // 1. 选择风格
         if (styleIndex === -1) {
-            // 随机选择，但稍微偏向于前几种常用风格
+            // 随机选择
             styleIndex = Math.floor(Math.random() * SOUND_STYLES.length);
         }
         // 防止越界
@@ -427,7 +413,7 @@ class AudioEngine {
         osc.stop(t + style.kick.dur + 0.1);
     }
 }
-let lastOut = 0; // 辅助变量
+
 const audio = new AudioEngine();
 
 // ============================
@@ -540,6 +526,7 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _tempCol = new THREE.Color(); // 全局复用实例
 // ============================
 // animate 函数 (支持 Instanced LED 闪烁)
 // ============================
@@ -576,12 +563,13 @@ function animate() {
     // 灯光动画
     emissives.forEach(obj => {
         if(obj.userData.type === 'led_instanced') {
-            const data = obj.userData.data; const tempCol = new THREE.Color();
+            const data = obj.userData.data;
             for(let i=0; i<obj.count; i++) {
                 const item = data[i];
                 const val = Math.sin(time * item.speed + item.offset);
                 const intensity = 0.5 + 1.25 * (val + 1); 
-                tempCol.copy(item.baseCol).multiplyScalar(intensity); obj.setColorAt(i, tempCol);
+                _tempCol.copy(item.baseCol).multiplyScalar(intensity);
+                obj.setColorAt(i, _tempCol);
             }
             if(obj.instanceColor) obj.instanceColor.needsUpdate = true;
         }
@@ -863,7 +851,7 @@ function createHeroTree(x, z, scale) {
     const matSilver = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3 });
     const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
 
-    // 🍬 修复版：拐杖糖
+// 🍬 修复版：拐杖糖
     const createCandyCane = () => {
         const cane = new THREE.Group();
         
@@ -1114,12 +1102,11 @@ function createHeroTree(x, z, scale) {
     g.add(ledMesh);
 
     // [新增] 内部环境光 (模拟灯带照亮树叶)
-    // 增加强度 (30 -> 150)，增加范围 (25 -> 40)
-    // 颜色改为暖金色，让树叶看起来有节日气氛
-    for(let i=1; i<=4; i++) { // 增加到 4 个光源
-        const innerLight = new THREE.PointLight(0xffaa33, 150, 45); 
-        // 稍微往外移一点点，不要完全在树干中心
-        innerLight.position.set(5 * Math.sin(i), i * 12, 5 * Math.cos(i)); 
+    // ✅ 方案：只给最大的树放光源放 1 个中心光源
+    // 这里的 scale 参数可以用来判断是否是主树 (主树 scale 为 2.8)
+    if (scale > 2.0) { 
+        const innerLight = new THREE.PointLight(0xffaa33, 100, 50); 
+        innerLight.position.set(0, 15, 0); // 放在树中心即可
         g.add(innerLight);
     }
 
@@ -1245,13 +1232,14 @@ class Train {
         this.smokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.grp.add(this.smokeMesh);
 
-        // 初始化烟雾数据
-        const dummy = new THREE.Object3D();
+        // ✅ 新增：预先创建辅助对象，避免 updateSmoke 中反复创建
+        this.dummy = new THREE.Object3D(); 
+
         for(let i=0; i<this.smokeMax; i++) {
             // 初始移到无限远
-            dummy.position.set(0, -1000, 0); 
-            dummy.updateMatrix();
-            this.smokeMesh.setMatrixAt(i, dummy.matrix);
+            this.dummy.position.set(0, -1000, 0); 
+            this.dummy.updateMatrix();
+            this.smokeMesh.setMatrixAt(i, this.dummy.matrix);
             this.smokeData.push({ active: false, life: 0, vel: new THREE.Vector3(), scale: 1 });
         }
 
@@ -1413,7 +1401,6 @@ class Train {
     }
 
     updateSmoke() {
-        const dummy = new THREE.Object3D();
         let dirty = false;
 
         for(let i=0; i<this.smokeMax; i++) {
@@ -1427,9 +1414,9 @@ class Train {
             if(s.life <= 0) {
                 s.active = false;
                 // 归位到看不见的地方
-                dummy.position.set(0, -1000, 0);
-                dummy.updateMatrix();
-                this.smokeMesh.setMatrixAt(i, dummy.matrix);
+                this.dummy.position.set(0, -1000, 0);
+                this.dummy.updateMatrix();
+                this.smokeMesh.setMatrixAt(i, this.dummy.matrix);
                 dirty = true;
                 continue;
             }
@@ -1438,13 +1425,13 @@ class Train {
             const progress = 1 - s.life;
             const curScale = s.scale * (1 + progress * 5.0);
             
-            dummy.position.copy(s.pos);
-            dummy.scale.setScalar(curScale);
+            this.dummy.position.copy(s.pos);
+            this.dummy.scale.setScalar(curScale);
             // 旋转增加动态感
-            dummy.rotation.set(progress, progress, progress); 
-            dummy.updateMatrix();
+            this.dummy.rotation.set(progress, progress, progress); 
+            this.dummy.updateMatrix();
             
-            this.smokeMesh.setMatrixAt(i, dummy.matrix);
+            this.smokeMesh.setMatrixAt(i, this.dummy.matrix);
             dirty = true;
             
             // 注意：InstancedMesh 默认不支持修改单个实例的 Opacity (透明度)。
@@ -1783,8 +1770,8 @@ function setupUI() {
     fEnv.add(CFG, 'bulbBri', 0, 50).name('彩灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'bulb') o.material.emissiveIntensity = v }));
 
     const fFw = gui.addFolder('🎆 烟花控制');
-    // 调试对象：默认选第1种（巨型重炮），-1 表示随机
-    const debugObj = { soundStyle: 1 };
+    // 调试对象：默认-1 表示随机
+    const debugObj = { soundStyle: -1 };
 
     // 自动生成音效风格选项（含“随机”）
     const styleOptions = { '随机 (Random)': -1 };
@@ -1794,7 +1781,8 @@ function setupUI() {
     });
 
     // 添加 GUI 控件
-    fFw.add(debugObj, '音效风格', styleOptions).name('💥 爆炸音效风格');
+    fFw.add(debugObj, 'soundStyle', styleOptions)
+       .name('💥 爆炸音效风格'); // 使用 .name() 来显示中文标签
 
     // ✅ 全局暴露 debugObj.soundStyle，供 Fireworks.explode() 直接读取
     window.getFireworkSoundStyle = () => debugObj.soundStyle;
