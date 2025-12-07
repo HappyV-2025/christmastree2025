@@ -55,6 +55,47 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 
+// ==========================================
+// 🧨 12种烟花音效预设 (复制到代码最前面或 AudioEngine 附近)
+// ==========================================
+const SOUND_STYLES = [
+    // 0. 标准平衡 (Standard)
+    { name: "标准", noise: {f:800, q:1, vol:3, dur:1.5}, kick: {f:60, vol:2.5, dur:0.3} },
+    
+    // 1. 巨型重炮 (Heavy/Deep) - 适合大烟花，低音重，回声长
+    { name: "巨型重炮", noise: {f:300, q:0.5, vol:4, dur:2.5}, kick: {f:50, vol:4.0, dur:0.5} },
+    
+    // 2. 清脆爆裂 (Crack/Sharp) - 适合小烟花，高频多，无低音
+    { name: "清脆爆裂", noise: {f:3000, q:0, vol:2, dur:0.4}, kick: {f:100, vol:1.0, dur:0.1} },
+    
+    // 3. 闷响 (Muffled/Distant) - 像是在远处的爆炸
+    { name: "远处闷响", noise: {f:200, q:0, vol:3, dur:1.0}, kick: {f:40, vol:2.0, dur:0.4} },
+    
+    // 4. 金属回音 (Metallic) - 带有共鸣感
+    { name: "金属回音", noise: {f:1200, q:10, vol:2, dur:1.8}, kick: {f:80, vol:1.5, dur:0.2} },
+    
+    // 5. 空气爆破 (Airy) - 主要是气流声，比较柔和
+    { name: "空气爆破", noise: {f:600, q:0.1, vol:2, dur:0.8}, kick: {f:30, vol:3.0, dur:0.4} },
+    
+    // 6. 连珠炮 (Tight) - 短促有力
+    { name: "短促有力", noise: {f:1500, q:1, vol:3.5, dur:0.3}, kick: {f:70, vol:3.0, dur:0.15} },
+    
+    // 7. 激光科幻 (Sci-Fi) - 夸张的频率滑动
+    { name: "科幻激光", noise: {f:2000, q:5, vol:2, dur:1.0, slide:true}, kick: {f:150, vol:1.0, dur:0.3} },
+    
+    // 8. 礼花弹 (Shell) - 先有一段尖啸（模拟），这里主要表现炸开的散落感
+    { name: "礼花散落", noise: {f:1000, q:0.5, vol:1.5, dur:3.0}, kick: {f:55, vol:2.0, dur:0.2} },
+    
+    // 9. 哑炮 (Dud) - 只有一点点声音
+    { name: "小型哑炮", noise: {f:400, q:0, vol:0.5, dur:0.2}, kick: {f:100, vol:0.5, dur:0.05} },
+    
+    // 10. 极致震撼 (Impact) - 甚至会有点破音的感觉
+    { name: "极致震撼", noise: {f:500, q:2, vol:6, dur:2.0}, kick: {f:45, vol:5.0, dur:0.6} },
+    
+    // 11. 哨音爆炸 (Whistle) - 高频共振
+    { name: "尖啸爆炸", noise: {f:2500, q:15, vol:2, dur:1.2}, kick: {f:90, vol:1.5, dur:0.2} }
+];
+
 // ============================
 // 3. 替换 AudioEngine 类 (拟真蒸汽鸣笛 + 响亮行驶声)
 // ============================
@@ -304,59 +345,86 @@ class AudioEngine {
             src.start(t); src.stop(t + 0.2);
         }
     }
-    // 💥 终极版：随机音调 + 重低音冲击 + 空间感
-    explode() {
+    // styleIndex: 传入 0-11 选择特定风格，不传则随机
+    explode(styleIndex = -1) {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
         
-        // 1. 随机参数生成
-        // 音调：0.5 (低沉大爆炸) ~ 1.5 (尖锐小爆炸)
-        const pitch = 0.5 + Math.random() * 1.0; 
-        // 随机声像：-0.8 (左) ~ 0.8 (右)
+        // 1. 选择风格
+        if (styleIndex === -1) {
+            // 随机选择，但稍微偏向于前几种常用风格
+            styleIndex = Math.floor(Math.random() * SOUND_STYLES.length);
+        }
+        // 防止越界
+        const style = SOUND_STYLES[styleIndex % SOUND_STYLES.length];
+        
+        // 随机声像 (Pan): -0.8(左) ~ 0.8(右)
         const pan = (Math.random() - 0.5) * 1.6;
-
-        // --- 层级 A: 爆裂噪音 (纹理) ---
+        
+        // -------------------------------------------
+        // 层级 A: 爆裂噪音 (Texture Layer)
+        // -------------------------------------------
         const src = this.ctx.createBufferSource();
         src.buffer = this.noiseBuf;
-        src.playbackRate.value = pitch; // 关键：随机改变音高
+        // 稍微随机一点音调，避免每次完全一样
+        src.playbackRate.value = 0.8 + Math.random() * 0.4; 
 
+        // 滤波器 (决定是闷响还是脆响)
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        // 频率随音高变化
-        filter.frequency.setValueAtTime(800 * pitch, t);
-        filter.frequency.exponentialRampToValueAtTime(100, t + 0.8);
+        filter.Q.value = style.noise.q; // 共振峰
+        
+        // 频率包络
+        if (style.noise.slide) {
+            // 科幻效果：频率快速滑动
+            filter.frequency.setValueAtTime(style.noise.f * 2, t);
+            filter.frequency.exponentialRampToValueAtTime(100, t + style.noise.dur);
+        } else {
+            // 自然效果：频率随时间略微衰减
+            filter.frequency.setValueAtTime(style.noise.f, t);
+            filter.frequency.exponentialRampToValueAtTime(style.noise.f * 0.5, t + style.noise.dur);
+        }
 
-        // 声像定位 (Stereo Panner)
+        // 声像定位
         const panner = this.ctx.createStereoPanner();
         panner.pan.value = pan;
 
+        // 音量包络
         const env = this.ctx.createGain();
         env.gain.setValueAtTime(0, t);
-        env.gain.linearRampToValueAtTime(3.0, t + 0.02); // 瞬间极大音量
-        env.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+        env.gain.linearRampToValueAtTime(style.noise.vol, t + 0.02); // 极快起音
+        env.gain.exponentialRampToValueAtTime(0.01, t + style.noise.dur); // 衰减
 
+        // 连接 A
         src.connect(filter);
         filter.connect(panner);
         panner.connect(env);
         env.connect(this.nodes.fw);
-        src.start(t); src.stop(t + 1.6);
-
-        // --- 层级 B: 超重低音 Kick (冲击力) ---
-        // 模拟爆炸时的空气压缩感 "咚!"
-        const osc = this.ctx.createOscillator();
-        osc.type = 'sine';
         
-        // 频率快速下潜：60Hz -> 0Hz
-        osc.frequency.setValueAtTime(60, t);
-        osc.frequency.exponentialRampToValueAtTime(1, t + 0.3);
+        src.start(t);
+        src.stop(t + style.noise.dur + 0.1);
+
+        // -------------------------------------------
+        // 层级 B: 低频冲击 (Kick Layer) - 物理打击感
+        // -------------------------------------------
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine'; // 正弦波最适合做低音
+        
+        // 频率下潜 (Kick的核心)
+        osc.frequency.setValueAtTime(style.kick.f, t);
+        osc.frequency.exponentialRampToValueAtTime(1, t + style.kick.dur);
         
         const oscGain = this.ctx.createGain();
-        oscGain.gain.setValueAtTime(2.5, t); // 震感强烈
-        oscGain.gain.exponentialRampToValueAtTime(0.01, t + 0.3); // 短促有力
+        oscGain.gain.setValueAtTime(0, t);
+        oscGain.gain.linearRampToValueAtTime(style.kick.vol, t + 0.02);
+        oscGain.gain.exponentialRampToValueAtTime(0.01, t + style.kick.dur);
         
+        // 连接 B
         osc.connect(oscGain);
-        oscGain.connect(this.nodes.fw);
-        osc.start(t); osc.stop(t + 0.4);
+        oscGain.connect(this.nodes.fw); // 也要连到 fw 节点受总音量控制
+        
+        osc.start(t);
+        osc.stop(t + style.kick.dur + 0.1);
     }
 }
 let lastOut = 0; // 辅助变量
@@ -440,13 +508,9 @@ function init() {
     // [兼容性] 3. 使用 UnsignedByteType 替代 HalfFloatType
     // 很多老安卓机不支持浮点纹理，这是导致黑屏的元凶
     const rt = new THREE.WebGLRenderTarget(
-        innerWidth * renderer.getPixelRatio(),
-        innerHeight * renderer.getPixelRatio(),
-        { 
-            type: THREE.UnsignedByteType, // 标准格式，兼容性 100%
-            stencilBuffer: false,
-            depthBuffer: true
-        }
+        innerWidth, // 不要乘 renderer.getPixelRatio()，Bloom 不需要视网膜级分辨率
+        innerHeight,
+        { type: THREE.HalfFloatType, stencilBuffer: false } // 如果设备支持，HalfFloat 更好
     );
 
     const rp = new RenderPass(scene, camera);
@@ -570,7 +634,7 @@ function buildLights() {
     const moon = new THREE.DirectionalLight(0xaaccff, CFG.moonInt);
     moon.position.set(-80, 150, -80);
     moon.castShadow=true; 
-    moon.shadow.mapSize.set(2048,2048);
+    moon.shadow.mapSize.set(1024,1024);
     moon.shadow.camera.left=-400; moon.shadow.camera.right=400;
     moon.shadow.camera.top=400; moon.shadow.camera.bottom=-400;
     scene.add(moon); lights.moon = moon;
@@ -1050,15 +1114,28 @@ class Train {
         this.curve=curve; this.prog=0; this.wheels=[]; this.smokes=[];
         
         // [性能优化] 预先创建烟雾的几何体和材质，不要在循环里创建
-        this.smokeGeo = new THREE.IcosahedronGeometry(1, 0); // 基础大小为1，靠scale缩放
-        this.smokeMat = new THREE.MeshStandardMaterial({
-            color: 0xdddddd, 
-            transparent: true, 
-            opacity: 0.8, 
-            depthWrite: false, 
-            roughness: 1,
-            flatShading: true // 低多边形风格，性能更好
+        this.smokeMax = 50; // 最大烟雾数量
+        this.smokeIdx = 0;
+        this.smokeData = []; // 存储生命周期数据
+        // 使用 InstancedMesh
+        const sGeo = new THREE.IcosahedronGeometry(1, 0);
+        const sMat = new THREE.MeshStandardMaterial({
+            color: 0xdddddd, transparent: true, opacity: 0.6, // 基础透明度
+            depthWrite: false, roughness: 1, flatShading: true
         });
+        this.smokeMesh = new THREE.InstancedMesh(sGeo, sMat, this.smokeMax);
+        this.smokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.grp.add(this.smokeMesh);
+
+        // 初始化烟雾数据
+        const dummy = new THREE.Object3D();
+        for(let i=0; i<this.smokeMax; i++) {
+            // 初始移到无限远
+            dummy.position.set(0, -1000, 0); 
+            dummy.updateMatrix();
+            this.smokeMesh.setMatrixAt(i, dummy.matrix);
+            this.smokeData.push({ active: false, life: 0, vel: new THREE.Vector3(), scale: 1 });
+        }
 
         // Glare
         const cv=document.createElement('canvas'); cv.width=64;cv.height=64;
@@ -1197,71 +1274,67 @@ class Train {
     }
 
     spawnSmoke(pos, trainSpeed) {
-        // 使用缓存的几何体和材质
-        const m = new THREE.Mesh(this.smokeGeo, this.smokeMat.clone()); // 材质需要clone因为要独立控制opacity
+        const idx = this.smokeIdx;
+        const s = this.smokeData[idx];
         
-        // 初始大小随机
-        const size = 0.4 + Math.random() * 0.4;
-        m.position.copy(pos);
-        m.rotation.set(Math.random()*6, Math.random()*6, Math.random()*6);
-        m.scale.setScalar(size); // 初始缩放
+        // 激活粒子
+        s.active = true;
+        s.life = 1.0;
+        s.scale = 0.4 + Math.random() * 0.4;
+        s.pos = pos.clone(); // 这里的开销可以接受，或者复用 Vector3
         
-        // --- 物理修复核心 ---
-        // 1. 垂直喷射力：大幅增加 (原来是0.3 -> 现在1.2)，模拟高压蒸汽
-        const upForce = 1.2 + Math.random() * 0.5;
-        
-        // 2. 惯性继承：现实中烟雾出膛瞬间带有火车速度，但极快被空气阻滞
-        // 我们只继承 80% 的火车速度，这样它会有一种被"甩"在后面的感觉
-        const trainDir = new THREE.Vector3(0, 0, 1).applyQuaternion(this.loco.quaternion).normalize();
+        // 计算速度 (同原逻辑)
+        const trainDir = new THREE.Vector3(0,0,1).applyQuaternion(this.loco.quaternion).normalize();
         const forwardVel = trainDir.multiplyScalar(trainSpeed * 0.8);
-        
-        const velocity = new THREE.Vector3(0, upForce, 0).add(forwardVel);
+        s.vel.set(0, 1.2 + Math.random()*0.5, 0).add(forwardVel);
+        s.vel.x += (Math.random()-0.5)*0.2;
+        s.vel.z += (Math.random()-0.5)*0.2;
 
-        // 随机扰动
-        velocity.x += (Math.random() - 0.5) * 0.2;
-        velocity.z += (Math.random() - 0.5) * 0.2;
-
-        scene.add(m); 
-        this.smokes.push({
-            m, 
-            vel: velocity, 
-            life: 1.0,      // 生命值归一化
-            maxLife: 1.5 + Math.random() * 0.5,
-            initScale: size
-        });
+        // 移动指针 (循环队列)
+        this.smokeIdx = (this.smokeIdx + 1) % this.smokeMax;
     }
 
     updateSmoke() {
-        for(let i = this.smokes.length - 1; i >= 0; i--) {
-            const s = this.smokes[i];
-            
-            s.m.position.add(s.vel);
-            
-            // [物理优化]
-            // 空气阻力：水平方向阻力极大 (0.85)，垂直方向阻力小 (0.98)
-            // 这样烟雾会迅速停止向前运动，垂直向上飘
-            s.vel.x *= 0.85; 
-            s.vel.z *= 0.85;
-            s.vel.y *= 0.96; 
-            
-            // 扩散感
-            s.vel.y += 0.005; // 持续的热气上升力
-            
-            s.life -= 0.015; // 衰减速度
-            
-            // 视觉变化：随时间迅速变大变淡
-            const progress = 1 - s.life;
-            const curScale = s.initScale * (1 + progress * 5.0); // 膨胀5倍
-            s.m.scale.setScalar(curScale);
-            
-            s.m.material.opacity = s.life * 0.4; // 稍微透明点，不要太实
-            
+        const dummy = new THREE.Object3D();
+        let dirty = false;
+
+        for(let i=0; i<this.smokeMax; i++) {
+            const s = this.smokeData[i];
+            if(!s.active) continue;
+
+            s.pos.add(s.vel);
+            s.vel.x *= 0.85; s.vel.z *= 0.85; s.vel.y *= 0.96; s.vel.y += 0.005;
+            s.life -= 0.015;
+
             if(s.life <= 0) {
-                scene.remove(s.m);
-                s.m.material.dispose(); // 记得清理克隆的材质
-                this.smokes.splice(i, 1);
+                s.active = false;
+                // 归位到看不见的地方
+                dummy.position.set(0, -1000, 0);
+                dummy.updateMatrix();
+                this.smokeMesh.setMatrixAt(i, dummy.matrix);
+                dirty = true;
+                continue;
             }
+
+            // 更新变换
+            const progress = 1 - s.life;
+            const curScale = s.scale * (1 + progress * 5.0);
+            
+            dummy.position.copy(s.pos);
+            dummy.scale.setScalar(curScale);
+            // 旋转增加动态感
+            dummy.rotation.set(progress, progress, progress); 
+            dummy.updateMatrix();
+            
+            this.smokeMesh.setMatrixAt(i, dummy.matrix);
+            dirty = true;
+            
+            // 注意：InstancedMesh 默认不支持修改单个实例的 Opacity (透明度)。
+            // 这里的折中方案是：让它变小或者完全消失，或者接受统一的 opacity。
+            // 如果必须淡出，需要自定义 Shader，但对于性能优化版，我们主要追求流畅。
         }
+
+        if(dirty) this.smokeMesh.instanceMatrix.needsUpdate = true;
     }
     place(o, t) {
         const p=this.curve.getPointAt(t), tan=this.curve.getTangentAt(t);
@@ -1270,64 +1343,69 @@ class Train {
 }
 
 // ============================
-// 🎆 特效
+// 🎆 优化版 Fireworks (对象池技术)
 // ============================
 class Fireworks {
     constructor(sc) {
         this.sc = sc; 
-        this.r = []; 
-        this.s = [];
+        this.activeRockets = []; 
+        this.activeExplosions = [];
         
-        // 1. 生成粒子纹理
-        const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+        // 纹理生成
+        const c = document.createElement('canvas'); c.width=32; c.height=32;
         const x = c.getContext('2d'); 
         const g = x.createRadialGradient(16,16,0,16,16,16);
         g.addColorStop(0,'#fff'); g.addColorStop(1,'transparent'); 
-        x.fillStyle = g; x.fillRect(0,0,32,32);
+        x.fillStyle=g; x.fillRect(0,0,32,32);
         this.tex = new THREE.CanvasTexture(c);
         
-        // 2. 定义配色方案
         this.cols = [[0xff0000,0xffaa00],[0x00ffff,0x0000ff],[0xff00ff,0xffaaaa],[0x00ff00,0xffff00]];
-
-        // 3. 【核心修复】创建“共享材质”
-        // 以前每次爆炸都 new Material，导致 CPU 爆炸
-        // 现在所有烟花共用这一个材质，性能提升 100 倍
         this.sharedMat = new THREE.PointsMaterial({
-            size: 8.0, 
-            map: this.tex, 
-            transparent: true, 
-            depthWrite: false, 
-            blending: THREE.AdditiveBlending, 
-            vertexColors: true // 开启顶点颜色，这样我们才能单独控制每个粒子的颜色
+            size: 8.0, map: this.tex, transparent: true, depthWrite: false, 
+            blending: THREE.AdditiveBlending, vertexColors: true
         });
+
+        // --- 对象池初始化 ---
+        this.poolSize = 15; // 最大同时存在的爆炸数
+        this.pool = [];
+        const particlesPerExplosion = 80;
+
+        for(let i=0; i<this.poolSize; i++) {
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(particlesPerExplosion * 3);
+            const col = new Float32Array(particlesPerExplosion * 3);
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+            
+            const m = new THREE.Points(geo, this.sharedMat);
+            m.frustumCulled = false; // 避免视锥剔除计算
+            m.visible = false;
+            this.sc.add(m);
+            
+            this.pool.push({
+                mesh: m,
+                velocities: new Float32Array(particlesPerExplosion * 3), // 预分配速度数组
+                life: 0,
+                available: true
+            });
+        }
     }
 
     launch(pos) {
-        // [性能锁] 限制同屏最大爆炸数
-        if (this.r.length + this.s.length > 10) return;
-
-        if(!pos) {
-            // 范围缩小到 25，确保在地图中心上方爆炸
-            const range = 25;
-            pos = new THREE.Vector3(
-                (Math.random() - 0.5) * 2 * range, 
-                -5, 
-                (Math.random() - 0.5) * 2 * range
-            );
-        }
-        
+        // 火箭部分代码保持简单，此处略微简化以聚焦核心
+        if(!pos) pos = new THREE.Vector3((Math.random()-0.5)*50, -5, (Math.random()-0.5)*50);
         const ty = pos.y + 50 + Math.random()*40;
         const pal = this.cols[Math.floor(Math.random()*this.cols.length)];
         
-        // 火箭部分（保持独立材质，因为数量极少，为了淡出效果方便）
+        // 简单的火箭几何体 (少量创建影响不大，也可以池化，但这里先忽略)
         const m = new THREE.Points(
             new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]), 
             new THREE.PointsMaterial({color:0xffddaa, size:5, map:this.tex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true})
         );
-        m.position.copy(pos); 
+        m.position.copy(pos);
         this.sc.add(m);
         
-        this.r.push({
+        this.activeRockets.push({
             m, pos: pos.clone(), 
             vel: new THREE.Vector3((Math.random()-0.5)*0.5, Math.sqrt(2*0.02*(ty-pos.y)), (Math.random()-0.5)*0.5), 
             pal
@@ -1335,167 +1413,175 @@ class Fireworks {
     }
 
     update() {
-        // --- 1. 更新上升的火箭 ---
-        for(let i = this.r.length - 1; i >= 0; i--) {
-            const r = this.r[i]; 
-            r.pos.add(r.vel); 
-            r.vel.y -= 0.02; 
-            r.m.position.copy(r.pos);
-            if(r.vel.y <= 0.5) { 
-                this.sc.remove(r.m); 
-                r.m.geometry.dispose(); 
-                r.m.material.dispose(); // 火箭材质可以销毁
-                this.explode(r.pos, r.pal); 
-                this.r.splice(i, 1); 
+        // 1. 更新火箭
+        for(let i = this.activeRockets.length - 1; i >= 0; i--) {
+            const r = this.activeRockets[i];
+            r.pos.add(r.vel); r.vel.y -= 0.02; r.m.position.copy(r.pos);
+            if(r.vel.y <= 0.5) {
+                this.sc.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose();
+                this.explode(r.pos, r.pal);
+                this.activeRockets.splice(i, 1);
             }
         }
-        
-        // --- 2. 更新爆炸粒子 ---
-        for(let i = this.s.length - 1; i >= 0; i--) {
-            const s = this.s[i]; 
-            s.life -= 0.015; // 寿命自然衰减
-            
-            const p = s.geo.attributes.position.array;
-            const c = s.geo.attributes.color.array; // 获取颜色数据
-            
-            for(let k = 0; k < s.count; k++) {
-                const idx = k * 3;
-                
-                // 物理运动
-                p[idx] += s.vels[idx]; 
-                p[idx+1] += s.vels[idx+1]; 
-                p[idx+2] += s.vels[idx+2];
-                
-                s.vels[idx] *= 0.92; 
-                s.vels[idx+1] *= 0.92; 
-                s.vels[idx+2] *= 0.92; 
-                s.vels[idx+1] -= 0.02; // 重力
 
-                // 【视觉修复】模拟淡出
-                // 因为大家共用一个材质，不能改全局 opacity
-                // 所以我们直接修改“顶点颜色”，让颜色越来越暗，看起来就像淡出了
-                if (s.life < 1.0) {
-                    c[idx] *= 0.94;   // R 变暗
-                    c[idx+1] *= 0.94; // G 变暗
-                    c[idx+2] *= 0.94; // B 变暗
+        // 2. 更新爆炸 (使用对象池)
+        for(let i = 0; i < this.poolSize; i++) {
+            const p = this.pool[i];
+            if(p.available) continue;
+
+            p.life -= 0.015;
+            if(p.life <= 0) {
+                p.mesh.visible = false;
+                p.available = true; // 归还到池子
+                continue;
+            }
+
+            const positions = p.mesh.geometry.attributes.position.array;
+            const colors = p.mesh.geometry.attributes.color.array;
+            
+            for(let k=0; k<80; k++) {
+                const idx = k*3;
+                positions[idx] += p.velocities[idx];
+                positions[idx+1] += p.velocities[idx+1];
+                positions[idx+2] += p.velocities[idx+2];
+                
+                p.velocities[idx] *= 0.92;
+                p.velocities[idx+1] *= 0.92;
+                p.velocities[idx+2] *= 0.92;
+                p.velocities[idx+1] -= 0.02;
+
+                // 简单的淡出 (直接修改颜色 buffer)
+                if(p.life < 1.0) {
+                    colors[idx] *= 0.94; colors[idx+1] *= 0.94; colors[idx+2] *= 0.94;
                 }
             }
-            
-            s.geo.attributes.position.needsUpdate = true; 
-            s.geo.attributes.color.needsUpdate = true; // 告诉 GPU 颜色变了
-            
-            // 移除逻辑
-            if(s.life <= 0) { 
-                this.sc.remove(s.m); 
-                
-                // 【内存修复】只销毁几何体
-                s.geo.dispose(); 
-                // ⚠️ 绝对不要销毁 s.mat (this.sharedMat)，因为其他烟花还要用！
-                
-                this.s.splice(i, 1); 
-            }
+            p.mesh.geometry.attributes.position.needsUpdate = true;
+            p.mesh.geometry.attributes.color.needsUpdate = true;
         }
     }
 
     explode(pos, pal) {
-        audio.explode();
-        
-        const cnt = 80; // 粒子数量
-        const posA = new Float32Array(cnt * 3); 
-        const colA = new Float32Array(cnt * 3); 
-        const vels = [];
+        const styleIdx = window.getFireworkSoundStyle?.() ?? -1;
+        audio.explode(styleIdx);
+
+        // 从池中查找可用对象
+        const item = this.pool.find(p => p.available);
+        if(!item) return; // 池子满了就忽略，保证性能
+
+        item.available = false;
+        item.life = 1.5;
+        item.mesh.visible = true;
+
+        const posAttr = item.mesh.geometry.attributes.position.array;
+        const colAttr = item.mesh.geometry.attributes.color.array;
         const color = new THREE.Color();
 
-        for(let i = 0; i < cnt; i++) {
-            posA[i*3] = pos.x; posA[i*3+1] = pos.y; posA[i*3+2] = pos.z;
+        // 重置粒子状态
+        for(let i=0; i<80; i++) {
+            const idx = i*3;
+            // 位置重置为爆炸中心
+            posAttr[idx] = pos.x; posAttr[idx+1] = pos.y; posAttr[idx+2] = pos.z;
             
-            const speed = 0.5 + Math.random() * 2.8; 
+            // 速度重置
+            const speed = 0.5 + Math.random() * 2.8;
             const phi = Math.acos(2 * Math.random() - 1);
             const theta = Math.random() * Math.PI * 2;
-            
-            vels.push(speed * Math.sin(phi) * Math.cos(theta), speed * Math.sin(phi) * Math.sin(theta), speed * Math.cos(phi));
-            
-            // 随机选色
-            color.setHex(pal[Math.floor(Math.random() * pal.length)]); 
-            // 稍微把颜色调亮一点，配合 Bloom 会更好看
-            color.multiplyScalar(1.5);
-            
-            colA[i*3] = color.r; colA[i*3+1] = color.g; colA[i*3+2] = color.b;
-        }
+            item.velocities[idx] = speed * Math.sin(phi) * Math.cos(theta);
+            item.velocities[idx+1] = speed * Math.sin(phi) * Math.sin(theta);
+            item.velocities[idx+2] = speed * Math.cos(phi);
 
-        const geo = new THREE.BufferGeometry(); 
-        geo.setAttribute('position', new THREE.BufferAttribute(posA, 3)); 
-        geo.setAttribute('color', new THREE.BufferAttribute(colA, 3));
-        
-        // 【核心】使用共享材质创建粒子系统
-        const m = new THREE.Points(geo, this.sharedMat); 
-        this.sc.add(m);
-        
-        // 【核心】彻底移除 PointLight (灯光)
-        // 以前这里创建灯光是导致卡顿的元凶
-        
-        this.s.push({
-            m, 
-            geo, 
-            vels, 
-            count: cnt, 
-            life: 1.5
-        });
+            // 颜色重置
+            color.setHex(pal[Math.floor(Math.random() * pal.length)]);
+            color.multiplyScalar(1.5);
+            colAttr[idx] = color.r; colAttr[idx+1] = color.g; colAttr[idx+2] = color.b;
+        }
+        item.mesh.geometry.attributes.position.needsUpdate = true;
+        item.mesh.geometry.attributes.color.needsUpdate = true;
     }
 }
 
 // ============================
-// Snow (基于时间更新，匀速下落 + 微风干扰)
+// ❄️ 优化版 Snow (GPU Shader 驱动)
 // ============================
 class Snow {
     constructor(sc) {
-        const count = 4000;
+        const count = 6000; // 可以轻松支持更多粒子
         const pos = [];
-        // 初始化分布：Y轴范围拉大到 600，防止重置时出现断层
+        const velocities = []; // 存储下落速度和偏移
+        
         for(let i=0; i<count; i++) {
             pos.push(
-                Math.random()*800-400, 
-                Math.random()*600, // 0~600 高度
-                Math.random()*800-400
+                (Math.random() * 2 - 1) * 400,
+                Math.random() * 600,
+                (Math.random() * 2 - 1) * 400
+            );
+            // x: 下落速度, y: 摇摆频率, z: 摇摆幅度
+            velocities.push(
+                25 + Math.random() * 20, 
+                0.5 + Math.random(), 
+                5 + Math.random() * 10 
             );
         }
-        const g = new THREE.BufferGeometry(); 
-        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-        
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setAttribute('velocity', new THREE.Float32BufferAttribute(velocities, 3));
+
+        // 简单的雪花纹理
         const cv = document.createElement('canvas'); cv.width=32; cv.height=32;
         const cx = cv.getContext('2d'); cx.fillStyle='#fff'; cx.beginPath(); cx.arc(16,16,16,0,Math.PI*2); cx.fill();
-        
-        this.m = new THREE.Points(g, new THREE.PointsMaterial({
-            color: 0xeeeeee, 
-            map: new THREE.CanvasTexture(cv), 
-            transparent: true, 
-            opacity: 0.8, 
-            size: 0.8, 
-            depthWrite: false, 
+        const tex = new THREE.CanvasTexture(cv);
+
+        // 自定义 Shader 材质
+        const mat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTime: { value: 0 },
+                uTex: { value: tex },
+                uHeight: { value: 600.0 } // 边界高度
+            },
+            vertexShader: `
+                uniform float uTime;
+                uniform float uHeight;
+                attribute vec3 velocity;
+                varying float vAlpha;
+                void main() {
+                    vec3 pos = position;
+                    // Y轴下落计算：(初始Y - 速度*时间) 对 高度取模
+                    float fallOffset = velocity.x * uTime;
+                    pos.y = mod(position.y - fallOffset, uHeight);
+                    
+                    // X轴摇摆
+                    pos.x += sin(uTime * velocity.y + position.y * 0.05) * velocity.z;
+                    
+                    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                    
+                    // 距离衰减 (可选)
+                    gl_PointSize = (300.0 / -mvPosition.z) * 0.8;
+                    vAlpha = 0.8;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D uTex;
+                varying float vAlpha;
+                void main() {
+                    vec4 color = texture2D(uTex, gl_PointCoord);
+                    if (color.a < 0.5) discard;
+                    gl_FragColor = vec4(1.0, 1.0, 1.0, vAlpha * color.a);
+                }
+            `,
+            transparent: true,
+            depthWrite: false,
             blending: THREE.AdditiveBlending
-        }));
+        });
+
+        this.m = new THREE.Points(geo, mat);
         sc.add(this.m);
     }
     
-    // 接收 dt 参数，保证不同帧率下速度一致
     update(dt) {
-        const p = this.m.geometry.attributes.position.array;
-        const fallSpeed = 35.0; // 每秒下落单位
-        
-        for(let i=1; i<p.length; i+=3) {
-            // Y轴下落
-            p[i] -= fallSpeed * dt;
-            
-            // X轴微风摇摆 (模拟飘雪)
-            // 利用高度 p[i] 作为噪声输入
-            p[i-1] -= Math.sin(p[i] * 0.05) * 10 * dt;
-
-            // 循环重置
-            if(p[i] < 0) {
-                p[i] = 600 + Math.random() * 50;
-            }
-        }
-        this.m.geometry.attributes.position.needsUpdate = true;
+        // CPU 只需要更新一个时间变量
+        this.m.material.uniforms.uTime.value += dt;
     }
 }
 
@@ -1579,7 +1665,22 @@ function setupUI() {
     fEnv.add(CFG, 'bulbBri', 0, 50).name('彩灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'bulb') o.material.emissiveIntensity = v }));
 
     const fFw = gui.addFolder('🎆 烟花控制');
-    
+    // 调试对象：默认选第1种（巨型重炮），-1 表示随机
+    const debugObj = { soundStyle: 1 };
+
+    // 自动生成音效风格选项（含“随机”）
+    const styleOptions = { '随机 (Random)': -1 };
+    SOUND_STYLES.forEach((style, i) => {
+        const label = `${i}. ${style.name} (${style.name})`;
+        styleOptions[label] = i;
+    });
+
+    // 添加 GUI 控件
+    fFw.add(debugObj, '音效风格', styleOptions).name('💥 爆炸音效风格');
+
+    // ✅ 全局暴露 debugObj.soundStyle，供 Fireworks.explode() 直接读取
+    window.getFireworkSoundStyle = () => debugObj.soundStyle;
+
     // [修复] 批量发射函数：增加页面可见性检查
     const launchBatch = () => {
         // 如果游戏没开始，或者页面在后台(不可见)，则不生成烟花
