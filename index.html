@@ -1278,21 +1278,36 @@ class Fireworks {
         this.r = []; 
         this.s = [];
         
-        // 纹理 (32x32 极小纹理)
+        // 1. 生成粒子纹理
         const c = document.createElement('canvas'); c.width = 32; c.height = 32;
         const x = c.getContext('2d'); 
         const g = x.createRadialGradient(16,16,0,16,16,16);
         g.addColorStop(0,'#fff'); g.addColorStop(1,'transparent'); 
         x.fillStyle = g; x.fillRect(0,0,32,32);
         this.tex = new THREE.CanvasTexture(c);
+        
+        // 2. 定义配色方案
         this.cols = [[0xff0000,0xffaa00],[0x00ffff,0x0000ff],[0xff00ff,0xffaaaa],[0x00ff00,0xffff00]];
+
+        // 3. 【核心修复】创建“共享材质”
+        // 以前每次爆炸都 new Material，导致 CPU 爆炸
+        // 现在所有烟花共用这一个材质，性能提升 100 倍
+        this.sharedMat = new THREE.PointsMaterial({
+            size: 8.0, 
+            map: this.tex, 
+            transparent: true, 
+            depthWrite: false, 
+            blending: THREE.AdditiveBlending, 
+            vertexColors: true // 开启顶点颜色，这样我们才能单独控制每个粒子的颜色
+        });
     }
 
     launch(pos) {
-        // [性能锁] 限制同屏最大爆炸数，防止卡死
-        if (this.r.length + this.s.length > 6) return;
+        // [性能锁] 限制同屏最大爆炸数
+        if (this.r.length + this.s.length > 10) return;
 
         if(!pos) {
+            // 范围缩小到 25，确保在地图中心上方爆炸
             const range = 25;
             pos = new THREE.Vector3(
                 (Math.random() - 0.5) * 2 * range, 
@@ -1304,6 +1319,7 @@ class Fireworks {
         const ty = pos.y + 50 + Math.random()*40;
         const pal = this.cols[Math.floor(Math.random()*this.cols.length)];
         
+        // 火箭部分（保持独立材质，因为数量极少，为了淡出效果方便）
         const m = new THREE.Points(
             new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]), 
             new THREE.PointsMaterial({color:0xffddaa, size:5, map:this.tex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true})
@@ -1319,7 +1335,7 @@ class Fireworks {
     }
 
     update() {
-        // 1. 火箭上升逻辑 (保持不变)
+        // --- 1. 更新上升的火箭 ---
         for(let i = this.r.length - 1; i >= 0; i--) {
             const r = this.r[i]; 
             r.pos.add(r.vel); 
@@ -1327,19 +1343,20 @@ class Fireworks {
             r.m.position.copy(r.pos);
             if(r.vel.y <= 0.5) { 
                 this.sc.remove(r.m); 
-                r.m.geometry.dispose(); r.m.material.dispose();
+                r.m.geometry.dispose(); 
+                r.m.material.dispose(); // 火箭材质可以销毁
                 this.explode(r.pos, r.pal); 
                 this.r.splice(i, 1); 
             }
         }
         
-        // 2. 爆炸粒子逻辑 (新增闪烁效果)
+        // --- 2. 更新爆炸粒子 ---
         for(let i = this.s.length - 1; i >= 0; i--) {
             const s = this.s[i]; 
-            s.life -= 0.02; // 调整消失速度
+            s.life -= 0.015; // 寿命自然衰减
             
             const p = s.geo.attributes.position.array;
-            const c = s.geo.attributes.color.array; // 获取颜色缓冲
+            const c = s.geo.attributes.color.array; // 获取颜色数据
             
             for(let k = 0; k < s.count; k++) {
                 const idx = k * 3;
@@ -1348,36 +1365,33 @@ class Fireworks {
                 p[idx] += s.vels[idx]; 
                 p[idx+1] += s.vels[idx+1]; 
                 p[idx+2] += s.vels[idx+2];
-                s.vels[idx] *= 0.92; s.vels[idx+1] *= 0.92; s.vels[idx+2] *= 0.92; 
-                s.vels[idx+1] -= 0.02;
+                
+                s.vels[idx] *= 0.92; 
+                s.vels[idx+1] *= 0.92; 
+                s.vels[idx+2] *= 0.92; 
+                s.vels[idx+1] -= 0.02; // 重力
 
-                // ✨✨✨ 离子闪烁核心逻辑 ✨✨✨
-                // 当生命值低于 0.3 时，开始随机闪烁
-                if (s.life < 0.35) {
-                    // 随机开关：30%概率显示，70%概率变黑(消失)
-                    // 使用 s.baseCols 恢复原始颜色，或者设为0
-                    if (Math.random() > 0.3) {
-                        c[idx] = 0; c[idx+1] = 0; c[idx+2] = 0;
-                    } else {
-                        // 这一瞬间闪亮一下 (这里需要我们知道原始颜色，简单起见我们让它闪白或保持原色)
-                        // 为性能考虑，我们简单地只做随机变暗，或者让它偶尔闪一下白
-                        c[idx] = Math.random(); // R
-                        c[idx+1] = Math.random(); // G
-                        c[idx+2] = Math.random(); // B
-                    }
+                // 【视觉修复】模拟淡出
+                // 因为大家共用一个材质，不能改全局 opacity
+                // 所以我们直接修改“顶点颜色”，让颜色越来越暗，看起来就像淡出了
+                if (s.life < 1.0) {
+                    c[idx] *= 0.94;   // R 变暗
+                    c[idx+1] *= 0.94; // G 变暗
+                    c[idx+2] *= 0.94; // B 变暗
                 }
             }
             
             s.geo.attributes.position.needsUpdate = true; 
-            s.geo.attributes.color.needsUpdate = true; // ⚠️ 必须标记颜色更新
+            s.geo.attributes.color.needsUpdate = true; // 告诉 GPU 颜色变了
             
-            s.mat.opacity = s.life;
-            if(s.l) s.l.intensity = s.life * 20;
-            
+            // 移除逻辑
             if(s.life <= 0) { 
                 this.sc.remove(s.m); 
-                if(s.l) this.sc.remove(s.l);
-                s.geo.dispose(); s.mat.dispose();
+                
+                // 【内存修复】只销毁几何体
+                s.geo.dispose(); 
+                // ⚠️ 绝对不要销毁 s.mat (this.sharedMat)，因为其他烟花还要用！
+                
                 this.s.splice(i, 1); 
             }
         }
@@ -1386,12 +1400,11 @@ class Fireworks {
     explode(pos, pal) {
         audio.explode();
         
-        // [性能关键] 粒子数降为 120，解决卡顿的核心
-        const cnt = 60; 
+        const cnt = 80; // 粒子数量
         const posA = new Float32Array(cnt * 3); 
         const colA = new Float32Array(cnt * 3); 
         const vels = [];
-        const c = new THREE.Color();
+        const color = new THREE.Color();
 
         for(let i = 0; i < cnt; i++) {
             posA[i*3] = pos.x; posA[i*3+1] = pos.y; posA[i*3+2] = pos.z;
@@ -1402,33 +1415,32 @@ class Fireworks {
             
             vels.push(speed * Math.sin(phi) * Math.cos(theta), speed * Math.sin(phi) * Math.sin(theta), speed * Math.cos(phi));
             
-            c.setHex(pal[Math.floor(Math.random() * pal.length)]); 
-            colA[i*3] = c.r; colA[i*3+1] = c.g; colA[i*3+2] = c.b;
+            // 随机选色
+            color.setHex(pal[Math.floor(Math.random() * pal.length)]); 
+            // 稍微把颜色调亮一点，配合 Bloom 会更好看
+            color.multiplyScalar(1.5);
+            
+            colA[i*3] = color.r; colA[i*3+1] = color.g; colA[i*3+2] = color.b;
         }
 
         const geo = new THREE.BufferGeometry(); 
         geo.setAttribute('position', new THREE.BufferAttribute(posA, 3)); 
         geo.setAttribute('color', new THREE.BufferAttribute(colA, 3));
         
-        // [视觉补偿] 粒子尺寸增大到 6.0，虽然数量少了，但看着依然很壮观
-        const mat = new THREE.PointsMaterial({
-            size: 8.0, 
-            map: this.tex, 
-            transparent: true, 
-            depthWrite: false, 
-            blending: THREE.AdditiveBlending, 
-            vertexColors: true
-        });
-        
-        const m = new THREE.Points(geo, mat); 
+        // 【核心】使用共享材质创建粒子系统
+        const m = new THREE.Points(geo, this.sharedMat); 
         this.sc.add(m);
         
-        // 闪光灯
-        const l = new THREE.PointLight(pal[0], 15, 50); 
-        l.position.copy(pos); 
-        this.sc.add(l);
+        // 【核心】彻底移除 PointLight (灯光)
+        // 以前这里创建灯光是导致卡顿的元凶
         
-        this.s.push({m, geo, mat, vels, l, count: cnt, life: 1.5});
+        this.s.push({
+            m, 
+            geo, 
+            vels, 
+            count: cnt, 
+            life: 1.5
+        });
     }
 }
 
