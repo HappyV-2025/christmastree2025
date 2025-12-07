@@ -863,28 +863,108 @@ function createHeroTree(x, z, scale) {
     const matSilver = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3 });
     const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
 
-    // 辅助生成器
+    // 🍬 修复版：拐杖糖
     const createCandyCane = () => {
         const cane = new THREE.Group();
-        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.2, 6), matWhite);
-        stick.position.y = 0.6;
-        const hook = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.15, 4, 8, Math.PI), matRed);
-        hook.position.y = 1.2; hook.position.x = 0.35; hook.rotation.z = Math.PI/2;
-        for(let i=0; i<3; i++) {
-            const stripe = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 4, 6), matRed);
-            stripe.position.y = 0.3 + i*0.4; stripe.rotation.x = Math.PI/2; cane.add(stripe);
+        
+        // 材质复用上下文中的 matWhite 和 matRed
+        
+        // 1. 拐杖主体 (统一用白色)
+        // 棍身
+        const stickH = 1.2;
+        const radius = 0.12;
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, stickH, 8), matWhite);
+        stick.position.y = stickH / 2;
+        
+        // 弯钩 (半圆环)
+        const hookRadius = 0.35;
+        const hook = new THREE.Mesh(
+            new THREE.TorusGeometry(hookRadius, radius, 8, 16, Math.PI), 
+            matWhite
+        );
+        // 调整弯钩位置，使其完美连接棍身顶部
+        hook.position.set(hookRadius, stickH, 0); 
+        hook.rotation.set(0, 0, 0); // 默认Torus是在XY平面，Math.PI画出上半圆
+        // 我们需要把半圆转一下，让它像个钩子
+        // 默认是从3点钟画到9点钟，我们需要调整它的朝向
+        
+        // 2. 模拟红色条纹 (用倾斜的圆环模拟螺旋)
+        const stripeGeo = new THREE.TorusGeometry(radius + 0.01, 0.02, 4, 8); // 稍微粗一点点覆盖表面
+        
+        // 棍身上的条纹
+        for(let i=0; i<5; i++) {
+            const stripe = new THREE.Mesh(stripeGeo, matRed);
+            stripe.position.y = 0.2 + i * 0.22;
+            stripe.rotation.x = Math.PI / 2; // 先放平
+            stripe.rotation.y = 0.3; // 再倾斜一点，模拟螺旋感
+            cane.add(stripe);
         }
-        cane.add(stick, hook);
+        
+        // 弯钩上的条纹 (手动放置几个)
+        const hookStripes = new THREE.Group();
+        hookStripes.position.copy(hook.position); // 跟随弯钩坐标系
+        
+        for(let i=1; i<4; i++) {
+            const angle = (i / 4) * Math.PI; // 在半圆上的角度
+            const stripe = new THREE.Mesh(stripeGeo, matRed);
+            // 计算圆环在弯钩路径上的位置
+            stripe.position.set(
+                Math.cos(angle) * hookRadius,
+                Math.sin(angle) * hookRadius, 
+                0
+            );
+            // 让圆环垂直于路径切线
+            stripe.rotation.z = angle + Math.PI/2;
+            hookStripes.add(stripe);
+        }
+
+        cane.add(stick, hook, hookStripes);
+        
+        // 整体调整姿态
         cane.scale.set(1.2, 1.2, 1.2);
+        // 让拐杖挂在树上时稍微自然一点
+        cane.rotation.z = Math.PI / 6; 
+        
         return cane;
     };
+    // 🎁 修复版：带蝴蝶结的树上小礼物
     const createMiniGift = () => {
         const boxG = new THREE.Group();
-        const color = Math.random() > 0.5 ? matRed : matGold;
-        const box = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.0), color);
-        const r1 = new THREE.Mesh(new THREE.BoxGeometry(1.02, 1.02, 0.25), matWhite);
-        const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.02, 1.02), matWhite);
-        boxG.add(box, r1, r2);
+        // 随机颜色：红或金
+        const isRed = Math.random() > 0.5;
+        const mainMat = isRed ? matRed : matGold;
+        const ribbonMat = matWhite;
+
+        // 1. 盒子主体
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.0), mainMat);
+        
+        // 2. 十字丝带 (稍微加厚一点防止闪烁)
+        const r1 = new THREE.Mesh(new THREE.BoxGeometry(1.05, 1.0, 0.25), ribbonMat);
+        const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.0, 1.05), ribbonMat);
+        
+        // 3. 顶部蝴蝶结 (由两个旋转的环 + 中间一个结组成)
+        const bowG = new THREE.Group();
+        bowG.position.y = 0.5; // 放在盒子顶上
+
+        // 蝴蝶结的耳朵 (Torus压扁)
+        const bowGeo = new THREE.TorusGeometry(0.2, 0.08, 6, 12); 
+        const b1 = new THREE.Mesh(bowGeo, ribbonMat);
+        b1.position.set(0.15, 0.15, 0);
+        b1.rotation.set(0, 0, -Math.PI / 4); // 倾斜
+        
+        const b2 = new THREE.Mesh(bowGeo, ribbonMat);
+        b2.position.set(-0.15, 0.15, 0);
+        b2.rotation.set(0, 0, Math.PI / 4); // 另一边倾斜
+
+        // 中间的结
+        const knot = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), ribbonMat);
+        
+        bowG.add(b1, b2, knot);
+        boxG.add(box, r1, r2, bowG);
+        
+        // 整体随机旋转一点，看起来更自然
+        boxG.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
+        
         return boxG;
     };
 
@@ -1076,10 +1156,48 @@ function createHeroTree(x, z, scale) {
     scene.add(g);
 }
 
-function createGift(x,z) {
-    const b=new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5), new THREE.MeshStandardMaterial({color:Math.random()*0xffffff}));
-    b.position.set(x,0.75,z); b.rotation.y=Math.random(); b.castShadow=true; scene.add(b);
+// 🎁 修复版：地面的大礼物 (带蝴蝶结)
+function createGift(x, z) {
+    const g = new THREE.Group();
+    g.position.set(x, 0.75, z); // 提升高度，因为Box中心在原点
+
+    // 随机颜色材质
+    const color = new THREE.Color().setHSL(Math.random(), 0.8, 0.5);
+    const matBox = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
+    const matRibbon = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+
+    // 1. 盒子
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), matBox);
+    box.castShadow = true;
+
+    // 2. 丝带
+    const r1 = new THREE.Mesh(new THREE.BoxGeometry(1.55, 1.5, 0.35), matRibbon);
+    const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.5, 1.55), matRibbon);
+
+    // 3. 蝴蝶结
+    const bowG = new THREE.Group();
+    bowG.position.y = 0.75;
+    
+    // 左右两个环
+    const bowGeo = new THREE.TorusGeometry(0.35, 0.12, 8, 16);
+    const b1 = new THREE.Mesh(bowGeo, matRibbon);
+    b1.position.set(0.25, 0.25, 0);
+    b1.rotation.set(0, 0, -Math.PI / 3);
+    
+    const b2 = new THREE.Mesh(bowGeo, matRibbon);
+    b2.position.set(-0.25, 0.25, 0);
+    b2.rotation.set(0, 0, Math.PI / 3);
+
+    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.25), matRibbon);
+    
+    bowG.add(b1, b2, knot);
+    g.add(box, r1, r2, bowG);
+
+    // 随机朝向
+    g.rotation.y = Math.random() * Math.PI;
+    scene.add(g);
 }
+
 function createSnowman(x,z) {
     const g=new THREE.Group(); g.position.set(x,0,z);
     const m=new THREE.MeshStandardMaterial({color:0xffffff});
