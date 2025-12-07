@@ -365,25 +365,22 @@ const audio = new AudioEngine();
 // ============================
 // ⚙️ 全局配置 & 状态
 // ============================
-// 1. 修改 CFG 配置 (调低雾浓度，调整Bloom)
 const CFG = {
     // 🚂 物理
-    maxSpeed: 0.22, accel: 0.005, decel: 0.003, wheelMult: 2.0, carriageGap: 0.009,
+    maxSpeed: 0.10, accel: 0.005, decel: 0.003, wheelMult: 2.0, carriageGap: 0.009,
     
-    // 🎥 相机
-    camHeight: 20, camSmooth: 0.04,
+    // 🎥 相机 (外侧向心视角)
+    camHeight: 22,    // 稍微抬高，防止火车挡住太多树的根部
+    camDist: 85,      // 拉大距离，因为我们是在外圈看，需要视野包住中央
+    camSmooth: 0.02,   // 增大阻尼系数，让跟随更紧凑，减少“拖拽感”带来的抖动
     
     // 💡 视觉修正
     moonInt: 2.5, 
-    // [修复] 雾气极淡，配合黑色背景
     fogDen: 0.0004, 
-    
-    // [修复] 阈值设为 0.05 (稍稍抬高一点点，防止背景底噪发光)，强度适中
     bloomStr: 0.7,  
     bloomThr: 0.02, 
-    
     lightPow: 100, bulbBri: 30,
-    autoFw: false, fwRate: 5
+    autoFw: true, fwRate: 4
 };
 
 const STATE = {
@@ -473,6 +470,12 @@ function init() {
     animate();
 }
 
+
+// 在 animate 函数外，确保定义了这些辅助变量，用于复用
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _target = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 // ============================
 // animate 函数 (支持 Instanced LED 闪烁)
 // ============================
@@ -480,6 +483,10 @@ function animate() {
     requestAnimationFrame(animate);
     const dt = clock.getDelta();
     const time = clock.getElapsedTime();
+
+    // 如果两帧间隔超过 0.1秒（比如切后台了），就强制按 0.1秒计算
+    // 这样雪花就不会瞬间掉到底，火车也不会瞬移
+    if (dt > 0.1) dt = 0.1; 
 
     // 1. 物理惯性 (修复速度降不下来的问题)
     if(STATE.running) {
@@ -500,7 +507,7 @@ function animate() {
 
     if(train) train.update(dt, STATE.curSpeed);
     if(fwMgr) fwMgr.update();
-    if(snowMgr) snowMgr.update();
+    if(snowMgr) snowMgr.update(dt);
 
     // 灯光动画
     emissives.forEach(obj => {
@@ -524,21 +531,30 @@ function animate() {
         if(obj.userData.type === 'headlight_spot') obj.intensity = CFG.lightPow;
     });
 
-    // 🎥 相机逻辑 (修复自由视角)
+    // 🎥 相机逻辑 (高性能零GC版)
     if(STATE.started && train && train.loco) {
-        const locoPos = train.loco.position;
+        // 1. 获取火车位置
+        const t = train.prog;
+        const trackPos = trackCurve.getPointAt(t); // 这里Threejs内部会产生一个新Vector，无法避免，但开销可控
+        
+        // 2. 计算径向向量 (使用全局变量 _v1，避免 new)
+        _v1.copy(trackPos).y = 0;
+        _v1.normalize();
+        
+        // 3. 计算相机目标位置 (复用 _v2)
+        // 逻辑：火车位置 + 向外偏移 * 距离 + 高度
+        _v2.copy(trackPos)
+           .addScaledVector(_v1, CFG.camDist)
+           .addScaledVector(_up, CFG.camHeight);
 
-        // [关键修改] 只有在 FOLLOW 模式下才锁定目标
-        // 如果是 FREE 模式，controls.target 不会动，你可以随意拖拽平移
         if (STATE.viewMode === 'FOLLOW') {
-            controls.target.copy(locoPos);
-            
-            // 自动回正逻辑 (仅在非交互时生效)
-            if (STATE.curSpeed > 0.001 && !STATE.interacting) {
-                const dist = camera.position.distanceTo(locoPos);
-                const back = new THREE.Vector3(0,0,-1).applyQuaternion(train.loco.quaternion).normalize();
-                const ideal = locoPos.clone().add(back.multiplyScalar(dist)).add(new THREE.Vector3(0, CFG.camHeight, 0));
-                camera.position.lerp(ideal, CFG.camSmooth);
+            // 计算看哪里 (看车顶上方一点点)
+            _target.copy(trackPos).y += 5;
+            controls.target.copy(_target);
+
+            if (!STATE.interacting) {
+                // 平滑跟随
+                camera.position.lerp(_v2, CFG.camSmooth);
             }
         }
     }
@@ -586,70 +602,128 @@ function buildLights() {
 }
 
 function buildTrack() {
-    // 复杂闭合轨道
-    const s = 1.5; 
-    const pts = [
-        new THREE.Vector3(10*s, 0, 20*s), new THREE.Vector3(50*s, 2, 50*s), new THREE.Vector3(90*s, 0, 0),
-        new THREE.Vector3(50*s, 0, -50*s), new THREE.Vector3(10*s, 0, -20*s), new THREE.Vector3(-20*s, 0, -20*s),
-        new THREE.Vector3(-50*s, 3, -70*s), new THREE.Vector3(-90*s, 0, -50*s), new THREE.Vector3(-60*s, 0, -10*s),
-        new THREE.Vector3(-60*s, 0, 10*s), new THREE.Vector3(-90*s, 0, 50*s), new THREE.Vector3(-50*s, 3, 70*s),
-        new THREE.Vector3(-20*s, 0, 20*s), new THREE.Vector3(0, 0, 0)
-    ];
-    trackCurve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
-    trackPoints = trackCurve.getPoints(600);
-
-    const divs = 900;
-    // 路基
-    const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
-    bed.position.y=-0.2; bed.scale.y=0.1; scene.add(bed);
+    const points = [];
+    const segments = 12; 
     
-    // 枕木
-    const pg = new THREE.BoxGeometry(6, 0.3, 1.2);
+    const BaseR = 120; 
+    const Amp = 50; 
+
+    // 关键修改：生成随机种子，让三个叶片的大小每次都不太一样
+    // r1, r2, r3 分别影响三个叶片的 "突出程度"
+    const r1 = 1.0 + (Math.random() - 0.5) * 0.4; 
+    const r2 = 1.0 + (Math.random() - 0.5) * 0.4; 
+    const r3 = 1.0 + (Math.random() - 0.5) * 0.4;
+
+    for (let i = 0; i < segments; i++) {
+        const theta = (i / segments) * Math.PI * 2;
+        
+        // 关键修改：根据角度选择不同的随机系数
+        let randomScale = 1.0;
+        // 简单判断角度落在哪个叶片区间 (0~2PI 分三段)
+        if (theta < 2) randomScale = r1;
+        else if (theta < 4) randomScale = r2;
+        else randomScale = r3;
+
+        // 公式：基础半径 + (振幅 * 随机系数 * 三叶草形状) + 微小抖动
+        const r = BaseR + (Amp * randomScale * Math.sin(3 * theta));
+        
+        const x = r * Math.cos(theta);
+        const z = r * Math.sin(theta);
+        points.push(new THREE.Vector3(x, 0, z));
+    }
+
+    trackCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.4); 
+    trackPoints = trackCurve.getPoints(1000);
+
+    const divs = 600; 
+    // ... 以下代码保持不变 (路基、枕木、铁轨生成逻辑) ...
+    // 直接复制原 buildTrack 函数后面生成 Mesh 的部分即可
+    const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
+    bed.position.y = 0.1; bed.scale.y = 0.1; scene.add(bed);
+    
+    const pg = new THREE.BoxGeometry(6, 0.4, 1.2); 
     const pm = new THREE.MeshStandardMaterial({color:0x3e2723});
     const pi = new THREE.InstancedMesh(pg, pm, divs);
     const dum = new THREE.Object3D();
-    for(let i=0;i<divs;i++){
-        const t=i/divs; const p=trackCurve.getPointAt(t); const tan=trackCurve.getTangentAt(t);
-        dum.position.copy(p); dum.lookAt(p.clone().add(tan)); dum.updateMatrix();
+    for(let i=0; i<divs; i++){
+        const t = i/divs; const p = trackCurve.getPointAt(t); const tan = trackCurve.getTangentAt(t);
+        dum.position.set(p.x, 0.3, p.z); dum.lookAt(p.x + tan.x, 0.3, p.z + tan.z); dum.updateMatrix();
         pi.setMatrixAt(i, dum.matrix);
     }
-    pi.receiveShadow=true; scene.add(pi);
+    pi.receiveShadow = true; scene.add(pi);
 
-    // 双铁轨 (Visual Hack)
-    const rm = new THREE.MeshStandardMaterial({color:0x666666, metalness:0.8, roughness:0.3});
-    const trL = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 0.15, 6, true), rm); trL.position.y=0.35; 
-    // 右轨用一个宽扁管模拟
-    const trFlat = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 2.4, 3, true), new THREE.MeshStandardMaterial({color:0x444444, metalness:0.7, roughness:0.4}));
-    trFlat.scale.y=0.04; trFlat.position.y=0.32; scene.add(trFlat);
+    // --- 修复：双轨生成逻辑 ---
+    // 问题根源：ExtrudeGeometry 会自动旋转坐标系，导致铁轨变成了上下排列而不是左右排列
+    // 解决方案：手动计算两条平行于地面的路径
+    
+    const railPointsL = [];
+    const railPointsR = [];
+    const railSamp = 400; // 采样点数，越多越平滑
+    
+    for(let i=0; i<=railSamp; i++) {
+        // 1. 在主轨道上均匀取点
+        const t = i / railSamp;
+        const pt = trackCurve.getPointAt(t);
+        const tan = trackCurve.getTangentAt(t); // 获取切线(前进方向)
+        
+        // 2. 计算"右侧"向量：切线 叉乘 上方向(0,1,0)
+        // 强制规定：铁轨的偏移方向必须水平，永远平行于地面
+        const right = new THREE.Vector3().crossVectors(tan, new THREE.Vector3(0,1,0)).normalize();
+        
+        const dist = 2.2; // 轨距 (比火车轮子宽，确保轮子在轨内)
+        
+        // 3. 生成左右两个坐标点
+        railPointsL.push( pt.clone().add( right.clone().multiplyScalar(-dist) ) );
+        railPointsR.push( pt.clone().add( right.clone().multiplyScalar( dist) ) );
+    }
+
+    // 4. 创建两条平行的曲线对象
+    const curveL = new THREE.CatmullRomCurve3(railPointsL, true, 'catmullrom', 0.4);
+    const curveR = new THREE.CatmullRomCurve3(railPointsR, true, 'catmullrom', 0.4);
+    
+    const railMat = new THREE.MeshStandardMaterial({
+        color: 0x555555, 
+        metalness: 0.8, 
+        roughness: 0.4
+    });
+
+    // 5. 使用最稳妥的 TubeGeometry 生成实体
+    // 0.12 是铁轨粗细，8 是截面圆滑度
+    const railMeshL = new THREE.Mesh(new THREE.TubeGeometry(curveL, railSamp, 0.12, 8, true), railMat);
+    const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, railSamp, 0.12, 8, true), railMat);
+    
+    // 6. 调整高度
+    // 枕木顶面约 0.5，铁轨设为 0.56，刚好压在枕木上
+    railMeshL.position.y = 0.56;
+    railMeshR.position.y = 0.56;
+
+    scene.add(railMeshL);
+    scene.add(railMeshR);
 }
 
 function buildEnv() {
-    // 英雄树 (保持不变)
-    createHeroTree(60, 0, 2.5); createHeroTree(-70, 50, 1.2); createHeroTree(-70, -50, 1.4);
+    // 1. 下方放置大号英雄树 (配合大圆弧)
+    createHeroTree(0, -90, 2.8); 
+    
+    // 2. 左上和右上放置小号英雄树
+    createHeroTree(85, 55, 1.4); 
+    createHeroTree(-85, 55, 1.4);
 
-    // 🌲 升级版森林：合并几何体制作层级松树
+    // ... 以下代码保持不变，直接复制原来的即可 ...
+    // 🌲 升级版森林...
     const treeGeo = new THREE.BufferGeometry();
-    
-    // 创建三层树叶
-    const c1 = new THREE.ConeGeometry(3, 5, 8); c1.translate(0, 2.5, 0); // 底层
-    const c2 = new THREE.ConeGeometry(2.2, 4, 8); c2.translate(0, 5.5, 0); // 中层
-    const c3 = new THREE.ConeGeometry(1.5, 3, 8); c3.translate(0, 8.0, 0); // 顶层
-    
-    // *注意*：为了简便合并，这里直接使用 BufferGeometryUtils 的逻辑简化版，或者直接手动合并
-    // 为了不引入新库，我们只用 Instance 渲染最主要的一层，或者我们简单点：
-    // 使用一个形状更好的 Geometry: 
-    // 直接用一个高圆锥模拟，或者... 还是用圆锥吧，但是调好比例
-    // 更好的方案：我们创建 3 个 InstancedMesh 分别对应树的下中上层，这样造型最好
+    const c1 = new THREE.ConeGeometry(3, 5, 8); c1.translate(0, 2.5, 0); 
+    const c2 = new THREE.ConeGeometry(2.2, 4, 8); c2.translate(0, 5.5, 0); 
+    const c3 = new THREE.ConeGeometry(1.5, 3, 8); c3.translate(0, 8.0, 0); 
     
     const matTree = new THREE.MeshStandardMaterial({color:0x0f3315, roughness:0.9});
-    const matSnow = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.6}); // 树顶雪
+    const matSnow = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.6}); 
     
-    const count = 700; // 减少数量，避免太密
+    const count = 700; 
     
-    // 我们用三个 Mesh 拼成一棵树
     const meshBot = new THREE.InstancedMesh(new THREE.ConeGeometry(3.5, 5, 7), matTree, count);
     const meshMid = new THREE.InstancedMesh(new THREE.ConeGeometry(2.5, 4, 7), matTree, count);
-    const meshTop = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 3, 7), matSnow, count); // 顶层做成雪
+    const meshTop = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 3, 7), matSnow, count); 
     
     meshBot.castShadow=true; meshBot.receiveShadow=true;
     meshMid.castShadow=true; meshMid.receiveShadow=true;
@@ -659,55 +733,32 @@ function buildEnv() {
     
     for(let i=0; i<3000; i++) {
         if(idx >= count) break;
-        
-        // 范围扩大
         const r = 60 + Math.random()*380;
         const a = Math.random()*6.28;
         const x = Math.cos(a)*r, z = Math.sin(a)*r;
-        
-        // 避障检测
         let safe=true;
-        const distSq = 25*25; // 加大安全距离
-        for(let k=0; k<trackPoints.length; k+=10) { // 降低采样频率优化性能
+        const distSq = 25*25; 
+        for(let k=0; k<trackPoints.length; k+=10) { 
             const dx = trackPoints[k].x - x, dz = trackPoints[k].z - z;
             if((dx*dx + dz*dz) < distSq) { safe=false; break; }
         }
 
         if(safe) {
-            // 🌲 随机大小：0.6 到 2.2 倍，差异化巨大
             const s = 0.6 + Math.random() * 1.6; 
-            
-            // 随机旋转
             const rotY = Math.random() * Math.PI;
-            
-            // 底层
-            dummy.position.set(x, 2.5*s, z); 
-            dummy.scale.set(s,s,s); 
-            dummy.rotation.y = rotY; 
-            dummy.updateMatrix();
+            dummy.position.set(x, 2.5*s, z); dummy.scale.set(s,s,s); dummy.rotation.y = rotY; dummy.updateMatrix();
             meshBot.setMatrixAt(idx, dummy.matrix);
-            
-            // 中层
-            dummy.position.set(x, 5.5*s, z); 
-            dummy.scale.set(s,s,s); 
-            dummy.updateMatrix();
+            dummy.position.set(x, 5.5*s, z); dummy.scale.set(s,s,s); dummy.updateMatrix();
             meshMid.setMatrixAt(idx, dummy.matrix);
-            
-            // 顶层(雪)
-            dummy.position.set(x, 8.0*s, z); 
-            dummy.scale.set(s,s,s); 
-            dummy.updateMatrix();
+            dummy.position.set(x, 8.0*s, z); dummy.scale.set(s,s,s); dummy.updateMatrix();
             meshTop.setMatrixAt(idx, dummy.matrix);
-            
             idx++;
         }
     }
     
-    scene.add(meshBot);
-    scene.add(meshMid);
-    scene.add(meshTop);
+    scene.add(meshBot); scene.add(meshMid); scene.add(meshTop);
 
-    // 装饰品
+    //装饰品
     for(let i=0; i<30; i++){
         const x=(Math.random()-0.5)*350, z=(Math.random()-0.5)*350;
         let safe=true; 
@@ -998,6 +1049,17 @@ class Train {
         this.grp=new THREE.Group(); sc.add(this.grp);
         this.curve=curve; this.prog=0; this.wheels=[]; this.smokes=[];
         
+        // [性能优化] 预先创建烟雾的几何体和材质，不要在循环里创建
+        this.smokeGeo = new THREE.IcosahedronGeometry(1, 0); // 基础大小为1，靠scale缩放
+        this.smokeMat = new THREE.MeshStandardMaterial({
+            color: 0xdddddd, 
+            transparent: true, 
+            opacity: 0.8, 
+            depthWrite: false, 
+            roughness: 1,
+            flatShading: true // 低多边形风格，性能更好
+        });
+
         // Glare
         const cv=document.createElement('canvas'); cv.width=64;cv.height=64;
         const cx=cv.getContext('2d'); const gr=cx.createRadialGradient(32,32,0,32,32,32);
@@ -1135,44 +1197,36 @@ class Train {
     }
 
     spawnSmoke(pos, trainSpeed) {
-        // 1. 几何体：随机大小
-        const size = 0.3 + Math.random() * 0.3;
-        const m = new THREE.Mesh(
-            new THREE.IcosahedronGeometry(size, 0), 
-            new THREE.MeshStandardMaterial({
-                color: 0xdddddd, 
-                transparent: true, 
-                opacity: 0.8, // 初始不透明度高
-                depthWrite: false,
-                roughness: 1
-            })
-        );
+        // 使用缓存的几何体和材质
+        const m = new THREE.Mesh(this.smokeGeo, this.smokeMat.clone()); // 材质需要clone因为要独立控制opacity
+        
+        // 初始大小随机
+        const size = 0.4 + Math.random() * 0.4;
         m.position.copy(pos);
         m.rotation.set(Math.random()*6, Math.random()*6, Math.random()*6);
+        m.scale.setScalar(size); // 初始缩放
         
-        // 2. 物理核心：计算初速度向量
-        // 获取火车当前朝向 (Forward Vector)
+        // --- 物理修复核心 ---
+        // 1. 垂直喷射力：大幅增加 (原来是0.3 -> 现在1.2)，模拟高压蒸汽
+        const upForce = 1.2 + Math.random() * 0.5;
+        
+        // 2. 惯性继承：现实中烟雾出膛瞬间带有火车速度，但极快被空气阻滞
+        // 我们只继承 80% 的火车速度，这样它会有一种被"甩"在后面的感觉
         const trainDir = new THREE.Vector3(0, 0, 1).applyQuaternion(this.loco.quaternion).normalize();
+        const forwardVel = trainDir.multiplyScalar(trainSpeed * 0.8);
         
-        // A. 垂直喷射力 (Burst): 基础喷射 + 随车速增加的压力
-        const upForce = 0.3 + Math.random() * 0.3 + (trainSpeed * 0.5);
-        const upVel = new THREE.Vector3(0, 1, 0).multiplyScalar(upForce);
-        
-        // B. 水平惯性 (Inertia): 烟雾刚出来时，带有火车的速度
-        const forwardVel = trainDir.clone().multiplyScalar(trainSpeed * 1.5); // *1.5 是为了让视觉上更符合“喷出”的感觉
-        
-        // 合成初速度
-        const velocity = upVel.add(forwardVel);
+        const velocity = new THREE.Vector3(0, upForce, 0).add(forwardVel);
 
-        // 随机扰动 (Turbulence)
-        velocity.x += (Math.random() - 0.5) * 0.1;
-        velocity.z += (Math.random() - 0.5) * 0.1;
+        // 随机扰动
+        velocity.x += (Math.random() - 0.5) * 0.2;
+        velocity.z += (Math.random() - 0.5) * 0.2;
 
         scene.add(m); 
         this.smokes.push({
             m, 
-            vel: velocity, // 存储速度向量
-            life: 1.0 + Math.random() * 0.5, // 寿命
+            vel: velocity, 
+            life: 1.0,      // 生命值归一化
+            maxLife: 1.5 + Math.random() * 0.5,
             initScale: size
         });
     }
@@ -1181,33 +1235,30 @@ class Train {
         for(let i = this.smokes.length - 1; i >= 0; i--) {
             const s = this.smokes[i];
             
-            // 1. 运动更新
             s.m.position.add(s.vel);
             
-            // 2. 物理模拟
-            // 空气阻力 (Drag): 模拟撞击空气，速度迅速衰减
-            // 尤其是水平方向，烟雾应该很快“停”在原地，被火车甩在后面
-            s.vel.multiplyScalar(0.92); 
+            // [物理优化]
+            // 空气阻力：水平方向阻力极大 (0.85)，垂直方向阻力小 (0.98)
+            // 这样烟雾会迅速停止向前运动，垂直向上飘
+            s.vel.x *= 0.85; 
+            s.vel.z *= 0.85;
+            s.vel.y *= 0.96; 
             
-            // 浮力 (Buoyancy): 速度衰减后，热气自然上升
-            s.vel.y += 0.008; 
-
-            // 3. 视觉变化
-            s.life -= 0.012; // 衰减
+            // 扩散感
+            s.vel.y += 0.005; // 持续的热气上升力
             
-            // 膨胀 (Expansion): 烟雾随时间变大
-            const scale = s.initScale * (1 + (1.5 - s.life) * 3.0);
-            s.m.scale.set(scale, scale, scale);
+            s.life -= 0.015; // 衰减速度
             
-            // 旋转
-            s.m.rotation.x += 0.03;
-            s.m.rotation.z += 0.01;
+            // 视觉变化：随时间迅速变大变淡
+            const progress = 1 - s.life;
+            const curScale = s.initScale * (1 + progress * 5.0); // 膨胀5倍
+            s.m.scale.setScalar(curScale);
             
-            // 透明度淡出
-            s.m.material.opacity = s.life * 0.6;
+            s.m.material.opacity = s.life * 0.4; // 稍微透明点，不要太实
             
             if(s.life <= 0) {
                 scene.remove(s.m);
+                s.m.material.dispose(); // 记得清理克隆的材质
                 this.smokes.splice(i, 1);
             }
         }
@@ -1242,7 +1293,7 @@ class Fireworks {
         if (this.r.length + this.s.length > 6) return;
 
         if(!pos) {
-            const range = 80;
+            const range = 25;
             pos = new THREE.Vector3(
                 (Math.random() - 0.5) * 2 * range, 
                 -5, 
@@ -1268,7 +1319,7 @@ class Fireworks {
     }
 
     update() {
-        // 火箭上升
+        // 1. 火箭上升逻辑 (保持不变)
         for(let i = this.r.length - 1; i >= 0; i--) {
             const r = this.r[i]; 
             r.pos.add(r.vel); 
@@ -1276,44 +1327,57 @@ class Fireworks {
             r.m.position.copy(r.pos);
             if(r.vel.y <= 0.5) { 
                 this.sc.remove(r.m); 
-                // 记得释放内存
-                r.m.geometry.dispose();
-                r.m.material.dispose();
-                
+                r.m.geometry.dispose(); r.m.material.dispose();
                 this.explode(r.pos, r.pal); 
                 this.r.splice(i, 1); 
             }
         }
         
-        // 爆炸粒子
+        // 2. 爆炸粒子逻辑 (新增闪烁效果)
         for(let i = this.s.length - 1; i >= 0; i--) {
             const s = this.s[i]; 
-            s.life -= 0.018; // 加快消失，减少同屏压力
+            s.life -= 0.02; // 调整消失速度
             
             const p = s.geo.attributes.position.array;
+            const c = s.geo.attributes.color.array; // 获取颜色缓冲
+            
             for(let k = 0; k < s.count; k++) {
                 const idx = k * 3;
+                
+                // 物理运动
                 p[idx] += s.vels[idx]; 
                 p[idx+1] += s.vels[idx+1]; 
                 p[idx+2] += s.vels[idx+2];
-                // 阻力
-                s.vels[idx] *= 0.92; 
-                s.vels[idx+1] *= 0.92; 
-                s.vels[idx+2] *= 0.92; 
-                s.vels[idx+1] -= 0.02; // 重力
+                s.vels[idx] *= 0.92; s.vels[idx+1] *= 0.92; s.vels[idx+2] *= 0.92; 
+                s.vels[idx+1] -= 0.02;
+
+                // ✨✨✨ 离子闪烁核心逻辑 ✨✨✨
+                // 当生命值低于 0.3 时，开始随机闪烁
+                if (s.life < 0.35) {
+                    // 随机开关：30%概率显示，70%概率变黑(消失)
+                    // 使用 s.baseCols 恢复原始颜色，或者设为0
+                    if (Math.random() > 0.3) {
+                        c[idx] = 0; c[idx+1] = 0; c[idx+2] = 0;
+                    } else {
+                        // 这一瞬间闪亮一下 (这里需要我们知道原始颜色，简单起见我们让它闪白或保持原色)
+                        // 为性能考虑，我们简单地只做随机变暗，或者让它偶尔闪一下白
+                        c[idx] = Math.random(); // R
+                        c[idx+1] = Math.random(); // G
+                        c[idx+2] = Math.random(); // B
+                    }
+                }
             }
+            
             s.geo.attributes.position.needsUpdate = true; 
+            s.geo.attributes.color.needsUpdate = true; // ⚠️ 必须标记颜色更新
+            
             s.mat.opacity = s.life;
             if(s.l) s.l.intensity = s.life * 20;
             
             if(s.life <= 0) { 
                 this.sc.remove(s.m); 
                 if(s.l) this.sc.remove(s.l);
-                
-                // [关键] 显存释放
-                s.geo.dispose();
-                s.mat.dispose();
-                
+                s.geo.dispose(); s.mat.dispose();
                 this.s.splice(i, 1); 
             }
         }
@@ -1323,7 +1387,7 @@ class Fireworks {
         audio.explode();
         
         // [性能关键] 粒子数降为 120，解决卡顿的核心
-        const cnt = 120; 
+        const cnt = 60; 
         const posA = new Float32Array(cnt * 3); 
         const colA = new Float32Array(cnt * 3); 
         const vels = [];
@@ -1348,7 +1412,7 @@ class Fireworks {
         
         // [视觉补偿] 粒子尺寸增大到 6.0，虽然数量少了，但看着依然很壮观
         const mat = new THREE.PointsMaterial({
-            size: 6.0, 
+            size: 8.0, 
             map: this.tex, 
             transparent: true, 
             depthWrite: false, 
@@ -1416,9 +1480,7 @@ class Snow {
 
             // 循环重置
             if(p[i] < 0) {
-                p[i] = 600; 
-                // 重置时随机X/Z，防止形成明显的循环纹理
-                // p[i-1] = Math.random()*800-400; // 可选：如果觉得雪太规律可以解开这行
+                p[i] = 600 + Math.random() * 50;
             }
         }
         this.m.geometry.attributes.position.needsUpdate = true;
@@ -1448,6 +1510,14 @@ function setupUI() {
         audio.init(); 
         audio.whistle(); 
         audio.playBGM(); 
+        
+        // 自动燃放的启动逻辑
+        if (CFG.autoFw) {
+            // 先放一波助兴
+            launchBatch(); 
+            // 启动循环
+            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
+        }
 
         document.getElementById('start-screen').style.opacity = 0;
         setTimeout(() => document.getElementById('start-screen').style.display = 'none', 800);
@@ -1485,8 +1555,8 @@ function setupUI() {
 
     const fCam = gui.addFolder('🎥 镜头与物理');
     fCam.add(CFG, 'camHeight', 5, 40).name('视角高度');
-    fCam.add(CFG, 'camSmooth', 0.01, 0.1).name('跟随柔和度');
-    fCam.add(CFG, 'maxSpeed', 0.1, 0.4).name('火车极速');
+    fCam.add(CFG, 'camSmooth', 0.01, 1).name('跟随柔和度');
+    fCam.add(CFG, 'maxSpeed', 0.02, 0.4).name('火车极速');
 
     const fEnv = gui.addFolder('💡 灯光与环境');
     fEnv.add(CFG, 'moonInt', 0, 5).name('月光亮度').onChange(v => lights.moon.intensity = v);
@@ -1534,6 +1604,7 @@ function setupUI() {
 
             const hitTrain = ray.intersectObjects(train.grp.children, true);
             if (hitTrain.length > 0) {
+                // ... (原有火车点击逻辑保持不变) ...
                 STATE.running = !STATE.running;
                 const d = document.getElementById('d-status'), t = document.getElementById('t-status');
                 if (STATE.running) {
@@ -1544,9 +1615,10 @@ function setupUI() {
                 }
                 return;
             }
-            const hitG = ray.intersectObject(ground);
-            if (hitG.length > 0) { const p = hitG[0].point; p.y += 2; fwMgr.launch(p); }
-            else fwMgr.launch();
+            
+            // [修改] 无论点哪里（除了火车），都直接调用无参数 launch()
+            // 这样就会触发 Fireworks 类里的默认逻辑（在中间区域随机释放）
+            fwMgr.launch(); 
         }
     });
 }
