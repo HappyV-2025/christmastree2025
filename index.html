@@ -1624,11 +1624,18 @@ class Train {
             bodyGeo: new THREE.BoxGeometry(3.4, 3.8, 7.8),
             goldBandGeo: new THREE.BoxGeometry(3.45, 0.2, 7.85),
             roofGeo: new THREE.CylinderGeometry(2.05, 2.05, 13, 13, 1, false, 0, Math.PI),
+            snowGeo: new THREE.SphereGeometry(0.5, 10, 8), // 专用积雪：更圆润，消除六边形感
             winGeo: new THREE.PlaneGeometry(1.3, 1.6),
             borderGeo: new THREE.PlaneGeometry(1.4, 1.7),
             connectorGeo: new THREE.BoxGeometry(2.4, 2.8, 1.2),
             wheelGeo: new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12).rotateZ(Math.PI / 2),
-            winMat: new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false })
+            // [MODIFIED] 使用 StandardMaterial 以支持发光闪烁 (emissive flash)
+            winMat: new THREE.MeshStandardMaterial({ 
+                color: 0xffccaa, 
+                emissive: 0x000000,
+                roughness: 0.2, 
+                metalness: 0.8 
+            })
         };
 
         const sGeo = new THREE.IcosahedronGeometry(1, 0);
@@ -1666,28 +1673,177 @@ class Train {
     gap() { this.cars.forEach((c,i)=>c.userData.off=(i+1)*(0.0075+CFG.carriageGap*0.2)); }
     
     mkLoco() {
-        const g=new THREE.Group();
-        const red=new THREE.MeshStandardMaterial({color:0xb71c1c, roughness:0.3});
-        const blk=new THREE.MeshStandardMaterial({color:0x111});
-        const boil=new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,5,16), red); boil.rotation.x=Math.PI/2; boil.position.set(0,3.6,1);
-        const cab=new THREE.Mesh(new THREE.BoxGeometry(3.8,5.2,3.2), red); cab.position.set(0,4.1,-2.5);
-        this.chim=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.6,2.5), blk); this.chim.position.set(0,4.8,2.5);
-        const cow=new THREE.Mesh(new THREE.ConeGeometry(2,1.5,4), blk); cow.rotation.set(-Math.PI/2,Math.PI/4,0); cow.scale.set(1,0.5,1); cow.position.set(0,1,4.5);
+        const g = new THREE.Group();
+        const matRed = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.3, metalness: 0.1 });
+        const matBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
+        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
+        const matGrey = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.5 });
+
+        // 1. 底盘 (Chassis)
+        const chassis = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.8, 8.5), matBlack);
+        chassis.position.y = 1.2;
+        g.add(chassis);
+
+        // 2. 排障器 (Cowcatcher) - 前端
+        const cowcatcher = new THREE.Group();
+        cowcatcher.position.set(0, 0.5, 4.5);
+        // 楔形主体
+        const wedgeGeo = new THREE.CylinderGeometry(0.1, 1.8, 1.5, 4, 1); 
+        wedgeGeo.rotateY(Math.PI/4);
+        wedgeGeo.rotateX(Math.PI); 
+        wedgeGeo.scale(1.2, 1, 0.5);
+        const wedge = new THREE.Mesh(wedgeGeo, matBlack);
+        cowcatcher.add(wedge);
+        // 红色横条纹
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 0.1), matRed);
+        strip.position.set(0, 0.2, 0.4);
+        cowcatcher.add(strip);
+        g.add(cowcatcher);
+
+        // 3. 锅炉 (Boiler)
+        const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 5.5, 24), matRed);
+        boiler.rotation.x = Math.PI / 2;
+        boiler.position.set(0, 3.2, 1.2);
+        g.add(boiler);
+
+        // 锅炉金环 (Gold Bands)
+        [1.5, -0.5, -2.0].forEach(z => {
+            const band = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.55, 0.15, 24), matGold);
+            band.rotation.x = Math.PI / 2;
+            band.position.set(0, 3.2, z + 1.2);
+            g.add(band);
+        });
+
+        // 4. 驾驶室 (Cab)
+        const cabGroup = new THREE.Group();
+        cabGroup.position.set(0, 2.5, -2.2);
+
+        // 下半部分
+        const cabBase = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.5, 2.8), matRed);
+        cabBase.position.y = 1.25;
+        cabGroup.add(cabBase);
+
+        // 上半部分 (黑色部分)
+        const cabTop = new THREE.Mesh(new THREE.BoxGeometry(3.6, 2.0, 2.8), matRed);
+        cabTop.position.y = 3.5;
+        cabGroup.add(cabTop);
         
-        const aw=(z,r)=>{
-            const w=new THREE.Mesh(new THREE.CylinderGeometry(r,r,0.5,16).rotateZ(Math.PI/2), blk);
-            w.position.set(1.9,r,z); const w2=w.clone(); w2.position.set(-1.9,r,z);
-            g.add(w,w2); this.wheels.push(w,w2);
+        // 窗户区域 (黑色内凹感)
+        const winSide = new THREE.Mesh(new THREE.BoxGeometry(3.7, 1.4, 1.8), matBlack);
+        winSide.position.y = 3.5;
+        cabGroup.add(winSide);
+
+        // [FIXED] 驾驶室车顶 (Roof) - 简单的半圆柱
+        // 半径稍微大一点覆盖住，长度沿Z轴(2.8+出檐)
+        const roofGeo = new THREE.CylinderGeometry(2.2, 2.2, 3.4, 32, 1, false, 0, Math.PI);
+        // 默认轴是Y，我们需要轴是Z (车长方向)
+        roofGeo.rotateZ(Math.PI / 2); // 此时轴是X
+        roofGeo.rotateY(Math.PI / 2); // 此时轴是Z，且开口向下
+        const cabRoof = new THREE.Mesh(roofGeo, matBlack);
+        cabRoof.position.set(0, 4.6, 0); // 放在顶部
+        cabGroup.add(cabRoof);
+
+        g.add(cabGroup);
+
+        // 5. [FIXED] 烟囱 (Chimney) - 更稳固的连接
+        const chimGroup = new THREE.Group();
+        chimGroup.position.set(0, 4.5, 3.0); // 整体下移一点，确保插入锅炉
+        
+        // 烟囱管 (加粗加长)
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.8), matBlack);
+        pipe.position.y = 0.0; // 中心在 Group 原点
+        chimGroup.add(pipe);
+        
+        // 钻石顶 (加大)
+        const stack = new THREE.Mesh(new THREE.ConeGeometry(1.1, 1.4, 16, 1, true), matBlack);
+        stack.position.y = 1.4; // 接在 pipe 顶端
+        stack.rotation.x = Math.PI; // 倒锥
+        chimGroup.add(stack);
+        
+        // 金色顶圈
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.12, 4, 24), matGold);
+        rim.position.y = 2.1; // 顶端边缘
+        rim.rotation.x = Math.PI / 2;
+        chimGroup.add(rim);
+
+        g.add(chimGroup);
+        this.chim = chimGroup;
+
+        // 6. [IMPROVED] 前大灯 (Headlight) - 美化与增强
+        const lightGroup = new THREE.Group();
+        lightGroup.position.set(0, 3.2, 4.2);
+
+        // 灯座 (圆柱形复古款)
+        const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.8, 16).rotateX(Math.PI/2), matBlack);
+        housing.position.z = -0.2;
+        lightGroup.add(housing);
+
+        // 金色灯圈
+        const lightRim = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.08, 4, 24), matGold);
+        lightRim.position.z = 0.2;
+        lightGroup.add(lightRim);
+
+        // 发光透镜
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), new THREE.MeshBasicMaterial({ color: 0xffffee }));
+        lens.position.z = 0.25;
+        lightGroup.add(lens);
+
+        // [BOOST] 强力聚光灯
+        const sl = new THREE.SpotLight(0xffffee, CFG.lightPow * 6.0, 600, 1.0, 0.3, 1.5);
+        sl.position.set(0, 0, 0.5);
+        sl.target.position.set(0, -3, 50); // 向前下方照射
+        sl.castShadow = true;
+        sl.shadow.bias = -0.0001;
+        sl.shadow.mapSize.width = 1024; // 提升阴影质量
+        sl.shadow.mapSize.height = 1024;
+        sl.userData = { type: 'headlight_spot' };
+        
+        // [NEW] 补光点光源 (让灯头看起来真的在发光，不仅仅是射出光线)
+        const glowLight = new THREE.PointLight(0xffaa00, 5.0, 6);
+        glowLight.position.set(0, 0, 0.5);
+        lightGroup.add(glowLight);
+
+        // 光晕 Sprite
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glare, color: 0xffddaa, blending: THREE.AdditiveBlending }));
+        sp.position.set(0, 0, 0.6);
+        sp.scale.set(8, 8, 1);
+        lightGroup.add(sp);
+
+        lightGroup.add(sl);
+        lightGroup.add(sl.target); // 必须添加 target 到场景或组中
+        
+        g.add(lightGroup);
+        // 保存引用以便更新 target (如果有必要，虽然这里是相对坐标)
+        // 注意：SpotLight.target 默认必须在 scene 中，或者作为 child add 进去
+
+        // 7. 轮子 (Wheels) - 增加連杆 (Side Rods)
+        const rodGeo = new THREE.BoxGeometry(0.15, 0.3, 4.5);
+        const rodL = new THREE.Mesh(rodGeo, matGrey); rodL.position.set(2.0, 1.3, 1.0);
+        const rodR = new THREE.Mesh(rodGeo, matGrey); rodR.position.set(-2.0, 1.3, 1.0);
+        g.add(rodL, rodR);
+
+        const addWheel = (z, r, isBig) => {
+            const wGeo = new THREE.CylinderGeometry(r, r, 0.5, isBig ? 16 : 12).rotateZ(Math.PI/2);
+            const wMat = isBig ? matRed : matBlack; 
+            
+            const wL = new THREE.Mesh(wGeo, wMat); wL.position.set(1.9, r, z);
+            const wR = new THREE.Mesh(wGeo, wMat); wR.position.set(-1.9, r, z);
+            
+            if (isBig) {
+                 const rimGeo = new THREE.TorusGeometry(r, 0.08, 4, 24);
+                 const rimL = new THREE.Mesh(rimGeo, matGold); rimL.rotation.y = Math.PI/2; rimL.position.copy(wL.position); rimL.position.x += 0.26;
+                 const rimR = new THREE.Mesh(rimGeo, matGold); rimR.rotation.y = Math.PI/2; rimR.position.copy(wR.position); rimR.position.x -= 0.26;
+                 g.add(rimL, rimR);
+            }
+
+            g.add(wL, wR);
+            this.wheels.push(wL, wR);
         };
-        aw(0,1.3); aw(2.2,1.3); aw(-1.5,1.3); aw(4.0,0.8);
-        
-        const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:this.glare, color:0xffdd88, blending:THREE.AdditiveBlending}));
-        sp.position.set(0,5.2,4); sp.scale.set(10,10,1);
-        const sl=new THREE.SpotLight(0xffccaa, CFG.lightPow, 150, 0.8, 0.5);
-        sl.position.set(0,5.2,3.8); sl.target.position.set(0,-5,30); sl.castShadow=true;
-        sl.userData={type:'headlight_spot'};
-        emissives.push(sl); // 加入 emissives 以支持动态亮度调节
-        g.add(boil,cab,this.chim,cow,sp,sl,sl.target);
+
+        addWheel(3.2, 0.9, false);
+        addWheel(0.5, 1.5, true);
+        addWheel(-2.5, 1.5, true);
+
         return g;
     }
 
@@ -1722,41 +1878,113 @@ class Train {
         const roofBaseY = 5.2;
         roof.position.set(0, roofBaseY, 0);
 
-        // 3.5 车顶积雪 - 终极几何修正版
-        const snowGroup = new THREE.Group();
+        // 3.5 车顶积雪 - 升级版 (Improved Snow Blanket)
+        // 1. 创建高细分的基础几何体
+        // [FIX] openEnded: true -> 移除两端盖子
+        const snowGeo = new THREE.CylinderGeometry(2.05, 2.05, 13, 64, 40, true, 0, Math.PI);
         
-        // 深度分析：scale.y=0.65 缩放的是圆柱的长度(Z轴)，而不是高度。
-        // 所以车顶截面是正圆，而不是椭圆！
-        const Rx = 2.05;             
-        const Ry = 2.05;             // 正圆半径
-        const centerY = roofBaseY;   
+        const posAttr = snowGeo.attributes.position;
+        const vertex = new THREE.Vector3();
+        
+        // --- 随机性增强 (Enhanced Randomness) ---
+        // 为每节车厢生成完全不同的噪声特征 (Unique noise signature per car)
+        // 1. 基础频率差异
+        const freqBase = 1.5 + Math.random() * 2.5; // 主波浪频率变化范围大
+        const freqDetail = 5.0 + Math.random() * 5.0; // 细节频率
+        // 2. 振幅差异
+        const ampBase = 0.12 + Math.random() * 0.08; 
+        const ampDetail = 0.04 + Math.random() * 0.04;
+        // 3. 相位偏移 (左右两侧独立)
+        const phaseL = Math.random() * 100;
+        const phaseR = Math.random() * 100;
+        // 4. 基础厚度差异
+        const snowThickBase = 0.2 + Math.random() * 0.08;
 
-        const numSnow = 32;
-        
-        for (let j = 0; j < numSnow; j++) {
-            const snowPatch = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
+        for (let k = 0; k < posAttr.count; k++) {
+            vertex.fromBufferAttribute(posAttr, k);
             
-            const u = (Math.random() + Math.random() - 1.0); 
-            const theta = u * 1.0; 
+            // 1. 恢复原始 Theta
+            let theta = Math.atan2(vertex.x, vertex.z);
+            if (theta < 0) theta += Math.PI * 2;
+            
+            // --- 2. 计算边缘噪声 (Complex Edge Noise) ---
+            // 使用多层正弦波叠加 + 顶点位置哈希，彻底打破重复感
+            
+            // 局部微小噪点 (Micro noise based on position)
+            const microNoise = Math.sin(vertex.y * 20 + vertex.x * 10 + k) * 0.02;
 
-            const x = Rx * Math.sin(theta);
-            const y = centerY + Ry * Math.cos(theta); // 正圆表面
-            const z = (Math.random() - 0.5) * 11.0;
+            // 左侧边缘噪声
+            const noiseL = Math.sin(vertex.y * freqBase + phaseL) * ampBase + 
+                           Math.sin(vertex.y * freqDetail + phaseL * 1.5) * ampDetail + 
+                           Math.sin(vertex.y * 0.5 + phaseL) * 0.05 + // 超低频大起伏
+                           microNoise;
 
-            const thickness = 0.12 * (1.0 - Math.abs(theta)*0.6); 
-            const width = 0.8 + Math.random() * 0.5;
-            snowPatch.scale.set(width, thickness, 0.8 + Math.random() * 0.6);
+            // 右侧边缘噪声 (参数略微不同，避免左右对称)
+            const noiseR = Math.sin(vertex.y * (freqBase * 1.1) + phaseR) * ampBase + 
+                           Math.sin(vertex.y * (freqDetail * 0.9) + phaseR * 1.2) * ampDetail +
+                           Math.sin(vertex.y * 0.6 + phaseR) * 0.05 +
+                           microNoise;
 
-            // 位置：刚好在表面，因为积雪有厚度，会自动覆盖
-            snowPatch.position.set(x, y, z);
+            // 动态调整覆盖范围
+            // [Modified] 提高边缘：基准 0.3
+            const startTheta = 0.3 + Math.abs(noiseL) * 0.6; // 增加噪声影响权重
+            const endTheta = Math.PI - (0.3 + Math.abs(noiseR) * 0.6);
+            
+            // 3. 映射 Theta
+            const newTheta = startTheta + (theta / Math.PI) * (endTheta - startTheta);
+            
+            // 4. 重建位置
+            const r = 2.05;
+            vertex.x = r * Math.sin(newTheta);
+            vertex.z = r * Math.cos(newTheta);
+            
+            // 5. 应用厚度
+            const nx = Math.sin(newTheta);
+            const nz = Math.cos(newTheta);
+            
+            let thick = snowThickBase;
+            // 表面起伏 (Surface Noise) - 同样增强随机性
+            thick += Math.sin(vertex.x * 3 + vertex.y * 1.5 + phaseL) * 0.04; 
+            thick += Math.sin(vertex.z * 4 + phaseR) * 0.02;
+            thick += microNoise * 0.5; // 表面也增加一点微噪
+            
+            // 顶部加厚
+            const distFromTop = Math.abs(newTheta - Math.PI/2);
+            thick += 0.12 * Math.max(0, 1.0 - distFromTop / (Math.PI/2)); 
 
-            // 旋转：正圆法线角度就是 theta
-            snowPatch.rotation.z = -theta;
-            snowPatch.rotation.y = Math.random() * 0.2 - 0.1;
+            // 边缘打薄
+            const edgeRatio = distFromTop / (Math.PI/2);
+            if (edgeRatio > 0.6) {
+                thick *= Math.max(0.2, 1.0 - (edgeRatio - 0.6) * 2.0); 
+            }
 
-            snowGroup.add(snowPatch);
+            vertex.x += nx * thick;
+            vertex.z += nz * thick;
+
+            // 6. 边缘垂落
+            const edgeFactor = Math.pow(Math.max(0, distFromTop / (Math.PI/2)), 6);
+            const droop = 0.05 * edgeFactor * (1 + Math.random()*0.2); 
+            vertex.x -= droop;
+
+            // 7. 前后两端圆润化
+            const distFromEnd = 6.5 - Math.abs(vertex.y);
+            if (distFromEnd < 0.8) {
+                const t = (0.8 - distFromEnd) / 0.8;
+                const endDroop = t * t * 0.6; 
+                vertex.x -= endDroop;
+            }
+
+            posAttr.setXYZ(k, vertex.x, vertex.y, vertex.z);
         }
-        g.add(snowGroup);
+        
+        snowGeo.computeVertexNormals();
+
+        const snowCap = new THREE.Mesh(snowGeo, CarSnowResources.mat);
+        snowCap.rotation.set(0, Math.PI/2, Math.PI/2);
+        snowCap.scale.set(1, 0.65, 1); 
+        snowCap.position.set(0, roofBaseY, 0);
+
+        g.add(snowCap);
 
         // 4. 车窗 (共享 Geo)
         const windows = [];
@@ -2039,17 +2267,31 @@ class Train {
 
         // 闪烁序列
         let flashCount = 0;
-        const maxFlash = 4;
+        const maxFlash = 6; // 闪3次 (on-off-on-off-on-off)
         const flashInterval = setInterval(() => {
             const bright = flashCount % 2 === 0;
             windows.forEach(w => {
-                w.material.color.setHex(bright ? 0xffffff : 0xffccaa);
+                if (bright) {
+                    // 亮状态：高强度发光
+                    w.material.color.setHex(0xffffff);
+                    w.material.emissive.setHex(0xffffff);
+                    w.material.emissiveIntensity = 2.0; 
+                } else {
+                    // 暗状态：普通颜色
+                    w.material.color.setHex(0xffccaa);
+                    w.material.emissive.setHex(0x000000);
+                    w.material.emissiveIntensity = 0;
+                }
             });
             flashCount++;
             if (flashCount >= maxFlash) {
                 clearInterval(flashInterval);
                 // 恢复原色
-                windows.forEach((w, i) => w.material.color.setHex(originalColors[i]));
+                windows.forEach((w, i) => {
+                    w.material.color.setHex(originalColors[i]);
+                    w.material.emissive.setHex(0x000000);
+                    w.material.emissiveIntensity = 0;
+                });
             }
         }, 80);
     }
