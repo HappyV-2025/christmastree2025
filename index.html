@@ -54,10 +54,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-
-// ==========================================
-// 🧨 12种烟花音效预设 (复制到代码最前面或 AudioEngine 附近)
-// ==========================================
+// 烟花音效预设
 const SOUND_STYLES = [
     // 0. 标准平衡 (Standard)
     { name: "标准", noise: {f:800, q:1, vol:3, dur:1.5}, kick: {f:60, vol:2.5, dur:0.3} },
@@ -81,9 +78,6 @@ const SOUND_STYLES = [
     { name: "极致震撼", noise: {f:500, q:2, vol:6, dur:2.0}, kick: {f:45, vol:5.0, dur:0.6} },
 ];
 
-// ============================
-// 3. 替换 AudioEngine 类 (拟真蒸汽鸣笛 + 响亮行驶声)
-// ============================
 class AudioEngine {
     constructor() {
         this.ctx = null;
@@ -416,9 +410,6 @@ class AudioEngine {
 
 const audio = new AudioEngine();
 
-// ============================
-// ⚙️ 全局配置 & 状态
-// ============================
 const CFG = {
     // 🚂 物理
     maxSpeed: 0.10, accel: 0.005, decel: 0.003, wheelMult: 2.0, carriageGap: 0.009,
@@ -456,11 +447,8 @@ const clock = new THREE.Clock();
 const ray = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const vec3 = new THREE.Vector3();
-const emissives = []; // 用于统一调光
+const emissives = [];
 
-// ============================
-// 🚀 初始化与循环
-// ============================
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000); // 纯黑背景
@@ -469,16 +457,11 @@ function init() {
     camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 4000);
     camera.position.set(0, 150, 150);
 
-    // [兼容性] 1. 强制关闭抗锯齿，降低显存消耗
     renderer = new THREE.WebGLRenderer({
-        antialias: false, 
-        powerPreference: "high-performance",
-        depth: true,
-        stencil: false // 关闭模板缓冲，省显存
+        antialias: false, powerPreference: "high-performance", depth: true, stencil: false
     });
     renderer.setSize(innerWidth, innerHeight);
-    
-    // [性能] 2. 锁死像素比。高分屏手机渲染压力太大，限制在 1.5 足够清晰且流畅
+
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     
     renderer.shadowMap.enabled = true;
@@ -491,13 +474,7 @@ function init() {
     buildTrack();
     buildEnv();
 
-    // [兼容性] 3. 使用 UnsignedByteType 替代 HalfFloatType
-    // 很多老安卓机不支持浮点纹理，这是导致黑屏的元凶
-    const rt = new THREE.WebGLRenderTarget(
-        innerWidth, // 不要乘 renderer.getPixelRatio()，Bloom 不需要视网膜级分辨率
-        innerHeight,
-        { type: THREE.HalfFloatType, stencilBuffer: false } // 如果设备支持，HalfFloat 更好
-    );
+    const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, stencilBuffer: false });
 
     const rp = new RenderPass(scene, camera);
     bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 1.5, 0.4, 0.85);
@@ -526,10 +503,8 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
-const _tempCol = new THREE.Color(); // 全局复用实例
-// ============================
-// animate 函数 (支持 Instanced LED 闪烁)
-// ============================
+const _tempCol = new THREE.Color();
+
 function animate() {
     requestAnimationFrame(animate);
     const dt = clock.getDelta();
@@ -614,9 +589,6 @@ function animate() {
     composer.render();
 }
 
-// ============================
-// 🌍 世界构建
-// ============================
 function buildLights() {
     const moon = new THREE.DirectionalLight(0xaaccff, CFG.moonInt);
     moon.position.set(-80, 150, -80);
@@ -823,9 +795,6 @@ function buildEnv() {
     }
 }
 
-// ============================
-// createHeroTree (随机布线 + 环境光照 + 完美星星)
-// ============================
 function createHeroTree(x, z, scale) {
     const g = new THREE.Group(); 
     g.position.set(x, 0, z); 
@@ -846,7 +815,7 @@ function createHeroTree(x, z, scale) {
     const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
     const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
 
-// 🍬 修复版：拐杖糖
+    // 🍬 修复版：拐杖糖
     const createCandyCane = () => {
         const cane = new THREE.Group();
         
@@ -998,7 +967,7 @@ function createHeroTree(x, z, scale) {
         }
     });
 
-    // --- 🌟 3. 实体电线 (随机布线逻辑) ---
+    // --- 🌟 实体电线 (随机布线逻辑) ---
     const wirePoints = [];
     wirePoints.push(new THREE.Vector3(0, 2, 2)); // 起点
     let currentAngle = 0;
@@ -1040,9 +1009,8 @@ function createHeroTree(x, z, scale) {
     const wireMesh = new THREE.Mesh(tubeGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }));
     g.add(wireMesh);
 
-    // --- 🌟 4. LED 灯珠 (稀疏分布 + 局部点光源) ---
+    // --- 🌟 LED 灯珠 (稀疏分布 + 局部点光源) ---
     const totalLength = curve.getLength();
-    // [优化] 降低采样率，让灯珠更稀疏
     const bulbCountRaw = Math.floor(totalLength * 1.8); 
     
     const bulbGeo = new THREE.SphereGeometry(0.45, 8, 8);
@@ -1058,10 +1026,8 @@ function createHeroTree(x, z, scale) {
     for(let i=0; i<bulbCountRaw; i++) {
         const t = i / bulbCountRaw;
         
-        // [优化] 聚类逻辑：有灯的段短，没灯的段长
         if (clusterCounter <= 0) {
             clusterState = !clusterState;
-            // 有灯：4~8个，无灯：8~20个 (更稀疏)
             clusterCounter = clusterState ? Math.floor(Math.random() * 5 + 4) : Math.floor(Math.random() * 12 + 8);
         }
         clusterCounter--;
@@ -1092,16 +1058,13 @@ function createHeroTree(x, z, scale) {
     emissives.push(ledMesh);
     g.add(ledMesh);
 
-    // [新增] 内部环境光 (模拟灯带照亮树叶)
-    // ✅ 方案：只给最大的树放光源放 1 个中心光源
-    // 这里的 scale 参数可以用来判断是否是主树 (主树 scale 为 2.8)
-    if (scale > 2.0) { 
-        const innerLight = new THREE.PointLight(0xffaa33, 100, 50); 
-        innerLight.position.set(0, 15, 0); // 放在树中心即可
+    if (scale > 2.0) {
+        const innerLight = new THREE.PointLight(0xffaa33, 100, 50);
+        innerLight.position.set(0, 15, 0);
         g.add(innerLight);
     }
 
-    // --- 🌟 5. 树顶星星 (修复版：无缺口) ---
+    // --- 🌟 树顶星星 (修复版：无缺口) ---
     const starShape = new THREE.Shape();
     const pts = 5;
     const outerR = 4.2; 
@@ -1187,37 +1150,23 @@ function createLamp(x,z) {
     const g=new THREE.Group(); g.position.set(x,0,z);
     const p=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,7), new THREE.MeshStandardMaterial({color:0x111})); p.position.y=3.5;
     
-    // [修复] 使用 BasicMaterial + fog:false，并定义 baseCol
     const col = 0xffaa00;
-    const b=new THREE.Mesh(
-        new THREE.SphereGeometry(0.5), 
-        new THREE.MeshBasicMaterial({color:col, fog:false}) // 关键：fog:false
-    );
-    b.position.y=7; 
-    
-    // [关键] 必须定义 baseCol，否则 animate 会崩溃
-    b.userData={type:'bulb', phase: Math.random()*Math.PI, baseCol: new THREE.Color(col)}; 
-    
+    const b=new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color:col, fog:false}));
+    b.position.y=7;
+    b.userData={type:'bulb', phase: Math.random()*Math.PI, baseCol: new THREE.Color(col)};
     emissives.push(b); g.add(p,b); scene.add(g);
 }
 
-// ============================
-// 🚂 火车系统
-// ============================
 class Train {
     constructor(sc, curve) {
         this.grp=new THREE.Group(); sc.add(this.grp);
         this.curve=curve; this.prog=0; this.wheels=[]; this.smokes=[];
-        
-        // [性能优化] 预先创建烟雾的几何体和材质，不要在循环里创建
-        this.smokeMax = 50; // 最大烟雾数量
+        this.smokeMax = 50;
         this.smokeIdx = 0;
-        this.smokeData = []; // 存储生命周期数据
-        // 使用 InstancedMesh
+        this.smokeData = [];
         const sGeo = new THREE.IcosahedronGeometry(1, 0);
         const sMat = new THREE.MeshStandardMaterial({
-            color: 0xdddddd, transparent: true, opacity: 0.6, // 基础透明度
-            depthWrite: false, roughness: 1, flatShading: true
+            color: 0xdddddd, transparent: true, opacity: 0.6, depthWrite: false, roughness: 1, flatShading: true
         });
         this.smokeMesh = new THREE.InstancedMesh(sGeo, sMat, this.smokeMax);
         this.smokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -1298,19 +1247,16 @@ class Train {
             new THREE.MeshStandardMaterial({color:0x222, roughness:0.9}) // 黑色磨砂顶
         );
         roof.rotation.set(0, Math.PI/2, Math.PI/2); 
-        roof.scale.set(1, 0.65, 1); // 稍微压扁一点点，更像车顶
-        roof.position.set(0, 5.1, 0); // 稍微提一点高度
-
-        // [已删除] 车顶礼物盒生成代码
+        roof.scale.set(1, 0.65, 1);
+        roof.position.set(0, 5.1, 0);
 
         // 4. 车窗 (Basic材质防遮罩)
         const winGeo = new THREE.PlaneGeometry(1.3, 1.6);
-        const winMat = new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false }); 
+        const winMat = new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false });
         
         for (let side = -1; side <= 1; side += 2) {
             for (let k = 0; k < 3; k++) {
                 const w = new THREE.Mesh(winGeo, winMat);
-                // 窗户带一点金色边框? 这里的 scale 稍微大一点做边框
                 const border = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.7), matGold);
                 
                 w.position.set(1.76 * side, 3.8, -2.5 + k * 2.5);
@@ -1439,9 +1385,6 @@ class Train {
     }
 }
 
-// ============================
-// 🎆 优化版 Fireworks (对象池技术)
-// ============================
 class Fireworks {
     constructor(sc) {
         this.sc = sc; 
@@ -1597,9 +1540,6 @@ class Fireworks {
     }
 }
 
-// ============================
-// ❄️ 优化版 Snow (GPU Shader 驱动)
-// ============================
 class Snow {
     constructor(sc) {
         const count = 6000; // 可以轻松支持更多粒子
@@ -1682,9 +1622,6 @@ class Snow {
     }
 }
 
-// ============================
-// ⚙️ 交互控制
-// ============================
 function setupControls() {
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = 0.05;
@@ -1693,9 +1630,6 @@ function setupControls() {
     controls.addEventListener('end', () => STATE.interacting = false);
 }
 
-// ============================
-// setupUI 函数
-// ============================
 function setupUI() {
     const btn = document.getElementById('start-btn');
 
