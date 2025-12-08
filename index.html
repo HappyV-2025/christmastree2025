@@ -485,7 +485,8 @@ const STATE = {
     interacting: false, // 用户正在拖动
     running: true, // 目标状态：是否应该跑
     curSpeed: 0,   // 当前实际物理速度
-    clickTime: 0
+    clickTime: 0,
+    trainDir: Math.random() > 0.5 ? 1 : -1  // 🚂 随机方向：1=顺时针，-1=逆时针
 };
 
 // 🚁 无人机接力跟拍系统配置
@@ -578,68 +579,44 @@ const _tempCol = new THREE.Color();
 const _dronePos = new THREE.Vector3();
 const _droneTarget = new THREE.Vector3();
 
-// 🚁 计算指定无人机的理想位置
+// 🚁 计算指定无人机的理想位置（修正版：使用径向向量确保在轨道外侧）
 function getDronePosition(droneIndex, trainProg, outPos, outTarget) {
-    // 计算无人机负责的轨道起始点
-    const droneStart = droneIndex / DRONE.count;
-
-    // 计算火车在该无人机覆盖范围内的相对位置
-    let relProg = trainProg - droneStart;
-    if (relProg < 0) relProg += 1;
-    if (relProg > DRONE.coverage) relProg = DRONE.coverage;
-
-    // 无人机跟随点 = 火车位置 + 提前量
-    let followT = trainProg + DRONE.leadOffset;
-    if (followT >= 1) followT -= 1;
-
-    const trackPos = trackCurve.getPointAt(followT);
-    const trackTan = trackCurve.getTangentAt(followT);
-
-    // 计算侧向向量（垂直于切线和上向量）
-    _v1.crossVectors(trackTan, _up).normalize();
-
-    // 应用侧向角度偏移，让相机稍微偏向一侧
-    const sideOffset = Math.sin(DRONE.sideAngle);
-    const backOffset = Math.cos(DRONE.sideAngle);
-
-    // 相机位置 = 轨道点 + 侧向偏移 + 后向偏移 + 高度
-    outPos.copy(trackPos)
-        .addScaledVector(_v1, DRONE.distance * sideOffset)
-        .addScaledVector(trackTan, -DRONE.distance * backOffset * 0.5)
-        .y += DRONE.height;
-
-    // 向外侧偏移（让相机在轨道外圈）
-    _v2.copy(trackPos).y = 0;
-    _v2.normalize();
-    outPos.addScaledVector(_v2, DRONE.distance * 0.3);
-
-    // 看向点：地图中心（能看到圣诞树和烟花），但稍微偏向火车位置
-    const centerWeight = 0.7; // 70%看向中心，30%偏向火车
+    // 获取火车当前位置
     const trainPos = trackCurve.getPointAt(trainProg);
-    outTarget.set(
-        trainPos.x * (1 - centerWeight),
-        12, // 稍微抬高，看到圣诞树中部
-        trainPos.z * (1 - centerWeight)
-    );
+
+    // 🔑 核心修正：使用径向向量（从中心指向火车），这个方向永远指向外侧
+    _v2.set(trainPos.x, 0, trainPos.z).normalize();
+
+    // 无人机位置 = 火车位置 + 径向外偏移 + 高度
+    outPos.copy(trainPos);
+    outPos.addScaledVector(_v2, DRONE.distance); // 向外偏移
+    outPos.y = DRONE.height;
+
+    // 看向点：地图中心（稍微抬高，能看到圣诞树）
+    outTarget.set(0, 15, 0);
 }
 
-// 🚁 检测是否需要切换到下一个无人机
+// 🚁 检测是否需要切换到下一个无人机（支持双向行驶）
 function checkDroneSwitch(trainProg) {
     const droneStart = droneState.current / DRONE.count;
-    const droneEnd = droneStart + DRONE.coverage;
 
-    // 计算火车是否超出当前无人机的覆盖范围
+    // 计算火车相对于当前无人机起点的位置
     let relProg = trainProg - droneStart;
-    if (relProg < 0) relProg += 1;
+    if (relProg < -0.5) relProg += 1;
+    if (relProg > 0.5) relProg -= 1;
 
-    // 如果超出覆盖范围，触发切换
-    if (relProg > DRONE.coverage && !droneState.switching) {
+    // 根据火车方向判断是否超出覆盖范围
+    const needSwitch = STATE.trainDir > 0
+        ? relProg > DRONE.coverage   // 顺时针：超出正向范围
+        : relProg < 0;                // 逆时针：超出负向范围
+
+    if (needSwitch && !droneState.switching) {
         // 记录当前位置作为起点
         droneState.fromPos.copy(camera.position);
         droneState.fromTarget.copy(controls.target);
 
-        // 切换到下一个无人机
-        droneState.current = (droneState.current + 1) % DRONE.count;
+        // 根据方向切换到下一个或上一个无人机
+        droneState.current = (droneState.current + STATE.trainDir + DRONE.count) % DRONE.count;
 
         // 计算新无人机的位置
         getDronePosition(droneState.current, trainProg, droneState.toPos, droneState.toTarget);
@@ -1458,16 +1435,20 @@ class Train {
 
     update(dt, speed) {
         audio.chug(speed);
-        
-        const dist = speed * dt * 0.2;
-        this.prog = (this.prog + dist) % 1;
-        
+
+        // 🚂 支持双向行驶：STATE.trainDir = 1(顺时针) 或 -1(逆时针)
+        const dist = speed * dt * 0.2 * STATE.trainDir;
+        this.prog = (this.prog + dist + 1) % 1; // +1 确保结果为正
+
         this.place(this.loco, this.prog);
         this.cars.forEach(c => {
-            let t = this.prog - c.userData.off; if(t<0) t+=1;
+            // 车厢跟随：根据方向决定偏移方向
+            let t = this.prog - c.userData.off * STATE.trainDir;
+            t = ((t % 1) + 1) % 1; // 确保 t 在 [0, 1) 范围内
             this.place(c, t);
         });
-        
+
+        // 轮子旋转方向也要随火车方向
         this.wheels.forEach(w => w.rotation.x -= dist * 150 * CFG.wheelMult);
 
         // 🚂 烟雾生成逻辑优化
@@ -1832,7 +1813,7 @@ function setupUI() {
         document.getElementById('hud').style.opacity = 1;
         document.getElementById('settings-btn').style.opacity = 1;
         document.getElementById('firework-btn').style.opacity = 1;
-        
+
         // 🚁 启动运镜：无人机从侧面高空降落
         // 初始化当前无人机为第一个（或根据火车位置选择最近的）
         droneState.current = Math.floor(train.prog * DRONE.count) % DRONE.count;
