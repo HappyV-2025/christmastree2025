@@ -2233,18 +2233,18 @@ class Fireworks {
     }
 }
 
-// ✨ 独立的魔法尾迹系统 (精致星尘版)
+// ✨ 独立的魔法尾迹系统 (细腻金沙版 - 最终定稿)
 class MagicTrail {
     constructor(scene) {
-        this.maxParticles = 600; // 粒子上限减半
+        this.maxParticles = 1200;
         this.particles = [];
         this.scene = scene;
 
         const cv = document.createElement('canvas'); cv.width=32; cv.height=32;
         const cx = cv.getContext('2d'); 
         const g = cx.createRadialGradient(16,16,0,16,16,16);
-        g.addColorStop(0, 'rgba(255, 255, 255, 0.8)');   
-        g.addColorStop(0.3, 'rgba(255, 220, 100, 0.3)'); 
+        g.addColorStop(0, 'rgba(255, 255, 255, 0.9)');   // 核心略白
+        g.addColorStop(0.4, 'rgba(255, 210, 80, 0.4)');  // 中间淡金
         g.addColorStop(1, 'rgba(0, 0, 0, 0)');
         cx.fillStyle = g; cx.fillRect(0,0,32,32);
         const tex = new THREE.CanvasTexture(cv);
@@ -2268,7 +2268,8 @@ class MagicTrail {
                     vOpacity = opacity;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
-                    gl_PointSize = size * (600.0 / -mvPosition.z); // 尺寸大幅减小
+                    // 尺寸系数降至 700，确保粒子细腻
+                    gl_PointSize = size * (700.0 / -mvPosition.z); 
                 }
             `,
             fragmentShader: `
@@ -2277,12 +2278,14 @@ class MagicTrail {
                 varying float vOpacity;
                 void main() {
                     vec4 texColor = texture2D(map, gl_PointCoord);
-                    gl_FragColor = vec4(vColor, 1.0) * texColor * vOpacity; 
+                    if (texColor.a < 0.05) discard;
+                    // NormalBlending 混合，柔和不刺眼
+                    gl_FragColor = vec4(vColor, texColor.a * vOpacity); 
                 }
             `,
             transparent: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending
+            blending: THREE.NormalBlending 
         });
 
         this.mesh = new THREE.Points(this.geo, this.mat);
@@ -2309,12 +2312,13 @@ class MagicTrail {
                 continue;
             }
 
-            p.vel.y -= 2.0 * dt; // 微弱重力
             p.pos.addScaledVector(p.vel, dt);
+            p.vel.y -= 6.0 * dt; // 保持下坠感
+            p.vel.multiplyScalar(0.98); 
 
             const age = p.life / p.maxLife; 
-            p.currOpacity = age * 0.6; // 最大透明度仅 0.6
-            p.currSize = p.baseSize * age; 
+            p.currOpacity = age * 0.8; // 透明度上限 0.8
+            p.currSize = p.baseSize * (0.6 + 0.4 * age); 
         }
 
         for(let i=0; i<this.maxParticles; i++) {
@@ -2323,7 +2327,8 @@ class MagicTrail {
                 positions.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
                 opacities.setX(i, p.currOpacity);
                 sizes.setX(i, p.currSize);
-                colors.setXYZ(i, 0.8, 0.7, 0.4); // 暗金，不刺眼
+                // 暗金色，质感更好
+                colors.setXYZ(i, 0.9, 0.7, 0.2); 
             } else {
                 positions.setXYZ(i, 0, -9999, 0);
                 opacities.setX(i, 0);
@@ -2337,33 +2342,35 @@ class MagicTrail {
     }
 
     emit(pos, quat, intensity) {
-        if (intensity <= 0.1) return;
+        if (intensity <= 0.05) return;
 
-        // 稀疏发射：每帧 0~2 个
-        const count = Math.random() < (intensity * 0.8) ? 2 : 0; 
+        const count = Math.floor(2 + intensity * 4); 
         const offset = new THREE.Vector3();
+        const backDir = new THREE.Vector3(0, 0, 1).applyQuaternion(quat).normalize();
 
         for(let k=0; k<count; k++) {
             if(this.particles.length >= this.maxParticles) break;
 
-            // 精确锁定滑板位置 (局部坐标系)
-            // 雪橇本身在 Group 的 Z=6 (后方)
-            // 滑板在雪橇的 X= +/- 1.8
-            // 所以相对于传入的 pos (雪橇中心)，偏移是 +/- 1.8
             const side = Math.random() > 0.5 ? 1.8 : -1.8;
             
             offset.set(
                 side + (Math.random()-0.5) * 0.2, 
-                0.2, // 紧贴滑板底部
-                3.0 + Math.random() * 0.5 // 滑板尾端
+                0.0, 
+                4.0 + Math.random() * 2.0 
             ).applyQuaternion(quat);
 
             const p = {
                 pos: pos.clone().add(offset),
-                vel: new THREE.Vector3(0,0,0), // 无初速度，直接剥离
-                life: 0.6 + Math.random() * 0.6, // 快速消失
+                // 保持向后的惯性速度，这部分逻辑是对的
+                vel: backDir.clone().multiplyScalar(4.0 + Math.random() * 4.0) 
+                    .add(new THREE.Vector3(
+                        (Math.random()-0.5) * 0.2, 
+                        0, 
+                        (Math.random()-0.5) * 0.2
+                    )),
+                life: 0.6 + Math.random() * 0.6, 
                 maxLife: 0,
-                baseSize: 1.5 + Math.random() * 1.5, // 极小
+                baseSize: 1.5 + Math.random() * 2.0, // 尺寸减小
                 currSize: 0,
                 currOpacity: 1
             };
