@@ -2233,39 +2233,28 @@ class Fireworks {
     }
 }
 
-// ✨ 独立的魔法尾迹系统 (晶莹星尘版 - 最终优化)
+// ✨ 独立的魔法尾迹系统 (精致星尘版)
 class MagicTrail {
     constructor(scene) {
-        this.maxParticles = 1500; // 更多、更细碎的粒子
+        this.maxParticles = 600; // 粒子上限减半
         this.particles = [];
         this.scene = scene;
 
-        // 1. 纹理：锐利的星点 + 极淡的光晕
-        // 之前的纹理太糊、太满，导致重叠后像棉花/火焰
-        const cv = document.createElement('canvas'); cv.width=64; cv.height=64;
+        const cv = document.createElement('canvas'); cv.width=32; cv.height=32;
         const cx = cv.getContext('2d'); 
-        
-        // 背景光晕 (极淡)
-        const g = cx.createRadialGradient(32,32,0,32,32,32);
-        g.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
-        g.addColorStop(0.5, 'rgba(255, 240, 200, 0.1)');
+        const g = cx.createRadialGradient(16,16,0,16,16,16);
+        g.addColorStop(0, 'rgba(255, 255, 255, 0.8)');   
+        g.addColorStop(0.3, 'rgba(255, 220, 100, 0.3)'); 
         g.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        cx.fillStyle = g; cx.fillRect(0,0,64,64);
-        
-        // 核心星点 (锐利)
-        cx.fillStyle = 'rgba(255, 255, 255, 1.0)';
-        cx.beginPath(); cx.arc(32,32,3,0,Math.PI*2); cx.fill();
-
+        cx.fillStyle = g; cx.fillRect(0,0,32,32);
         const tex = new THREE.CanvasTexture(cv);
 
-        // 2. 几何体
         this.geo = new THREE.BufferGeometry();
         this.geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.maxParticles * 3), 3));
         this.geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.maxParticles * 3), 3));
         this.geo.setAttribute('size', new THREE.BufferAttribute(new Float32Array(this.maxParticles), 1));
         this.geo.setAttribute('opacity', new THREE.BufferAttribute(new Float32Array(this.maxParticles), 1));
 
-        // 3. 材质
         this.mat = new THREE.ShaderMaterial({
             uniforms: { map: { value: tex } },
             vertexShader: `
@@ -2279,8 +2268,7 @@ class MagicTrail {
                     vOpacity = opacity;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
-                    // 减小尺寸系数，让粒子看起来更远、更细
-                    gl_PointSize = size * (800.0 / -mvPosition.z); 
+                    gl_PointSize = size * (600.0 / -mvPosition.z); // 尺寸大幅减小
                 }
             `,
             fragmentShader: `
@@ -2289,13 +2277,12 @@ class MagicTrail {
                 varying float vOpacity;
                 void main() {
                     vec4 texColor = texture2D(map, gl_PointCoord);
-                    if (texColor.a < 0.05) discard; // 剔除极淡的边缘，保持清爽
-                    gl_FragColor = vec4(vColor, texColor.a * vOpacity); 
+                    gl_FragColor = vec4(vColor, 1.0) * texColor * vOpacity; 
                 }
             `,
             transparent: true,
             depthWrite: false,
-            blending: THREE.NormalBlending // 保持 NormalBlending，柔和不刺眼
+            blending: THREE.AdditiveBlending
         });
 
         this.mesh = new THREE.Points(this.geo, this.mat);
@@ -2322,16 +2309,11 @@ class MagicTrail {
                 continue;
             }
 
-            p.pos.add(p.vel);
-            p.vel.multiplyScalar(0.92); // 强阻力，让星尘尽快停留在原地
-            p.vel.y -= 0.01 * dt;       // 几乎悬浮
+            p.vel.y -= 2.0 * dt; // 微弱重力
+            p.pos.addScaledVector(p.vel, dt);
 
-            // 闪烁效果
             const age = p.life / p.maxLife; 
-            // 随机闪烁因子
-            const blink = Math.sin(age * 20.0 + p.randomPhase) * 0.3 + 0.7;
-            
-            p.currOpacity = age * blink * 0.8; 
+            p.currOpacity = age * 0.6; // 最大透明度仅 0.6
             p.currSize = p.baseSize * age; 
         }
 
@@ -2341,8 +2323,7 @@ class MagicTrail {
                 positions.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
                 opacities.setX(i, p.currOpacity);
                 sizes.setX(i, p.currSize);
-                // 香槟金 (Champagne Gold) - 去除红味，增加高贵感
-                colors.setXYZ(i, 1.0, 0.95, 0.6); 
+                colors.setXYZ(i, 0.8, 0.7, 0.4); // 暗金，不刺眼
             } else {
                 positions.setXYZ(i, 0, -9999, 0);
                 opacities.setX(i, 0);
@@ -2356,38 +2337,35 @@ class MagicTrail {
     }
 
     emit(pos, quat, intensity) {
-        if (intensity <= 0.05) return;
+        if (intensity <= 0.1) return;
 
-        // 减少每帧发射数量，避免重叠成团
-        const count = Math.floor(1 + intensity * 3); 
+        // 稀疏发射：每帧 0~2 个
+        const count = Math.random() < (intensity * 0.8) ? 2 : 0; 
         const offset = new THREE.Vector3();
-        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quat); 
 
         for(let k=0; k<count; k++) {
             if(this.particles.length >= this.maxParticles) break;
 
-            // 宽阔的散布 (Wide Spread) - 避免成线
+            // 精确锁定滑板位置 (局部坐标系)
+            // 雪橇本身在 Group 的 Z=6 (后方)
+            // 滑板在雪橇的 X= +/- 1.8
+            // 所以相对于传入的 pos (雪橇中心)，偏移是 +/- 1.8
+            const side = Math.random() > 0.5 ? 1.8 : -1.8;
+            
             offset.set(
-                (Math.random() - 0.5) * 12.0, // 很宽的左右散布
-                (Math.random() - 0.5) * 4.0 + 2.0, 
-                (Math.random() - 0.5) * 6.0 + 10.0 // 靠后
+                side + (Math.random()-0.5) * 0.2, 
+                0.2, // 紧贴滑板底部
+                3.0 + Math.random() * 0.5 // 滑板尾端
             ).applyQuaternion(quat);
 
             const p = {
                 pos: pos.clone().add(offset),
-                // 速度主要是扩散，而不是向后喷射
-                vel: forward.clone().multiplyScalar(0.2) // 很小的向后初速度
-                    .add(new THREE.Vector3(
-                        (Math.random()-0.5) * 0.8, 
-                        (Math.random()-0.5) * 0.8, 
-                        (Math.random()-0.5) * 0.8
-                    )),
-                life: 2.0 + Math.random() * 2.0, // 长寿命
+                vel: new THREE.Vector3(0,0,0), // 无初速度，直接剥离
+                life: 0.6 + Math.random() * 0.6, // 快速消失
                 maxLife: 0,
-                baseSize: 1.5 + Math.random() * 2.5, // 小尺寸
+                baseSize: 1.5 + Math.random() * 1.5, // 极小
                 currSize: 0,
-                currOpacity: 1,
-                randomPhase: Math.random() * 100
+                currOpacity: 1
             };
             p.maxLife = p.life;
             this.particles.push(p);
