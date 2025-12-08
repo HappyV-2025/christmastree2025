@@ -686,7 +686,7 @@ function buildTrack() {
     trackCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.4); 
     trackPoints = trackCurve.getPoints(1000);
 
-    const divs = 600; 
+    const divs = 600;
     const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
     bed.position.y = 0.1; bed.scale.y = 0.1; scene.add(bed);
     
@@ -715,14 +715,11 @@ function buildTrack() {
     const rightVec = new THREE.Vector3();
     const tempL = new THREE.Vector3();
     const tempR = new THREE.Vector3();
-    
+
     for(let i=0; i<=railSamp; i++) {
-        // 1. 在主轨道上均匀取点
         const t = i / railSamp;
         const pt = trackCurve.getPointAt(t);
         const tan = trackCurve.getTangentAt(t); // 获取切线(前进方向)
-        
-        
         // 复用 rightVec 计算右侧向量
         rightVec.crossVectors(tan, upVec).normalize();
 
@@ -765,6 +762,7 @@ function buildEnv() {
     createHeroTree(85, 55, 1.4); 
     createHeroTree(-85, 55, 1.4);
 
+    // 🌲 升级版森林
     const matTree = new THREE.MeshStandardMaterial({color:0x0f3315, roughness:0.9});
     const matSnow = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.6}); 
     
@@ -1699,7 +1697,7 @@ function setupControls() {
 // ============================
 function setupUI() {
     const btn = document.getElementById('start-btn');
-    
+
     // 批量发射烟花（提前定义，供下方回调使用）
     const launchBatch = () => {
         if(!STATE.started || document.visibilityState === 'hidden') return;
@@ -1709,7 +1707,7 @@ function setupUI() {
             setTimeout(() => fwMgr.launch(), delay);
         }
     };
-    
+
     btn.onclick = () => {
         STATE.started = true;
         STATE.running = true;
@@ -1788,7 +1786,7 @@ function setupUI() {
        .name('💥 爆炸音效风格'); // 使用 .name() 来显示中文标签
 
     window.getFireworkSoundStyle = () => debugObj.soundStyle;
-   
+
     fFw.add(CFG, 'autoFw').name('自动燃放').onChange(v => {
         if (autoTimer) clearInterval(autoTimer);
         if (v) { 
@@ -1822,7 +1820,6 @@ function setupUI() {
                 }
                 return;
             }
-
             fwMgr.launch(); 
         }
     });
