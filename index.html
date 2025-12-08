@@ -11,7 +11,7 @@
     #start-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(circle at center,#1b2028 0%,#000 100%);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:100;transition:opacity 0.8s}
     .card{background:rgba(255,255,255,0.06);padding:40px;border-radius:24px;border:1px solid rgba(255,255,255,0.1);text-align:center;backdrop-filter:blur(20px);box-shadow:0 40px 80px rgba(0,0,0,0.6);width:400px}
     h1{color:#ffb300;margin:0 0 20px;letter-spacing:4px;text-shadow:0 0 30px rgba(255,165,0,0.5);text-transform:uppercase}
-    .tips{color:#ccc;font-size:14px;line-height:2.2;text-align:left;margin-bottom:30px}
+    .tips{color:#ccc;font-size:14px;line-height:2.2;text-align:left;margin-left:20px;margin-bottom:30px}
     .k{color:#4fc3f7;font-weight:bold;margin-right:8px;border-bottom:1px dashed #4fc3f7}
     button{background:linear-gradient(135deg,#d32f2f,#b71c1c);color:#fff;border:none;padding:16px 60px;font-size:20px;border-radius:50px;cursor:pointer;box-shadow:0 10px 30px rgba(211,47,47,0.4);transition:0.2s;font-weight:bold;letter-spacing:1px}
     button:hover{transform:scale(1.05);box-shadow:0 15px 40px rgba(211,47,47,0.6)}
@@ -35,6 +35,24 @@
     /* HUD状态可点击 */
     #hud-status{cursor:pointer;transition:0.2s}
     #hud-status:hover{color:#4fc3f7}
+    /* 顶部导航栏容器 */
+    #top-bar{position:absolute;top:0;left:0;right:0;z-index:15;display:flex;justify-content:space-between;align-items:flex-start;padding:20px;pointer-events:none}
+    #top-bar>*{pointer-events:auto}
+    /* 圣诞倒计时 */
+    #countdown-wrap{opacity:0;transition:opacity 0.5s}
+    #countdown-trigger{background:linear-gradient(135deg,rgba(183,28,28,0.85),rgba(139,0,0,0.85));color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;cursor:pointer;border:1px solid rgba(255,215,0,0.5);box-shadow:0 2px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:6px;transition:all 0.3s;backdrop-filter:blur(5px)}
+    #countdown-trigger:hover{transform:scale(1.05);box-shadow:0 4px 20px rgba(255,215,0,0.4)}
+    #countdown-trigger .arrow{font-size:10px;transition:transform 0.3s}
+    #countdown-trigger.expanded .arrow{transform:rotate(180deg)}
+    #countdown-panel{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:10px;background:linear-gradient(145deg,rgba(20,60,20,0.95),rgba(139,0,0,0.9));border-radius:16px;padding:16px 24px;text-align:center;opacity:0;visibility:hidden;transition:all 0.4s cubic-bezier(0.4,0,0.2,1);border:2px solid rgba(255,215,0,0.4);box-shadow:0 8px 32px rgba(0,0,0,0.5);pointer-events:none;min-width:200px}
+    #countdown-panel.show{opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+    #countdown-panel .title{color:#ffd700;font-size:14px;margin-bottom:8px;text-shadow:0 0 10px rgba(255,215,0,0.5)}
+    #countdown-panel .time{color:#fff;font-size:28px;font-weight:bold;text-shadow:0 0 20px rgba(255,255,255,0.3);letter-spacing:2px}
+    #countdown-panel .time span{color:#4fc3f7}
+    #countdown-panel .hint{color:rgba(255,255,255,0.6);font-size:11px;margin-top:10px}
+    #countdown-panel .decorations{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:20px}
+    /* 响应式 */
+    @media(max-width:480px){#countdown-trigger{padding:5px 10px;font-size:12px}#countdown-trigger .text{display:none}#countdown-panel{min-width:160px;padding:12px 16px}#countdown-panel .time{font-size:22px}}
 </style>
     </head>
     <body>
@@ -42,14 +60,31 @@
                 <h1>🎄 圣诞快乐</h1>
                 <div class="tips">
                     <div><span class="k">🚂 点击车头</span> 背景音乐 开/关</div>
-                    <div><span class="k">🔔 点击车厢</span> 铃铛响起</div>
+                    <div><span class="k">🔔 点击车厢</span> 铃铛响起 + 扔出礼盒</div>
                     <div><span class="k">🎆 右下按钮</span> 燃放烟花</div>
                     <div><span class="k">👆 拖动旋转</span> 360° 自由观察</div>
                 </div>
                 <button id="start-btn">鸣笛发车</button>
-            </div></div>
-        <div id="hud"><div class="tag"><div id="d-status" class="dot"></div><span id="hud-status">智能驾驶模式</span><button id="train-toggle">⏸️</button></div></div>
-        <div id="settings-btn">⚙️</div>
+            </div>
+        </div>
+        <div id="top-bar">
+            <div id="hud"><div class="tag"><div id="d-status" class="dot"></div><span id="hud-status">智能驾驶模式</span><button id="train-toggle">⏸️</button></div></div>
+            <div id="countdown-wrap" style="position:relative">
+                <div id="countdown-trigger">
+                    <span>🎄</span>
+                    <span class="text">圣诞</span>
+                    <span id="countdown-days">--</span>天
+                    <span class="arrow">▼</span>
+                </div>
+                <div id="countdown-panel">
+                    <div class="decorations">🎅</div>
+                    <div class="title">✨ 距离圣诞节还有 ✨</div>
+                    <div class="time" id="countdown-detail">--天 --:--:--</div>
+                    <div class="hint">点击任意处收起</div>
+                </div>
+            </div>
+            <div id="settings-btn">⚙️</div>
+        </div>
         <div id="firework-btn">🎆</div>
         <div id="modal-overlay"></div><div id="settings-modal"></div>
         <div id="loading">正在装载礼物与魔法...</div>
@@ -69,23 +104,23 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 const SOUND_STYLES = [
     // 0. 标准平衡 (Standard)
     { name: "标准", noise: {f:800, q:1, vol:3, dur:1.5}, kick: {f:60, vol:2.5, dur:0.3} },
-    
+
     // 1. 巨型重炮 (Heavy/Deep) - 适合大烟花，低音重，回声长
     { name: "巨型重炮", noise: {f:300, q:0.5, vol:4, dur:2.5}, kick: {f:50, vol:4.0, dur:0.5} },
 
-    // 3. 闷响 (Muffled/Distant) - 像是在远处的爆炸
+    // 2. 闷响 (Muffled/Distant) - 像是在远处的爆炸
     { name: "远处闷响", noise: {f:200, q:0, vol:3, dur:1.0}, kick: {f:40, vol:2.0, dur:0.4} },
     
-    // 4. 金属回音 (Metallic) - 带有共鸣感
+    // 3. 金属回音 (Metallic) - 带有共鸣感
     { name: "金属回音", noise: {f:1200, q:10, vol:2, dur:1.8}, kick: {f:80, vol:1.5, dur:0.2} },
     
-    // 5. 空气爆破 (Airy) - 主要是气流声，比较柔和
+    // 4. 空气爆破 (Airy) - 主要是气流声，比较柔和
     { name: "空气爆破", noise: {f:600, q:0.1, vol:2, dur:0.8}, kick: {f:30, vol:3.0, dur:0.4} },
     
-    // 6. 礼花弹 (Shell) - 先有一段尖啸（模拟），这里主要表现炸开的散落感
+    // 5. 礼花弹 (Shell) - 先有一段尖啸（模拟），这里主要表现炸开的散落感
     { name: "礼花散落", noise: {f:1000, q:0.5, vol:1.5, dur:3.0}, kick: {f:55, vol:2.0, dur:0.2} },
     
-    // 7. 极致震撼 (Impact) - 甚至会有点破音的感觉
+    // 6. 极致震撼 (Impact) - 甚至会有点破音的感觉
     { name: "极致震撼", noise: {f:500, q:2, vol:6, dur:2.0}, kick: {f:45, vol:5.0, dur:0.6} },
 ];
 
@@ -247,8 +282,7 @@ class AudioEngine {
     
     stopBGM() { this.isBgmPlaying = false; clearTimeout(this.bgmTimer); }
 
-    // 📢 方案C：喷气哨音
-    // 🚂 修复版：厚重蒸汽鸣笛 (Steam Blast)
+    // 🚂 厚重蒸汽鸣笛 (Steam Blast)
     whistle() {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
@@ -314,7 +348,7 @@ class AudioEngine {
         masterGain.gain.exponentialRampToValueAtTime(0.001, t + duration + 0.4);
     }
 
-    // 🚂 方案C：喷气声
+    // 🚂 火车喷气声
     chug(speed) {
         if (!this.ctx || speed < 0.01) return;
         const t = this.ctx.currentTime;
@@ -337,42 +371,51 @@ class AudioEngine {
         }
     }
 
-    // 🔔 铃铛声
+    // 🔔 圣诞铃铛声（Jingle Bell 风格）
     bell() {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
 
-        // 铃铛音色：高频正弦波 + 快速衰减
-        const frequencies = [1200, 1800, 2400]; // 多个泛音
+        // 圣诞铃铛的特征：清脆、明亮、有金属共鸣
+        // 使用更高的频率和非谐波泛音模拟真实铃铛
+        const bellFreqs = [
+            { f: 2600, vol: 0.25, decay: 0.6 },   // 基频
+            { f: 3900, vol: 0.15, decay: 0.4 },   // 1.5倍泛音（非谐波，铃铛特征）
+            { f: 5200, vol: 0.08, decay: 0.3 },   // 2倍泛音
+            { f: 6500, vol: 0.04, decay: 0.2 },   // 高频闪光
+        ];
 
-        frequencies.forEach((freq, i) => {
+        bellFreqs.forEach(({ f, vol, decay }) => {
             const osc = this.ctx.createOscillator();
             osc.type = 'sine';
-            osc.frequency.value = freq;
+            // 轻微频率抖动，模拟铃铛震动
+            osc.frequency.setValueAtTime(f, t);
+            osc.frequency.exponentialRampToValueAtTime(f * 0.998, t + decay);
 
             const gain = this.ctx.createGain();
-            const vol = 0.3 / (i + 1); // 高频泛音音量递减
             gain.gain.setValueAtTime(vol, t);
-            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
 
             osc.connect(gain);
             gain.connect(this.nodes.train);
-
             osc.start(t);
-            osc.stop(t + 1);
+            osc.stop(t + decay + 0.1);
         });
 
-        // 添加金属撞击感
-        const click = this.ctx.createOscillator();
-        click.type = 'square';
-        click.frequency.value = 3000;
-        const clickGain = this.ctx.createGain();
-        clickGain.gain.setValueAtTime(0.15, t);
-        clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-        click.connect(clickGain);
-        clickGain.connect(this.nodes.train);
-        click.start(t);
-        click.stop(t + 0.1);
+        // 敲击瞬态：短促的噪音模拟金属碰撞
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = this.noiseBuf;
+        const noiseFilter = this.ctx.createBiquadFilter();
+        noiseFilter.type = 'highpass';
+        noiseFilter.frequency.value = 4000;
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.08, t);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(this.nodes.train);
+        noise.start(t);
+        noise.stop(t + 0.05);
     }
 
     // styleIndex: 传入则选择特定风格，不传则随机
@@ -493,11 +536,10 @@ const STATE = {
 const DRONE = {
     count: 6,           // 无人机数量（均匀分布在轨道周围）
     coverage: 0.18,     // 每个无人机覆盖的轨道比例
-    switchDur: 1.2,     // 切换过渡时间（秒）
-    height: 25,         // 飞行高度
-    distance: 70,       // 跟拍距离
-    leadOffset: 0.03,   // 提前量（无人机稍微领先于火车）
-    sideAngle: 0.4,     // 侧向角度偏移（弧度），让视角更有电影感
+    switchDur: 1.0,     // 切换过渡时间（秒）- 稍快一点
+    height: 40,         // 飞行高度 - 调高看全景
+    distance: 100,      // 跟拍距离 - 调远看更多场景
+    smoothSpeed: 0.08,  // 跟随平滑度（越大跟得越紧）
 };
 
 // 无人机状态
@@ -512,7 +554,7 @@ const droneState = {
 };
 
 let scene, camera, renderer, composer, controls, gui;
-let train, fwMgr, snowMgr, trackCurve;
+let train, fwMgr, snowMgr, santaSleigh, trackCurve;
 let lights={}, bloomPass;
 let ground, trackPoints=[];
 let autoTimer=null;
@@ -521,6 +563,356 @@ const ray = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const vec3 = new THREE.Vector3();
 const emissives = [];
+
+// 🎨 全局装饰物管理器 - 使用InstancedMesh优化性能
+const DecorManager = {
+    // 共享几何体
+    geos: {},
+    // 共享材质
+    mats: {},
+    // InstancedMesh实例
+    instances: {},
+    // 计数器
+    counts: {},
+    // 复用对象（避免每次调用创建新对象）
+    _dummy: null,
+    _tempColor: null,
+    // 最大数量配置（仅保留实际使用的）
+    maxCounts: {
+        groundGift: 30,      // 地面礼盒
+        snowman: 30,         // 雪人
+        lamp: 30,            // 路灯
+    },
+
+    init(sc) {
+        this.scene = sc;
+        // 初始化复用对象
+        this._dummy = new THREE.Object3D();
+        this._tempColor = new THREE.Color();
+
+        // 初始化共享几何体（仅保留实际使用的）
+        this.geos.snowPatch = new THREE.SphereGeometry(0.5, 6, 4);  // 车厢积雪也用这个
+        this.geos.giftBox = new THREE.BoxGeometry(1, 1, 1);
+        this.geos.giftRibbon = new THREE.BoxGeometry(1.05, 0.15, 1.05);
+        this.geos.lampPole = new THREE.CylinderGeometry(0.2, 0.2, 7, 8);
+        this.geos.lampBulb = new THREE.SphereGeometry(0.5, 8, 8);
+
+        // 初始化共享材质（仅保留实际使用的）
+        this.mats.snow = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });   // 雪人
+        this.mats.white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });  // 丝带
+        this.mats.black = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }); // 灯杆
+
+        // 初始化InstancedMesh (地面装饰 - 静态)
+        this.initGroundDecorations();
+    },
+
+    initGroundDecorations() {
+        // 地面礼盒 - 使用顶点颜色支持
+        const giftMat = new THREE.MeshStandardMaterial({
+            vertexColors: false,
+            roughness: 0.3
+        });
+        this.instances.groundGiftBox = new THREE.InstancedMesh(
+            this.geos.giftBox, giftMat, this.maxCounts.groundGift
+        );
+        this.instances.groundGiftBox.count = 0;
+        this.instances.groundGiftBox.castShadow = true;
+        this.scene.add(this.instances.groundGiftBox);
+
+        this.instances.groundGiftRibbon = new THREE.InstancedMesh(
+            this.geos.giftRibbon, this.mats.white, this.maxCounts.groundGift
+        );
+        this.instances.groundGiftRibbon.count = 0;
+        this.scene.add(this.instances.groundGiftRibbon);
+
+        // 雪人身体
+        this.instances.snowmanLower = new THREE.InstancedMesh(
+            new THREE.SphereGeometry(1.2, 10, 10), this.mats.snow, this.maxCounts.snowman
+        );
+        this.instances.snowmanLower.count = 0;
+        this.scene.add(this.instances.snowmanLower);
+
+        this.instances.snowmanUpper = new THREE.InstancedMesh(
+            new THREE.SphereGeometry(0.8, 10, 10), this.mats.snow, this.maxCounts.snowman
+        );
+        this.instances.snowmanUpper.count = 0;
+        this.scene.add(this.instances.snowmanUpper);
+
+        // 路灯杆
+        this.instances.lampPole = new THREE.InstancedMesh(
+            this.geos.lampPole, this.mats.black, this.maxCounts.lamp
+        );
+        this.instances.lampPole.count = 0;
+        this.scene.add(this.instances.lampPole);
+
+        // 初始化计数
+        this.counts.groundGift = 0;
+        this.counts.snowman = 0;
+        this.counts.lamp = 0;
+    },
+
+    // 添加地面礼盒
+    addGroundGift(x, z) {
+        if (this.counts.groundGift >= this.maxCounts.groundGift) return;
+
+        const d = this._dummy;  // 复用 dummy 对象
+        const scale = 1.2 + Math.random() * 0.6;
+        const rotY = Math.random() * Math.PI;
+
+        // 盒子
+        d.position.set(x, 0.75 * scale, z);
+        d.scale.setScalar(scale);
+        d.rotation.set(0, rotY, 0);
+        d.updateMatrix();
+        this.instances.groundGiftBox.setMatrixAt(this.counts.groundGift, d.matrix);
+
+        // 设置随机颜色 - 复用 tempColor
+        this._tempColor.setHSL(Math.random(), 0.8, 0.5);
+        this.instances.groundGiftBox.setColorAt(this.counts.groundGift, this._tempColor);
+
+        // 丝带
+        d.updateMatrix();
+        this.instances.groundGiftRibbon.setMatrixAt(this.counts.groundGift, d.matrix);
+
+        this.counts.groundGift++;
+        this.instances.groundGiftBox.count = this.counts.groundGift;
+        this.instances.groundGiftRibbon.count = this.counts.groundGift;
+        this.instances.groundGiftBox.instanceMatrix.needsUpdate = true;
+        this.instances.groundGiftRibbon.instanceMatrix.needsUpdate = true;
+        if (this.instances.groundGiftBox.instanceColor) {
+            this.instances.groundGiftBox.instanceColor.needsUpdate = true;
+        }
+    },
+
+    // 添加雪人
+    addSnowman(x, z) {
+        if (this.counts.snowman >= this.maxCounts.snowman) return;
+
+        const d = this._dummy;  // 复用 dummy 对象
+
+        // 下半身
+        d.position.set(x, 1, z);
+        d.scale.setScalar(1);
+        d.rotation.set(0, 0, 0);
+        d.updateMatrix();
+        this.instances.snowmanLower.setMatrixAt(this.counts.snowman, d.matrix);
+
+        // 上半身
+        d.position.set(x, 2.5, z);
+        d.updateMatrix();
+        this.instances.snowmanUpper.setMatrixAt(this.counts.snowman, d.matrix);
+
+        this.counts.snowman++;
+        this.instances.snowmanLower.count = this.counts.snowman;
+        this.instances.snowmanUpper.count = this.counts.snowman;
+        this.instances.snowmanLower.instanceMatrix.needsUpdate = true;
+        this.instances.snowmanUpper.instanceMatrix.needsUpdate = true;
+    },
+
+    // 添加路灯
+    addLamp(x, z) {
+        if (this.counts.lamp >= this.maxCounts.lamp) return;
+
+        const d = this._dummy;  // 复用 dummy 对象
+        d.position.set(x, 3.5, z);
+        d.scale.setScalar(1);
+        d.rotation.set(0, 0, 0);
+        d.updateMatrix();
+        this.instances.lampPole.setMatrixAt(this.counts.lamp, d.matrix);
+
+        // 灯泡需要单独处理（因为需要发光效果）- 灯泡材质共享
+        if (!this._bulbMat) {
+            this._bulbMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, fog: false });
+            this._bulbBaseCol = new THREE.Color(0xffaa00);
+        }
+        const bulb = new THREE.Mesh(this.geos.lampBulb, this._bulbMat);
+        bulb.position.set(x, 7, z);
+        bulb.userData = { type: 'bulb', phase: Math.random() * Math.PI, baseCol: this._bulbBaseCol };
+        emissives.push(bulb);
+        this.scene.add(bulb);
+
+        this.counts.lamp++;
+        this.instances.lampPole.count = this.counts.lamp;
+        this.instances.lampPole.instanceMatrix.needsUpdate = true;
+    },
+
+    // 完成初始化后调用
+    finalize() {
+        // 更新所有实例的边界
+        Object.values(this.instances).forEach(inst => {
+            if (inst.count > 0) {
+                inst.computeBoundingSphere();
+            }
+        });
+    }
+};
+
+// 车厢积雪共享资源（复用 DecorManager 的几何体和材质）
+const CarSnowResources = {
+    get geo() { return DecorManager.geos.snowPatch; },
+    get mat() { return DecorManager.mats.snow; }
+};
+
+// 🎄 英雄树共享资源 - 优化内存使用
+const HeroTreeResources = {
+    // 材质（跨所有树共享）
+    mats: null,
+    // 几何体（跨所有树共享）
+    geos: null,
+
+    init() {
+        // 共享材质
+        this.mats = {
+            trunk: new THREE.MeshStandardMaterial({ color: 0x4a2e16, roughness: 1.0 }),
+            foliage: new THREE.MeshStandardMaterial({ color: 0x0f5515, roughness: 0.8, flatShading: true }),
+            red: new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.3 }),
+            gold: new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 }),
+            white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 }),
+            black: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
+        };
+
+        // 共享几何体
+        this.geos = {
+            // 树干
+            trunk: new THREE.CylinderGeometry(3, 5, 15, 8),
+            // 装饰球
+            ball: new THREE.SphereGeometry(0.8, 12, 12),
+            // 拐杖糖部件
+            caneStick: new THREE.CylinderGeometry(0.12, 0.12, 1.2, 8),
+            caneHook: new THREE.TorusGeometry(0.35, 0.12, 8, 16, Math.PI),
+            caneStripe: new THREE.TorusGeometry(0.13, 0.02, 4, 8),
+            // 礼盒部件
+            giftBox: new THREE.BoxGeometry(1.0, 1.0, 1.0),
+            giftRibbon1: new THREE.BoxGeometry(1.05, 1.0, 0.25),
+            giftRibbon2: new THREE.BoxGeometry(0.25, 1.0, 1.05),
+            bowLoop: new THREE.TorusGeometry(0.2, 0.08, 6, 12),
+            bowKnot: new THREE.BoxGeometry(0.15, 0.15, 0.15),
+            // LED灯珠
+            bulb: new THREE.SphereGeometry(0.45, 8, 8),
+        };
+    }
+};
+
+// 🎁 共享礼盒工厂 - 消除 Train 和 SantaSleigh 的重复代码
+const GiftFactory = {
+    // 共享材质（延迟初始化）
+    _mats: null,
+
+    getMats() {
+        if (!this._mats) {
+            this._mats = {
+                red: new THREE.MeshStandardMaterial({ color: 0xcc0000, roughness: 0.5 }),
+                gold: new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.5 }),
+                white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 })
+            };
+        }
+        return this._mats;
+    },
+
+    /**
+     * 创建礼盒模板
+     * @param {Object} options - 配置选项
+     * @param {number} options.size - 盒子尺寸 (默认 2)
+     * @param {boolean} options.hasKnot - 是否有蝴蝶结中心结 (默认 false)
+     * @param {string} options.bowMat - 蝴蝶结材质 'gold' | 'white' (默认 'gold')
+     */
+    createTemplate(options = {}) {
+        const { size = 2, hasKnot = false, bowMat = 'gold' } = options;
+        const mats = this.getMats();
+        const group = new THREE.Group();
+
+        // 盒子主体
+        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mats.red);
+        group.add(box);
+
+        // 十字丝带
+        const ribbonThick = size * 0.15;
+        const ribbonSize = size * 1.05;
+        const ribbon1 = new THREE.Mesh(new THREE.BoxGeometry(ribbonSize, ribbonThick, ribbonSize), mats.gold);
+        const ribbon2 = new THREE.Mesh(new THREE.BoxGeometry(ribbonThick, ribbonSize, ribbonSize), mats.gold);
+        group.add(ribbon1, ribbon2);
+
+        // 蝴蝶结
+        const bowRadius = size * 0.2;
+        const bowTube = size * 0.06;
+        const bowGeo = new THREE.TorusGeometry(bowRadius, bowTube, 6, 12);
+        const bowMaterial = bowMat === 'white' ? mats.white : mats.gold;
+
+        const bow1 = new THREE.Mesh(bowGeo, bowMaterial);
+        bow1.position.set(size * 0.15, size * 0.55, 0);
+        bow1.rotation.z = -Math.PI / 4;
+
+        const bow2 = new THREE.Mesh(bowGeo, bowMaterial);
+        bow2.position.set(-size * 0.15, size * 0.55, 0);
+        bow2.rotation.z = Math.PI / 4;
+
+        group.add(bow1, bow2);
+
+        // 可选：蝴蝶结中心结
+        if (hasKnot) {
+            const knot = new THREE.Mesh(new THREE.SphereGeometry(size * 0.1, 8, 8), mats.white);
+            knot.position.y = size * 0.5;
+            group.add(knot);
+        }
+
+        return group;
+    },
+
+    /**
+     * 克隆礼盒并独立化材质（用于设置不同颜色）
+     */
+    cloneWithUniqueMaterials(template) {
+        const gift = template.clone();
+        gift.traverse(child => {
+            if (child.isMesh) {
+                child.material = child.material.clone();
+            }
+        });
+        return gift;
+    },
+
+    // 复用向量（避免每帧创建）
+    _physicsVel: new THREE.Vector3(),
+
+    /**
+     * 统一的礼物物理更新
+     * @param {Object} giftData - 礼物数据 { mesh, vel, rotVel, landed, targetY? }
+     * @param {number} dt - 时间增量
+     * @param {Object} options - 配置选项
+     * @param {number} options.gravity - 重力加速度 (默认 25)
+     * @param {number} options.groundY - 落地高度 (默认 1)
+     * @returns {boolean} 是否刚刚落地
+     */
+    updateGiftPhysics(giftData, dt, options = {}) {
+        if (giftData.landed) return false;
+
+        const { gravity = 25, groundY = 1 } = options;
+        const targetY = giftData.targetY ?? groundY;
+
+        // 重力
+        giftData.vel.y -= gravity * dt;
+
+        // 位置更新
+        this._physicsVel.copy(giftData.vel).multiplyScalar(dt);
+        giftData.mesh.position.add(this._physicsVel);
+
+        // 旋转
+        giftData.mesh.rotation.x += giftData.rotVel.x;
+        giftData.mesh.rotation.y += giftData.rotVel.y;
+        giftData.mesh.rotation.z += giftData.rotVel.z;
+
+        // 落地检查
+        if (giftData.mesh.position.y <= targetY) {
+            giftData.mesh.position.y = targetY;
+            giftData.landed = true;
+            giftData.rotVel.set(0, 0, 0);
+            giftData.mesh.rotation.set(0, Math.random() * Math.PI * 2, 0);
+            return true; // 刚刚落地
+        }
+
+        return false;
+    }
+};
 
 function init() {
     scene = new THREE.Scene();
@@ -543,9 +935,16 @@ function init() {
     renderer.toneMappingExposure = 1.3;
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
+    // 初始化装饰物管理器
+    DecorManager.init(scene);
+    HeroTreeResources.init();
+
     buildLights();
     buildTrack();
     buildEnv();
+
+    // 完成装饰物初始化
+    DecorManager.finalize();
 
     const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, stencilBuffer: false });
 
@@ -562,6 +961,7 @@ function init() {
     train = new Train(scene, trackCurve);
     fwMgr = new Fireworks(scene);
     snowMgr = new Snow(scene);
+    santaSleigh = new SantaSleigh(scene);
 
     setupControls();
     setupUI();
@@ -571,7 +971,6 @@ function init() {
 }
 
 // 在 animate 函数外，确保定义了这些辅助变量，用于复用
-const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
@@ -664,6 +1063,7 @@ function animate() {
     if(train) train.update(deltaTime, STATE.curSpeed);
     if(fwMgr) fwMgr.update();
     if(snowMgr) snowMgr.update(deltaTime);
+    if(santaSleigh) santaSleigh.update(deltaTime);
 
     // 灯光动画
     emissives.forEach(obj => {
@@ -719,14 +1119,18 @@ function animate() {
                 // 正常跟拍：无人机平滑跟随火车
                 getDronePosition(droneState.current, trainProg, _dronePos, _droneTarget);
 
-                // 平滑跟随
-                camera.position.lerp(_dronePos, CFG.camSmooth * 1.5);
-                controls.target.lerp(_droneTarget, CFG.camSmooth * 2);
+                // 速度自适应跟随：高速时跟得更紧
+                const speedFactor = 1 + STATE.curSpeed * 3;  // 速度越快，跟随越紧
+                const posSmooth = Math.min(DRONE.smoothSpeed * speedFactor, 0.25);
+                const targetSmooth = Math.min(DRONE.smoothSpeed * speedFactor * 1.5, 0.35);
+
+                camera.position.lerp(_dronePos, posSmooth);
+                controls.target.lerp(_droneTarget, targetSmooth);
             }
         } else if (STATE.viewMode === 'FOLLOW') {
             // 用户正在交互，只更新目标点
             getDronePosition(droneState.current, trainProg, _dronePos, _droneTarget);
-            controls.target.lerp(_droneTarget, CFG.camSmooth);
+            controls.target.lerp(_droneTarget, DRONE.smoothSpeed * 1.2);
         }
     }
 
@@ -923,145 +1327,108 @@ function buildEnv() {
     
     scene.add(meshBot); scene.add(meshMid); scene.add(meshTop);
 
-    //装饰品
+    // 🎨 装饰品 - 使用DecorManager优化
     for(let i=0; i<30; i++){
         const x=(Math.random()-0.5)*350, z=(Math.random()-0.5)*350;
-        let safe=true; 
+        let safe=true;
         for(let k=0;k<trackPoints.length;k+=10) {
             const dx=trackPoints[k].x-x, dz=trackPoints[k].z-z;
             if((dx*dx+dz*dz)<400) { safe=false; break; }
         }
         if(safe) {
             const r=Math.random();
-            if(r<0.3) createGift(x,z);
-            else if(r<0.6) createSnowman(x,z);
-            else createLamp(x,z);
+            if(r<0.3) DecorManager.addGroundGift(x,z);
+            else if(r<0.6) DecorManager.addSnowman(x,z);
+            else DecorManager.addLamp(x,z);
         }
     }
 }
 
 function createHeroTree(x, z, scale) {
-    const g = new THREE.Group(); 
-    g.position.set(x, 0, z); 
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
     g.scale.set(scale, scale, scale);
 
-    // 1. 树干
-    const matTrunk = new THREE.MeshStandardMaterial({ color: 0x4a2e16, roughness: 1.0 });
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(3, 5, 15, 8), matTrunk);
-    trunk.position.y = 6; 
+    // 使用共享资源引用（简化代码）
+    const { mats, geos } = HeroTreeResources;
+
+    // 1. 树干 - 使用共享几何体和材质
+    const trunk = new THREE.Mesh(geos.trunk, mats.trunk);
+    trunk.position.y = 6;
     g.add(trunk);
 
-    // 2. 树叶
-    const matFoliage = new THREE.MeshStandardMaterial({ color: 0x0f5515, roughness: 0.8, flatShading: true });
-
-    // 装饰材质
-    const matRed = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.3 });
-    const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
-    const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
     const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
 
-    // 🍬 修复版：拐杖糖
+    // 🍬 拐杖糖 - 使用共享几何体
     const createCandyCane = () => {
         const cane = new THREE.Group();
-        
-        // 材质复用上下文中的 matWhite 和 matRed
-        
-        // 1. 拐杖主体 (统一用白色)
-        // 棍身
-        const stickH = 1.2;
-        const radius = 0.12;
-        const stick = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, stickH, 8), matWhite);
-        stick.position.y = stickH / 2;
-        
-        // 弯钩 (半圆环)
-        const hookRadius = 0.35;
-        const hook = new THREE.Mesh(
-            new THREE.TorusGeometry(hookRadius, radius, 8, 16, Math.PI), 
-            matWhite
-        );
-        // 调整弯钩位置，使其完美连接棍身顶部
-        hook.position.set(hookRadius, stickH, 0); 
-        hook.rotation.set(0, 0, 0); // 默认Torus是在XY平面，Math.PI画出上半圆
-        // 我们需要把半圆转一下，让它像个钩子
-        // 默认是从3点钟画到9点钟，我们需要调整它的朝向
-        
-        // 2. 模拟红色条纹 (用倾斜的圆环模拟螺旋)
-        const stripeGeo = new THREE.TorusGeometry(radius + 0.01, 0.02, 4, 8); // 稍微粗一点点覆盖表面
-        
-        // 棍身上的条纹
+
+        // 棍身 - 使用共享几何体
+        const stick = new THREE.Mesh(geos.caneStick, mats.white);
+        stick.position.y = 0.6; // stickH / 2 = 1.2 / 2
+
+        // 弯钩 - 使用共享几何体
+        const hook = new THREE.Mesh(geos.caneHook, mats.white);
+        hook.position.set(0.35, 1.2, 0); // hookRadius, stickH
+
+        // 棍身上的条纹 - 使用共享几何体
         for(let i=0; i<5; i++) {
-            const stripe = new THREE.Mesh(stripeGeo, matRed);
+            const stripe = new THREE.Mesh(geos.caneStripe, mats.red);
             stripe.position.y = 0.2 + i * 0.22;
-            stripe.rotation.x = Math.PI / 2; // 先放平
-            stripe.rotation.y = 0.3; // 再倾斜一点，模拟螺旋感
+            stripe.rotation.x = Math.PI / 2;
+            stripe.rotation.y = 0.3;
             cane.add(stripe);
         }
-        
-        // 弯钩上的条纹 (手动放置几个)
+
+        // 弯钩上的条纹
         const hookStripes = new THREE.Group();
-        hookStripes.position.copy(hook.position); // 跟随弯钩坐标系
-        
+        hookStripes.position.copy(hook.position);
+
         for(let i=1; i<4; i++) {
-            const angle = (i / 4) * Math.PI; // 在半圆上的角度
-            const stripe = new THREE.Mesh(stripeGeo, matRed);
-            // 计算圆环在弯钩路径上的位置
-            stripe.position.set(
-                Math.cos(angle) * hookRadius,
-                Math.sin(angle) * hookRadius, 
-                0
-            );
-            // 让圆环垂直于路径切线
+            const angle = (i / 4) * Math.PI;
+            const stripe = new THREE.Mesh(geos.caneStripe, mats.red);
+            stripe.position.set(Math.cos(angle) * 0.35, Math.sin(angle) * 0.35, 0);
             stripe.rotation.z = angle + Math.PI/2;
             hookStripes.add(stripe);
         }
 
         cane.add(stick, hook, hookStripes);
-        
-        // 整体调整姿态
         cane.scale.set(1.2, 1.2, 1.2);
-        // 让拐杖挂在树上时稍微自然一点
-        cane.rotation.z = Math.PI / 6; 
-        
+        cane.rotation.z = Math.PI / 6;
+
         return cane;
     };
-    // 🎁 修复版：带蝴蝶结的树上小礼物
+
+    // 🎁 小礼物 - 使用共享几何体
     const createMiniGift = () => {
         const boxG = new THREE.Group();
-        // 随机颜色：红或金
-        const isRed = Math.random() > 0.5;
-        const mainMat = isRed ? matRed : matGold;
-        const ribbonMat = matWhite;
+        const mainMat = Math.random() > 0.5 ? mats.red : mats.gold;
 
-        // 1. 盒子主体
-        const box = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.0), mainMat);
-        
-        // 2. 十字丝带 (稍微加厚一点防止闪烁)
-        const r1 = new THREE.Mesh(new THREE.BoxGeometry(1.05, 1.0, 0.25), ribbonMat);
-        const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.0, 1.05), ribbonMat);
-        
-        // 3. 顶部蝴蝶结 (由两个旋转的环 + 中间一个结组成)
+        // 盒子主体 - 使用共享几何体
+        const box = new THREE.Mesh(geos.giftBox, mainMat);
+
+        // 十字丝带 - 使用共享几何体
+        const r1 = new THREE.Mesh(geos.giftRibbon1, mats.white);
+        const r2 = new THREE.Mesh(geos.giftRibbon2, mats.white);
+
+        // 蝴蝶结
         const bowG = new THREE.Group();
-        bowG.position.y = 0.5; // 放在盒子顶上
+        bowG.position.y = 0.5;
 
-        // 蝴蝶结的耳朵 (Torus压扁)
-        const bowGeo = new THREE.TorusGeometry(0.2, 0.08, 6, 12); 
-        const b1 = new THREE.Mesh(bowGeo, ribbonMat);
+        const b1 = new THREE.Mesh(geos.bowLoop, mats.white);
         b1.position.set(0.15, 0.15, 0);
-        b1.rotation.set(0, 0, -Math.PI / 4); // 倾斜
-        
-        const b2 = new THREE.Mesh(bowGeo, ribbonMat);
-        b2.position.set(-0.15, 0.15, 0);
-        b2.rotation.set(0, 0, Math.PI / 4); // 另一边倾斜
+        b1.rotation.set(0, 0, -Math.PI / 4);
 
-        // 中间的结
-        const knot = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), ribbonMat);
-        
+        const b2 = new THREE.Mesh(geos.bowLoop, mats.white);
+        b2.position.set(-0.15, 0.15, 0);
+        b2.rotation.set(0, 0, Math.PI / 4);
+
+        const knot = new THREE.Mesh(geos.bowKnot, mats.white);
+
         bowG.add(b1, b2, knot);
         boxG.add(box, r1, r2, bowG);
-        
-        // 整体随机旋转一点，看起来更自然
         boxG.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
-        
+
         return boxG;
     };
 
@@ -1074,21 +1441,21 @@ function createHeroTree(x, z, scale) {
 
     tiers.forEach((tier, index) => {
         const geo = new THREE.ConeGeometry(tier.r, tier.h, 8);
-        const mesh = new THREE.Mesh(geo, matFoliage);
+        const mesh = new THREE.Mesh(geo, mats.foliage);
         mesh.position.y = tier.y;
-        mesh.rotation.y = (index % 2) * (Math.PI / 8); 
+        mesh.rotation.y = (index % 2) * (Math.PI / 8);
         mesh.castShadow = true; mesh.receiveShadow = true;
         g.add(mesh);
         treeTopY = tier.y + tier.h / 2;
 
-        // --- 装饰品：内收在表面 ---
-        const decorCount = Math.floor(tier.r * 0.8) + 2; 
+        // --- 装饰品：使用共享几何体 ---
+        const decorCount = Math.floor(tier.r * 0.8) + 2;
         for (let k = 0; k < decorCount; k++) {
             const angle = Math.random() * Math.PI * 2;
-            const v = 0.1 + Math.random() * 0.5; 
+            const v = 0.1 + Math.random() * 0.5;
             const surfR = tier.r * (1 - v);
-            const embed = 0.85 + Math.random() * 0.15; // 稍微内嵌
-            
+            const embed = 0.85 + Math.random() * 0.15;
+
             const lx = Math.cos(angle) * surfR * embed;
             const lz = Math.sin(angle) * surfR * embed;
             const ly = -tier.h / 2 + v * tier.h;
@@ -1096,16 +1463,17 @@ function createHeroTree(x, z, scale) {
             const type = Math.random();
             let decor;
             if (type < 0.4) {
-                decor = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 12), Math.random()>.5?matRed:matGold);
+                // 装饰球 - 使用共享几何体
+                decor = new THREE.Mesh(geos.ball, Math.random()>.5 ? mats.red : mats.gold);
                 decor.position.set(lx, ly, lz);
             } else if (type < 0.7) {
                 decor = createMiniGift();
-                decor.position.set(lx, ly + 0.5, lz); 
+                decor.position.set(lx, ly + 0.5, lz);
                 decor.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
             } else {
                 decor = createCandyCane();
                 decor.position.set(lx, ly, lz);
-                decor.lookAt(0, ly, 0); 
+                decor.lookAt(0, ly, 0);
                 decor.rotateX(Math.PI/4);
             }
             mesh.add(decor);
@@ -1151,16 +1519,16 @@ function createHeroTree(x, z, scale) {
 
     const curve = new THREE.CatmullRomCurve3(wirePoints);
     const tubeGeo = new THREE.TubeGeometry(curve, 300, 0.08, 6, false);
-    const wireMesh = new THREE.Mesh(tubeGeo, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }));
+    const wireMesh = new THREE.Mesh(tubeGeo, mats.black); // 使用共享材质
     g.add(wireMesh);
 
     // --- 🌟 LED 灯珠 (稀疏分布 + 局部点光源) ---
     const totalLength = curve.getLength();
-    const bulbCountRaw = Math.floor(totalLength * 1.8); 
-    
-    const bulbGeo = new THREE.SphereGeometry(0.45, 8, 8);
+    const bulbCountRaw = Math.floor(totalLength * 1.8);
+
+    // LED材质需要独立创建（MeshBasicMaterial 用于发光效果）
     const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
-    const ledMesh = new THREE.InstancedMesh(bulbGeo, bulbMat, bulbCountRaw);
+    const ledMesh = new THREE.InstancedMesh(geos.bulb, bulbMat, bulbCountRaw); // 使用共享几何体
     
     const dummy = new THREE.Object3D();
     const ledData = [];
@@ -1242,66 +1610,6 @@ function createHeroTree(x, z, scale) {
     scene.add(g);
 }
 
-// 🎁 修复版：地面的大礼物 (带蝴蝶结)
-function createGift(x, z) {
-    const g = new THREE.Group();
-    g.position.set(x, 0.75, z); // 提升高度，因为Box中心在原点
-
-    // 随机颜色材质
-    const color = new THREE.Color().setHSL(Math.random(), 0.8, 0.5);
-    const matBox = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
-    const matRibbon = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
-
-    // 1. 盒子
-    const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), matBox);
-    box.castShadow = true;
-
-    // 2. 丝带
-    const r1 = new THREE.Mesh(new THREE.BoxGeometry(1.55, 1.5, 0.35), matRibbon);
-    const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.35, 1.5, 1.55), matRibbon);
-
-    // 3. 蝴蝶结
-    const bowG = new THREE.Group();
-    bowG.position.y = 0.75;
-    
-    // 左右两个环
-    const bowGeo = new THREE.TorusGeometry(0.35, 0.12, 8, 16);
-    const b1 = new THREE.Mesh(bowGeo, matRibbon);
-    b1.position.set(0.25, 0.25, 0);
-    b1.rotation.set(0, 0, -Math.PI / 3);
-    
-    const b2 = new THREE.Mesh(bowGeo, matRibbon);
-    b2.position.set(-0.25, 0.25, 0);
-    b2.rotation.set(0, 0, Math.PI / 3);
-
-    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.25), matRibbon);
-    
-    bowG.add(b1, b2, knot);
-    g.add(box, r1, r2, bowG);
-
-    // 随机朝向
-    g.rotation.y = Math.random() * Math.PI;
-    scene.add(g);
-}
-
-function createSnowman(x,z) {
-    const g=new THREE.Group(); g.position.set(x,0,z);
-    const m=new THREE.MeshStandardMaterial({color:0xffffff});
-    const b1=new THREE.Mesh(new THREE.SphereGeometry(1.2), m); b1.position.y=1;
-    const b2=new THREE.Mesh(new THREE.SphereGeometry(0.8), m); b2.position.y=2.5;
-    g.add(b1,b2); scene.add(g);
-}
-function createLamp(x,z) {
-    const g=new THREE.Group(); g.position.set(x,0,z);
-    const p=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,7), new THREE.MeshStandardMaterial({color:0x111})); p.position.y=3.5;
-    
-    const col = 0xffaa00;
-    const b=new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color:col, fog:false}));
-    b.position.y=7;
-    b.userData={type:'bulb', phase: Math.random()*Math.PI, baseCol: new THREE.Color(col)};
-    emissives.push(b); g.add(p,b); scene.add(g);
-}
-
 class Train {
     constructor(sc, curve) {
         this.grp=new THREE.Group(); sc.add(this.grp);
@@ -1319,7 +1627,8 @@ class Train {
 
         // 预先创建辅助对象，避免反复创建
         this.dummy = new THREE.Object3D();
-        this._trainDir = new THREE.Vector3(); // 复用的方向向量 
+        this._trainDir = new THREE.Vector3(); // 复用的方向向量
+        this._tempVel = new THREE.Vector3();  // 复用的速度向量（用于物理更新） 
 
         for(let i=0; i<this.smokeMax; i++) {
             // 初始移到无限远
@@ -1388,33 +1697,73 @@ class Train {
         // 3. 车顶 (改为稍微扁平一点的圆弧，更像火车站)
         // 使用 scale 压扁圆柱
         const roof = new THREE.Mesh(
-            new THREE.CylinderGeometry(2.05, 2.05, 13, 13, 1, false, 0, Math.PI), 
+            new THREE.CylinderGeometry(2.05, 2.05, 13, 13, 1, false, 0, Math.PI),
             new THREE.MeshStandardMaterial({color:0x222, roughness:0.9}) // 黑色磨砂顶
         );
-        roof.rotation.set(0, Math.PI/2, Math.PI/2); 
+        roof.rotation.set(0, Math.PI/2, Math.PI/2);
         roof.scale.set(1, 0.65, 1);
         roof.position.set(0, 5.1, 0);
 
-        // 4. 车窗 (Basic材质防遮罩)
+        // 3.5 车顶积雪 - 使用共享资源优化
+        const snowGroup = new THREE.Group();
+        snowGroup.position.set(0, 5.4, 0);
+
+        // 主要积雪层 - 使用共享几何体和材质
+        for (let j = 0; j < 6; j++) { // 减少到6个
+            const snowPatch = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
+            snowPatch.scale.set(
+                1.8 + Math.random() * 1.0,
+                0.18 + Math.random() * 0.1,
+                1.4 + Math.random() * 0.8
+            );
+            snowPatch.position.set(
+                (Math.random() - 0.5) * 2.2,
+                Math.random() * 0.08,
+                (Math.random() - 0.5) * 5.5
+            );
+            snowPatch.rotation.y = Math.random() * Math.PI;
+            snowGroup.add(snowPatch);
+        }
+
+        // 边缘积雪 - 使用共享资源
+        for (let side = -1; side <= 1; side += 2) {
+            for (let j = 0; j < 3; j++) { // 减少到3个
+                const edgeSnow = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
+                edgeSnow.scale.set(1.0, 0.18, 0.7);
+                edgeSnow.position.set(
+                    side * (1.15 + Math.random() * 0.25),
+                    -0.15,
+                    -2 + j * 2.2 + Math.random() * 0.4
+                );
+                snowGroup.add(edgeSnow);
+            }
+        }
+        g.add(snowGroup);
+
+        // 4. 车窗 (Basic材质防遮罩) - 保存引用用于闪烁效果
         const winGeo = new THREE.PlaneGeometry(1.3, 1.6);
         const winMat = new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false });
-        
+        const windows = [];
+
         for (let side = -1; side <= 1; side += 2) {
             for (let k = 0; k < 3; k++) {
-                const w = new THREE.Mesh(winGeo, winMat);
+                const w = new THREE.Mesh(winGeo, winMat.clone()); // 克隆材质以便单独控制
                 const border = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.7), matGold);
-                
+
                 w.position.set(1.76 * side, 3.8, -2.5 + k * 2.5);
                 w.rotation.y = side * Math.PI / 2;
-                
+                w.userData.isWindow = true; // 标记为窗户
+                windows.push(w);
+
                 border.position.copy(w.position);
                 border.position.x -= 0.01 * side; // 往里一点
                 border.rotation.copy(w.rotation);
-                
+
                 g.add(border);
                 g.add(w);
             }
         }
+        g.userData.windows = windows; // 保存窗户引用
 
         // 5. 连接处 & 轮子 (保持不变)
         const gw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x111 }));
@@ -1454,16 +1803,25 @@ class Train {
         // 🚂 烟雾生成逻辑优化
         // 1. 速度越快，喷烟频率越高
         // 2. 即使静止，也会偶尔冒一点点烟
-        const smokeProb = speed > 0.01 ? (0.2 + speed * 2.5) : 0.02;
-        
+
+        // 确保烟囱的世界矩阵是最新的
+        this.loco.updateMatrixWorld(true);
+        this.chim.updateMatrixWorld(true);
+
+        // 速度相关的烟雾频率
+        const baseProb = 0.15;  // 基础概率
+        const speedBonus = Math.min(speed * 4, 0.6); // 速度加成，最高0.6
+        const smokeProb = speed > 0.005 ? (baseProb + speedBonus) : 0.03;
+
         if(Math.random() < smokeProb) {
-            vec3.setFromMatrixPosition(this.chim.matrixWorld); 
-            // 修正烟雾出生点高度，稍微低一点，从烟囱口内部出来
-            vec3.y += 0.4; 
+            vec3.setFromMatrixPosition(this.chim.matrixWorld);
+            // 从烟囱顶部喷出
+            vec3.y += 1.2;
             this.spawnSmoke(vec3, speed);
         }
-        
-        this.updateSmoke();
+
+        this.updateSmoke(speed);
+        this.updateDroppedGifts(dt);
     }
 
     spawnSmoke(pos, trainSpeed) {
@@ -1471,23 +1829,28 @@ class Train {
         const s = this.smokeData[idx];
 
         s.active = true;
-        s.life = 1.0;
-        s.scale = 0.4 + Math.random() * 0.4;
+        s.life = 1.2 + Math.random() * 0.4; // 稍微增加生命值
+        s.scale = 0.5 + Math.random() * 0.5; // 稍大一点
         s.pos = pos.clone();
+        s.trainSpeed = trainSpeed; // 记录当前速度用于后续更新
 
-        // 复用 _trainDir 计算火车前进方向
+        // 复用 _trainDir 计算火车前进方向（烟向后飘）
         this._trainDir.set(0, 0, 1).applyQuaternion(this.loco.quaternion).normalize();
-        const fwdSpeed = trainSpeed * 0.8;
+
+        // 烟雾向后飘的速度与车速成正比
+        // 负号因为烟要向后飘（与前进方向相反）
+        const backSpeed = trainSpeed * 15 * STATE.trainDir; // 增强向后飘的效果
+
         s.vel.set(
-            this._trainDir.x * fwdSpeed + (Math.random() - 0.5) * 0.2,
-            1.2 + Math.random() * 0.5,
-            this._trainDir.z * fwdSpeed + (Math.random() - 0.5) * 0.2
+            -this._trainDir.x * backSpeed + (Math.random() - 0.5) * 0.3,
+            1.5 + Math.random() * 0.8 + trainSpeed * 2, // 车速快时上升更快
+            -this._trainDir.z * backSpeed + (Math.random() - 0.5) * 0.3
         );
 
         this.smokeIdx = (this.smokeIdx + 1) % this.smokeMax;
     }
 
-    updateSmoke() {
+    updateSmoke(currentSpeed) {
         let dirty = false;
 
         for(let i=0; i<this.smokeMax; i++) {
@@ -1495,8 +1858,12 @@ class Train {
             if(!s.active) continue;
 
             s.pos.add(s.vel);
-            s.vel.x *= 0.85; s.vel.z *= 0.85; s.vel.y *= 0.96; s.vel.y += 0.005;
-            s.life -= 0.015;
+            // 阻力 - 车速快时阻力小（烟飘得更远）
+            const drag = 0.92 - currentSpeed * 0.3;
+            s.vel.x *= drag; s.vel.z *= drag;
+            s.vel.y *= 0.97;
+            s.vel.y += 0.008; // 轻微上浮
+            s.life -= 0.018;
 
             if(s.life <= 0) {
                 s.active = false;
@@ -1529,17 +1896,114 @@ class Train {
         if(dirty) this.smokeMesh.instanceMatrix.needsUpdate = true;
     }
     place(o, t) {
-        const p=this.curve.getPointAt(t), tan=this.curve.getTangentAt(t);
-        o.position.copy(p); o.lookAt(p.clone().add(tan));
+        const p = this.curve.getPointAt(t);
+        const tan = this.curve.getTangentAt(t);
+        o.position.copy(p);
+        // 🚂 根据行驶方向调整朝向：逆时针时翻转切线方向
+        const dir = STATE.trainDir > 0 ? 1 : -1;
+        o.lookAt(p.x + tan.x * dir, p.y + tan.y * dir, p.z + tan.z * dir);
+    }
+
+    // 🎁 从车厢扔出礼盒
+    throwGift(car) {
+        if (!this.droppedGifts) {
+            this.droppedGifts = [];
+            this.giftCooldown = 0;
+            this.buildGiftTemplate();
+        }
+
+        // 冷却检查 (0.8秒)
+        if (Date.now() - this.giftCooldown < 800) return false;
+        this.giftCooldown = Date.now();
+
+        // 创建礼盒
+        const gift = this.giftTemplate.clone();
+        gift.traverse(c => { if (c.isMesh) c.material = c.material.clone(); });
+
+        // 随机颜色
+        const colors = [0xcc0000, 0x00aa00, 0x0066cc, 0xffaa00];
+        const col = colors[Math.floor(Math.random() * colors.length)];
+        gift.children[0].material.color.setHex(col);
+
+        // 从车厢世界位置扔出
+        const worldPos = new THREE.Vector3();
+        car.getWorldPosition(worldPos);
+        gift.position.copy(worldPos);
+        gift.position.y += 4; // 从车顶扔出
+        gift.scale.set(0.5, 0.5, 0.5);
+
+        scene.add(gift);
+
+        // 向侧面抛出
+        const side = Math.random() > 0.5 ? 1 : -1;
+        const throwDir = new THREE.Vector3(side * 0.3, 0.5, (Math.random() - 0.5) * 0.2);
+        throwDir.applyQuaternion(car.quaternion);
+
+        this.droppedGifts.push({
+            mesh: gift,
+            vel: throwDir.multiplyScalar(8),
+            rotVel: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.15,
+                (Math.random() - 0.5) * 0.15,
+                (Math.random() - 0.5) * 0.15
+            ),
+            landed: false
+        });
+
+        return true;
+    }
+
+    buildGiftTemplate() {
+        // 使用共享工厂创建小号礼盒模板
+        this.giftTemplate = GiftFactory.createTemplate({ size: 2, bowMat: 'gold' });
+    }
+
+    updateDroppedGifts(dt) {
+        if (!this.droppedGifts) return;
+
+        // 使用统一的物理更新
+        for (const g of this.droppedGifts) {
+            GiftFactory.updateGiftPhysics(g, dt, { gravity: 25, groundY: 1 });
+        }
+
+        // 限制地面礼盒数量 (最多20个)
+        while (this.droppedGifts.length > 20) {
+            const oldest = this.droppedGifts.shift();
+            scene.remove(oldest.mesh);
+        }
+    }
+
+    // 💡 车厢窗户闪烁效果
+    flashWindows(car) {
+        const windows = car.userData.windows;
+        if (!windows || windows.length === 0) return;
+
+        // 记录原始颜色
+        const originalColors = windows.map(w => w.material.color.getHex());
+
+        // 闪烁序列
+        let flashCount = 0;
+        const maxFlash = 4;
+        const flashInterval = setInterval(() => {
+            const bright = flashCount % 2 === 0;
+            windows.forEach(w => {
+                w.material.color.setHex(bright ? 0xffffff : 0xffccaa);
+            });
+            flashCount++;
+            if (flashCount >= maxFlash) {
+                clearInterval(flashInterval);
+                // 恢复原色
+                windows.forEach((w, i) => w.material.color.setHex(originalColors[i]));
+            }
+        }, 80);
     }
 }
 
 class Fireworks {
     constructor(sc) {
-        this.sc = sc; 
-        this.activeRockets = []; 
-        this.activeExplosions = [];
-        
+        this.sc = sc;
+        this.activeRockets = [];
+
         // 纹理生成
         const c = document.createElement('canvas'); c.width=32; c.height=32;
         const x = c.getContext('2d'); 
@@ -1550,9 +2014,20 @@ class Fireworks {
         
         this.cols = [[0xff0000,0xffaa00],[0x00ffff,0x0000ff],[0xff00ff,0xffaaaa],[0x00ff00,0xffff00]];
         this.sharedMat = new THREE.PointsMaterial({
-            size: 8.0, map: this.tex, transparent: true, depthWrite: false, 
+            size: 8.0, map: this.tex, transparent: true, depthWrite: false,
             blending: THREE.AdditiveBlending, vertexColors: true
         });
+
+        // 火箭共享材质
+        this.rocketMat = new THREE.PointsMaterial({
+            color: 0xffddaa, size: 5, map: this.tex,
+            blending: THREE.AdditiveBlending, depthWrite: false, transparent: true
+        });
+        // 火箭共享几何体（单点）
+        this.rocketGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]);
+
+        // 复用颜色对象
+        this._tempColor = new THREE.Color();
 
         // --- 对象池初始化 ---
         this.poolSize = 15; // 最大同时存在的爆炸数
@@ -1581,22 +2056,18 @@ class Fireworks {
     }
 
     launch(pos) {
-        // 火箭部分代码保持简单，此处略微简化以聚焦核心
+        // 火箭 - 使用共享几何体和材质
         if(!pos) pos = new THREE.Vector3((Math.random()-0.5)*50, -5, (Math.random()-0.5)*50);
         const ty = pos.y + 50 + Math.random()*40;
         const pal = this.cols[Math.floor(Math.random()*this.cols.length)];
-        
-        // 简单的火箭几何体 (少量创建影响不大，也可以池化，但这里先忽略)
-        const m = new THREE.Points(
-            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0)]), 
-            new THREE.PointsMaterial({color:0xffddaa, size:5, map:this.tex, blending:THREE.AdditiveBlending, depthWrite:false, transparent:true})
-        );
+
+        const m = new THREE.Points(this.rocketGeo, this.rocketMat); // 使用共享资源
         m.position.copy(pos);
         this.sc.add(m);
-        
+
         this.activeRockets.push({
-            m, pos: pos.clone(), 
-            vel: new THREE.Vector3((Math.random()-0.5)*0.5, Math.sqrt(2*0.02*(ty-pos.y)), (Math.random()-0.5)*0.5), 
+            m, pos: pos.clone(),
+            vel: new THREE.Vector3((Math.random()-0.5)*0.5, Math.sqrt(2*0.02*(ty-pos.y)), (Math.random()-0.5)*0.5),
             pal
         });
     }
@@ -1607,7 +2078,7 @@ class Fireworks {
             const r = this.activeRockets[i];
             r.pos.add(r.vel); r.vel.y -= 0.02; r.m.position.copy(r.pos);
             if(r.vel.y <= 0.5) {
-                this.sc.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose();
+                this.sc.remove(r.m);
                 this.explode(r.pos, r.pal);
                 this.activeRockets.splice(i, 1);
             }
@@ -1663,14 +2134,13 @@ class Fireworks {
 
         const posAttr = item.mesh.geometry.attributes.position.array;
         const colAttr = item.mesh.geometry.attributes.color.array;
-        const color = new THREE.Color();
 
-        // 重置粒子状态
+        // 重置粒子状态（使用复用颜色对象）
         for(let i=0; i<80; i++) {
             const idx = i*3;
             // 位置重置为爆炸中心
             posAttr[idx] = pos.x; posAttr[idx+1] = pos.y; posAttr[idx+2] = pos.z;
-            
+
             // 速度重置
             const speed = 0.5 + Math.random() * 2.8;
             const phi = Math.acos(2 * Math.random() - 1);
@@ -1679,13 +2149,522 @@ class Fireworks {
             item.velocities[idx+1] = speed * Math.sin(phi) * Math.sin(theta);
             item.velocities[idx+2] = speed * Math.cos(phi);
 
-            // 颜色重置
-            color.setHex(pal[Math.floor(Math.random() * pal.length)]);
-            color.multiplyScalar(1.5);
-            colAttr[idx] = color.r; colAttr[idx+1] = color.g; colAttr[idx+2] = color.b;
+            // 颜色重置 - 使用复用颜色对象
+            this._tempColor.setHex(pal[Math.floor(Math.random() * pal.length)]);
+            this._tempColor.multiplyScalar(1.5);
+            colAttr[idx] = this._tempColor.r;
+            colAttr[idx+1] = this._tempColor.g;
+            colAttr[idx+2] = this._tempColor.b;
         }
         item.mesh.geometry.attributes.position.needsUpdate = true;
         item.mesh.geometry.attributes.color.needsUpdate = true;
+    }
+}
+
+// 🦌 圣诞老人驯鹿雪橇 - 增强版
+class SantaSleigh {
+    constructor(sc) {
+        this.scene = sc;
+        this.group = new THREE.Group();
+        this.active = false;
+        this.nextTrigger = 12 + Math.random() * 8; // 首次12-20秒后出现
+        this.elapsed = 0;
+
+        // 飞行阶段: 'approach' → 'sync' → 'drop' → 'depart'
+        this.phase = 'idle';
+        this.phaseTime = 0;
+
+        // 飞行参数
+        this.approachDur = 4;    // 飞来时间
+        this.syncDur = 3;        // 同步飞行时间
+        this.dropDur = 0.8;      // 扔礼物时间
+        this.departDur = 4;      // 飞走时间
+        this.hoverHeight = 35;   // 火车上方高度
+
+        // 落下的礼盒
+        this.fallingGifts = [];
+        this._tempVel = new THREE.Vector3();  // 复用向量
+
+        // 复用对象（避免每帧 GC）
+        this._targetQuat = new THREE.Quaternion();
+        this._lookMatrix = new THREE.Matrix4();
+        this._upVector = new THREE.Vector3(0, 1, 0);
+        this._lookDir = new THREE.Vector3();
+
+        // 构建雪橇组
+        this.buildSleigh();
+        this.buildReindeer();
+        this.buildTrail();
+        this.buildGiftTemplate();
+
+        this.group.visible = false;
+        this.group.scale.set(0.6, 0.6, 0.6); // 稍微缩小一点
+        sc.add(this.group);
+    }
+
+    buildSleigh() {
+        const sleighG = new THREE.Group();
+
+        // 材质
+        const matRed = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.6 });
+        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.5 });
+        const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+
+        // 雪橇底座
+        const baseGeo = new THREE.BoxGeometry(8, 1.5, 3);
+        const base = new THREE.Mesh(baseGeo, matRed);
+        sleighG.add(base);
+
+        // 雪橇滑板
+        const runnerGeo = new THREE.BoxGeometry(10, 0.3, 0.4);
+        const runner1 = new THREE.Mesh(runnerGeo, matGold);
+        runner1.position.set(0, -1, 1.2);
+        const runner2 = new THREE.Mesh(runnerGeo, matGold);
+        runner2.position.set(0, -1, -1.2);
+        sleighG.add(runner1, runner2);
+
+        // 雪橇靠背
+        const backGeo = new THREE.BoxGeometry(0.5, 4, 2.5);
+        const back = new THREE.Mesh(backGeo, matRed);
+        back.position.set(-3.5, 2, 0);
+        sleighG.add(back);
+
+        // 圣诞老人（简化版：红色球+白色底部）
+        const santaBody = new THREE.Mesh(
+            new THREE.SphereGeometry(1.8, 12, 12),
+            matRed
+        );
+        santaBody.position.set(-1, 2.5, 0);
+        santaBody.scale.y = 1.3;
+        sleighG.add(santaBody);
+
+        // 圣诞老人头
+        const santaHead = new THREE.Mesh(
+            new THREE.SphereGeometry(0.9, 10, 10),
+            new THREE.MeshStandardMaterial({ color: 0xffccaa })
+        );
+        santaHead.position.set(-1, 4.5, 0);
+        sleighG.add(santaHead);
+
+        // 圣诞帽
+        const hatCone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.7, 1.8, 10),
+            matRed
+        );
+        hatCone.position.set(-1, 5.8, 0);
+        hatCone.rotation.z = 0.3;
+        sleighG.add(hatCone);
+
+        // 帽子白边
+        const hatBrim = new THREE.Mesh(
+            new THREE.TorusGeometry(0.75, 0.15, 6, 12),
+            matWhite
+        );
+        hatBrim.position.set(-1, 5.2, 0);
+        hatBrim.rotation.x = Math.PI / 2;
+        sleighG.add(hatBrim);
+
+        // 帽子白球
+        const hatPom = new THREE.Mesh(
+            new THREE.SphereGeometry(0.25, 8, 8),
+            matWhite
+        );
+        hatPom.position.set(-0.5, 6.6, 0);
+        sleighG.add(hatPom);
+
+        // 礼物袋
+        const bagGeo = new THREE.SphereGeometry(2, 10, 10);
+        const bag = new THREE.Mesh(bagGeo, matRed);
+        bag.position.set(-2.5, 2, 0);
+        bag.scale.set(1.2, 1.5, 1);
+        sleighG.add(bag);
+
+        this.sleigh = sleighG;
+        this.sleigh.position.z = -6; // 雪橇在驯鹿后面
+        this.group.add(sleighG);
+    }
+
+    buildReindeer() {
+        const reindeerG = new THREE.Group();
+        const matBrown = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.8 });
+        const matDarkBrown = new THREE.MeshStandardMaterial({ color: 0x5d3a1a, roughness: 0.7 });
+        const matRed = new THREE.MeshStandardMaterial({
+            color: 0xff0000,
+            roughness: 0.3,
+            emissive: 0xff0000,
+            emissiveIntensity: 0.5
+        });
+
+        // 创建一只驯鹿
+        const createReindeer = (isRudolph = false) => {
+            const deer = new THREE.Group();
+
+            // 身体
+            const body = new THREE.Mesh(
+                new THREE.CapsuleGeometry(0.8, 2.5, 6, 8),
+                matBrown
+            );
+            body.rotation.z = Math.PI / 2;
+            deer.add(body);
+
+            // 头
+            const head = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 8, 8),
+                matBrown
+            );
+            head.position.set(2, 0.3, 0);
+            head.scale.set(1.3, 1, 1);
+            deer.add(head);
+
+            // 鹿角
+            const antlerMat = matDarkBrown;
+            const antlerGeo = new THREE.CylinderGeometry(0.05, 0.08, 0.8, 6);
+
+            [-1, 1].forEach(side => {
+                const antler = new THREE.Mesh(antlerGeo, antlerMat);
+                antler.position.set(1.8, 0.8, side * 0.3);
+                antler.rotation.z = side * 0.4;
+                deer.add(antler);
+
+                // 分叉
+                const branch = new THREE.Mesh(antlerGeo, antlerMat);
+                branch.scale.set(0.7, 0.5, 0.7);
+                branch.position.set(1.6, 1.1, side * 0.35);
+                branch.rotation.z = side * 0.8;
+                deer.add(branch);
+            });
+
+            // 腿
+            const legGeo = new THREE.CylinderGeometry(0.12, 0.1, 1.2, 6);
+            [[-0.8, -0.3], [-0.8, 0.3], [0.8, -0.3], [0.8, 0.3]].forEach(([x, z]) => {
+                const leg = new THREE.Mesh(legGeo, matBrown);
+                leg.position.set(x, -1.2, z);
+                deer.add(leg);
+            });
+
+            // 红鼻子（仅 Rudolph）
+            if (isRudolph) {
+                const nose = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.18, 8, 8),
+                    matRed
+                );
+                nose.position.set(2.6, 0.25, 0);
+                deer.add(nose);
+
+                // 发光
+                const light = new THREE.PointLight(0xff0000, 0.8, 15);
+                light.position.copy(nose.position);
+                deer.add(light);
+            }
+
+            return deer;
+        };
+
+        // 领头的 Rudolph
+        const rudolph = createReindeer(true);
+        rudolph.position.set(8, 0, 0);
+        reindeerG.add(rudolph);
+
+        // 第二排两只
+        const deer1 = createReindeer();
+        deer1.position.set(4, 0, -2);
+        const deer2 = createReindeer();
+        deer2.position.set(4, 0, 2);
+        reindeerG.add(deer1, deer2);
+
+        // 第三排两只
+        const deer3 = createReindeer();
+        deer3.position.set(0, 0, -2);
+        const deer4 = createReindeer();
+        deer4.position.set(0, 0, 2);
+        reindeerG.add(deer3, deer4);
+
+        // 缰绳（简单的线条）
+        const ropeMat = new THREE.LineBasicMaterial({ color: 0x8b4513 });
+        const ropePoints = [
+            new THREE.Vector3(-4, 0, 0),  // 雪橇前端
+            new THREE.Vector3(0, 0, 0),    // 后排
+            new THREE.Vector3(4, 0, 0),    // 前排
+            new THREE.Vector3(8, 0, 0),    // Rudolph
+        ];
+        const ropeGeo = new THREE.BufferGeometry().setFromPoints(ropePoints);
+        const rope = new THREE.Line(ropeGeo, ropeMat);
+        reindeerG.add(rope);
+
+        this.reindeer = reindeerG;
+        this.group.add(reindeerG);
+    }
+
+    buildTrail() {
+        // 星星粒子尾迹
+        const count = 100;
+        const pos = new Float32Array(count * 3);
+        const sizes = new Float32Array(count);
+
+        for (let i = 0; i < count; i++) {
+            pos[i * 3] = 0;
+            pos[i * 3 + 1] = 0;
+            pos[i * 3 + 2] = 0;
+            sizes[i] = Math.random() * 2 + 1;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        const mat = new THREE.PointsMaterial({
+            color: 0xffd700,
+            size: 3,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        this.trail = new THREE.Points(geo, mat);
+        this.trailPositions = [];
+        this.scene.add(this.trail);
+    }
+
+    buildGiftTemplate() {
+        // 使用共享工厂创建大号礼盒模板（带蝴蝶结中心结，白色蝴蝶结）
+        this.giftTemplate = GiftFactory.createTemplate({ size: 2.5, hasKnot: true, bowMat: 'white' });
+    }
+
+    createGift() {
+        return GiftFactory.cloneWithUniqueMaterials(this.giftTemplate);
+    }
+
+    trigger() {
+        if (this.active) return;
+        if (!train) return; // 需要火车存在
+
+        this.active = true;
+        this.phase = 'approach';
+        this.phaseTime = 0;
+        this.group.visible = true;
+        this.trailPositions = [];
+        this.giftDropped = false;
+
+        // 记录触发时的火车位置作为目标
+        this.targetTrainProg = train.prog;
+
+        // 计算起始位置（天边远处）
+        const trainPos = trackCurve.getPointAt(this.targetTrainProg);
+        const angle = Math.random() * Math.PI * 2;
+        this.startPos = new THREE.Vector3(
+            trainPos.x + Math.cos(angle) * 600,
+            250 + Math.random() * 100,
+            trainPos.z + Math.sin(angle) * 600
+        );
+
+        // 计算离开位置（另一个方向的天边）
+        const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.5;
+        this.exitPos = new THREE.Vector3(
+            trainPos.x + Math.cos(exitAngle) * 600,
+            200 + Math.random() * 100,
+            trainPos.z + Math.sin(exitAngle) * 600
+        );
+
+        this.group.position.copy(this.startPos);
+
+        // 播放远处铃铛声
+        if (audio && audio.bell) {
+            audio.bell();
+        }
+    }
+
+    update(dt) {
+        this.elapsed += dt;
+
+        // 更新落下的礼盒
+        this.updateFallingGifts(dt);
+
+        // 检查是否触发
+        if (!this.active && this.elapsed >= this.nextTrigger) {
+            this.trigger();
+            this.nextTrigger = this.elapsed + 30 + Math.random() * 40; // 下次30-70秒后
+        }
+
+        if (!this.active) return;
+
+        this.phaseTime += dt;
+
+        // 获取当前火车位置和方向
+        const trainPos = train ? trackCurve.getPointAt(train.prog) : new THREE.Vector3();
+        const trainTan = train ? trackCurve.getTangentAt(train.prog) : new THREE.Vector3(0, 0, 1);
+        const trainDir = trainTan.clone().multiplyScalar(STATE.trainDir);
+
+        // 目标悬停位置（火车上方）
+        const hoverPos = trainPos.clone();
+        hoverPos.y += this.hoverHeight;
+
+        let targetPos, targetLook;
+
+        switch (this.phase) {
+            case 'approach': {
+                // 从天边飞向火车上空
+                const t = Math.min(this.phaseTime / this.approachDur, 1);
+                const easeT = 1 - Math.pow(1 - t, 3); // ease out cubic
+
+                targetPos = this.startPos.clone().lerp(hoverPos, easeT);
+                targetPos.y += Math.sin(t * Math.PI) * 20; // 弧线飞行
+
+                // 朝向火车方向
+                targetLook = hoverPos.clone();
+
+                if (t >= 1) {
+                    this.phase = 'sync';
+                    this.phaseTime = 0;
+                    // 到达时播放铃铛
+                    if (audio && audio.bell) audio.bell();
+                }
+                break;
+            }
+
+            case 'sync': {
+                // 与火车同步飞行
+                const t = this.phaseTime / this.syncDur;
+
+                targetPos = hoverPos.clone();
+                // 轻微上下浮动
+                targetPos.y += Math.sin(this.elapsed * 2) * 1.5;
+
+                // 朝向与火车一致
+                targetLook = targetPos.clone().add(trainDir.clone().multiplyScalar(20));
+
+                if (t >= 0.5 && !this.giftDropped) {
+                    // 中途扔下礼盒
+                    this.dropGift(targetPos.clone());
+                    this.giftDropped = true;
+                }
+
+                if (t >= 1) {
+                    this.phase = 'depart';
+                    this.phaseTime = 0;
+                    this.departStart = targetPos.clone();
+                }
+                break;
+            }
+
+            case 'depart': {
+                // 飞向远方
+                const t = Math.min(this.phaseTime / this.departDur, 1);
+                const easeT = t * t; // ease in quad
+
+                targetPos = this.departStart.clone().lerp(this.exitPos, easeT);
+                targetPos.y += Math.sin(t * Math.PI) * 30; // 弧线飞走
+
+                targetLook = this.exitPos.clone();
+
+                if (t >= 1) {
+                    this.active = false;
+                    this.group.visible = false;
+                    this.phase = 'idle';
+                    return;
+                }
+                break;
+            }
+        }
+
+        // 平滑移动
+        this.group.position.lerp(targetPos, 0.1);
+
+        // 平滑转向（使用复用对象避免 GC）
+        if (targetLook) {
+            this._lookDir.copy(targetLook).sub(this.group.position).normalize();
+            if (this._lookDir.length() > 0.01) {
+                this._lookMatrix.lookAt(this.group.position, targetLook, this._upVector);
+                this._targetQuat.setFromRotationMatrix(this._lookMatrix);
+                this.group.quaternion.slerp(this._targetQuat, 0.05);
+            }
+        }
+
+        // 轻微的上下摆动
+        this.group.position.y += Math.sin(this.elapsed * 3) * 0.5;
+
+        // 驯鹿腿部动画
+        if (this.reindeer) {
+            this.reindeer.children.forEach((deer, i) => {
+                if (deer.type === 'Group') {
+                    deer.rotation.x = Math.sin(this.elapsed * 8 + i) * 0.15;
+                }
+            });
+        }
+
+        // 更新粒子尾迹
+        this.updateTrail(this.group.position);
+    }
+
+    dropGift(fromPos) {
+        const gift = this.createGift();
+        gift.position.copy(fromPos);
+        gift.scale.set(0.8, 0.8, 0.8);
+        this.scene.add(gift);
+
+        // 播放扔礼物声音
+        if (audio && audio.bell) audio.bell();
+
+        this.fallingGifts.push({
+            mesh: gift,
+            vel: new THREE.Vector3(0, 0, 0),
+            rotVel: new THREE.Vector3(
+                (Math.random() - 0.5) * 0.1,
+                (Math.random() - 0.5) * 0.1,
+                (Math.random() - 0.5) * 0.1
+            ),
+            landed: false,
+            targetY: 6.5 // 火车顶部高度
+        });
+    }
+
+    updateFallingGifts(dt) {
+        for (let i = this.fallingGifts.length - 1; i >= 0; i--) {
+            const g = this.fallingGifts[i];
+
+            // 使用统一的物理更新，返回值表示是否刚刚落地
+            const justLanded = GiftFactory.updateGiftPhysics(g, dt, { gravity: 30 });
+
+            // 落地后5秒移除礼盒
+            if (justLanded) {
+                setTimeout(() => {
+                    this.scene.remove(g.mesh);
+                    const idx = this.fallingGifts.indexOf(g);
+                    if (idx > -1) this.fallingGifts.splice(idx, 1);
+                }, 5000);
+            }
+        }
+    }
+
+    updateTrail(currentPos) {
+        // 添加新位置到尾迹
+        this.trailPositions.unshift(currentPos.clone());
+
+        // 限制尾迹长度
+        if (this.trailPositions.length > 100) {
+            this.trailPositions.pop();
+        }
+
+        // 更新粒子位置
+        const positions = this.trail.geometry.attributes.position.array;
+        for (let i = 0; i < 100; i++) {
+            if (i < this.trailPositions.length) {
+                const p = this.trailPositions[i];
+                // 添加随机偏移让尾迹更有魔法感
+                positions[i * 3] = p.x + (Math.random() - 0.5) * 10;
+                positions[i * 3 + 1] = p.y + (Math.random() - 0.5) * 5;
+                positions[i * 3 + 2] = p.z + (Math.random() - 0.5) * 10;
+            } else {
+                // 未使用的粒子移到很远
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = -1000;
+                positions[i * 3 + 2] = 0;
+            }
+        }
+        this.trail.geometry.attributes.position.needsUpdate = true;
+
+        // 尾迹透明度随时间衰减
+        this.trail.material.opacity = this.active ? 0.8 : 0;
     }
 }
 
@@ -1813,6 +2792,10 @@ function setupUI() {
         document.getElementById('hud').style.opacity = 1;
         document.getElementById('settings-btn').style.opacity = 1;
         document.getElementById('firework-btn').style.opacity = 1;
+        document.getElementById('countdown-wrap').style.opacity = 1;
+
+        // 首次展示圣诞倒计时
+        if (window.showCountdownFirstTime) window.showCountdownFirstTime();
 
         // 🚁 启动运镜：无人机从侧面高空降落
         // 初始化当前无人机为第一个（或根据火车位置选择最近的）
@@ -2010,14 +2993,105 @@ function setupUI() {
                         audio.playBGM();
                     }
                 } else {
-                    // 🔔 点击车厢 → 铃铛响
-                    audio.bell();
+                    // 🔔 点击车厢 → 窗户闪烁 + 扔礼盒 + 铃铛响
+                    // 找到被点击的车厢
+                    let clickedCar = null;
+                    hitObj.traverseAncestors(p => {
+                        if (train.cars.includes(p)) clickedCar = p;
+                    });
+
+                    if (clickedCar) {
+                        // 尝试扔礼盒（有冷却限制）
+                        if (train.throwGift(clickedCar)) {
+                            train.flashWindows(clickedCar);
+                            audio.bell();
+                        }
+                    } else {
+                        audio.bell();
+                    }
                 }
                 return;
             }
             // 点击空地：无反应（已移除手动烟花）
         }
     });
+
+    // ===== 🎄 圣诞倒计时 =====
+    const countdownTrigger = document.getElementById('countdown-trigger');
+    const countdownPanel = document.getElementById('countdown-panel');
+    const countdownDays = document.getElementById('countdown-days');
+    const countdownDetail = document.getElementById('countdown-detail');
+    let countdownExpanded = false;
+    let countdownFirstShow = false;
+
+    // 计算到圣诞节的时间
+    const getChristmasCountdown = () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        // 今年的圣诞节
+        let christmas = new Date(year, 11, 25, 0, 0, 0);
+        // 如果圣诞节已过，计算到明年
+        if (now > christmas) {
+            christmas = new Date(year + 1, 11, 25, 0, 0, 0);
+        }
+        const diff = christmas - now;
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        return { days, hours, minutes, seconds, isToday: days === 0 && hours === 0 && minutes === 0 };
+    };
+
+    // 更新倒计时显示
+    const updateCountdown = () => {
+        const { days, hours, minutes, seconds, isToday } = getChristmasCountdown();
+        countdownDays.textContent = days;
+
+        if (isToday) {
+            countdownDetail.innerHTML = '🎉 <span>圣诞快乐!</span> 🎉';
+            document.querySelector('#countdown-panel .title').textContent = '✨ Merry Christmas! ✨';
+        } else {
+            const pad = n => n.toString().padStart(2, '0');
+            countdownDetail.innerHTML = `${days}<span>天</span> ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        }
+    };
+
+    // 切换展开/收起
+    const toggleCountdown = (forceState) => {
+        countdownExpanded = forceState !== undefined ? forceState : !countdownExpanded;
+        countdownTrigger.classList.toggle('expanded', countdownExpanded);
+        countdownPanel.classList.toggle('show', countdownExpanded);
+    };
+
+    // 点击触发器
+    countdownTrigger.onclick = (e) => {
+        e.stopPropagation();
+        toggleCountdown();
+    };
+
+    // 点击面板外部收起
+    document.addEventListener('click', (e) => {
+        if (countdownExpanded && !countdownPanel.contains(e.target) && !countdownTrigger.contains(e.target)) {
+            toggleCountdown(false);
+        }
+    });
+
+    // 点击面板内部也收起
+    countdownPanel.onclick = () => toggleCountdown(false);
+
+    // 初始化并启动定时器
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+
+    // 首次展示（游戏开始后3秒展开，再3秒后自动收起）
+    window.showCountdownFirstTime = () => {
+        if (countdownFirstShow) return;
+        countdownFirstShow = true;
+        setTimeout(() => {
+            toggleCountdown(true);
+            setTimeout(() => toggleCountdown(false), 3000);
+        }, 2000);
+    };
 }
 
 window.onresize = () => {
