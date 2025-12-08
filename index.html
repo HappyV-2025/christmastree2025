@@ -537,7 +537,7 @@ function animate() {
 
     // 如果两帧间隔超过 0.1秒（比如切后台了），就强制按 0.1秒计算
     // 这样雪花就不会瞬间掉到底，火车也不会瞬移
-    if (dt > 0.1) dt = 0.1; 
+    const deltaTime = dt > 0.1 ? 0.1 : dt; 
 
     // 1. 物理惯性 (修复速度降不下来的问题)
     if(STATE.running) {
@@ -556,9 +556,9 @@ function animate() {
         if(STATE.curSpeed < 0) STATE.curSpeed = 0;
     }
 
-    if(train) train.update(dt, STATE.curSpeed);
+    if(train) train.update(deltaTime, STATE.curSpeed);
     if(fwMgr) fwMgr.update();
-    if(snowMgr) snowMgr.update(dt);
+    if(snowMgr) snowMgr.update(deltaTime);
 
     // 灯光动画
     emissives.forEach(obj => {
@@ -579,7 +579,6 @@ function animate() {
             obj.material.color.copy(obj.userData.baseCol).multiplyScalar(intensity);
         }
         if(obj.userData.type === 'star') obj.material.color.setHSL(0.14, 1.0, 0.6 + 0.3 * Math.sin(time));
-        if(obj.userData.type === 'headlight') obj.material.color.setHex(0xffdd88).multiplyScalar(CFG.lightPow/30);
         if(obj.userData.type === 'headlight_spot') obj.intensity = CFG.lightPow;
     });
 
@@ -688,8 +687,6 @@ function buildTrack() {
     trackPoints = trackCurve.getPoints(1000);
 
     const divs = 600; 
-    // ... 以下代码保持不变 (路基、枕木、铁轨生成逻辑) ...
-    // 直接复制原 buildTrack 函数后面生成 Mesh 的部分即可
     const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
     bed.position.y = 0.1; bed.scale.y = 0.1; scene.add(bed);
     
@@ -711,6 +708,13 @@ function buildTrack() {
     const railPointsL = [];
     const railPointsR = [];
     const railSamp = 400; // 采样点数，越多越平滑
+    const dist = 2.2; // 轨距
+
+    // 预分配复用对象，减少 GC 压力
+    const upVec = new THREE.Vector3(0, 1, 0);
+    const rightVec = new THREE.Vector3();
+    const tempL = new THREE.Vector3();
+    const tempR = new THREE.Vector3();
     
     for(let i=0; i<=railSamp; i++) {
         // 1. 在主轨道上均匀取点
@@ -718,15 +722,15 @@ function buildTrack() {
         const pt = trackCurve.getPointAt(t);
         const tan = trackCurve.getTangentAt(t); // 获取切线(前进方向)
         
-        // 2. 计算"右侧"向量：切线 叉乘 上方向(0,1,0)
-        // 强制规定：铁轨的偏移方向必须水平，永远平行于地面
-        const right = new THREE.Vector3().crossVectors(tan, new THREE.Vector3(0,1,0)).normalize();
         
-        const dist = 2.2; // 轨距 (比火车轮子宽，确保轮子在轨内)
-        
-        // 3. 生成左右两个坐标点
-        railPointsL.push( pt.clone().add( right.clone().multiplyScalar(-dist) ) );
-        railPointsR.push( pt.clone().add( right.clone().multiplyScalar( dist) ) );
+        // 复用 rightVec 计算右侧向量
+        rightVec.crossVectors(tan, upVec).normalize();
+
+        // 生成左右坐标点
+        tempL.copy(pt).addScaledVector(rightVec, -dist);
+        tempR.copy(pt).addScaledVector(rightVec, dist);
+        railPointsL.push(tempL.clone());
+        railPointsR.push(tempR.clone());
     }
 
     // 4. 创建两条平行的曲线对象
@@ -761,13 +765,6 @@ function buildEnv() {
     createHeroTree(85, 55, 1.4); 
     createHeroTree(-85, 55, 1.4);
 
-    // ... 以下代码保持不变，直接复制原来的即可 ...
-    // 🌲 升级版森林...
-    const treeGeo = new THREE.BufferGeometry();
-    const c1 = new THREE.ConeGeometry(3, 5, 8); c1.translate(0, 2.5, 0); 
-    const c2 = new THREE.ConeGeometry(2.2, 4, 8); c2.translate(0, 5.5, 0); 
-    const c3 = new THREE.ConeGeometry(1.5, 3, 8); c3.translate(0, 8.0, 0); 
-    
     const matTree = new THREE.MeshStandardMaterial({color:0x0f3315, roughness:0.9});
     const matSnow = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.6}); 
     
@@ -848,7 +845,6 @@ function createHeroTree(x, z, scale) {
     const matRed = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.3 });
     const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
     const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
-    const matSilver = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3 });
     const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
 
 // 🍬 修复版：拐杖糖
@@ -1009,11 +1005,7 @@ function createHeroTree(x, z, scale) {
     let currentAngle = 0;
 
     tiers.forEach((tier) => {
-        // A. 钻出：从树干内部延伸到表面
-        const startH = tier.y - tier.h/2 + 2; // 层底部偏上
-        // 初始半径小(树干)，结束半径大(表面)
-        
-        // B. 盘旋：0.5 ~ 1.5 圈
+        // 盘旋：0.5 ~ 1.5 圈
         const loops = 0.5 + Math.random() * 1.0; 
         const steps = 15; // 细分
         
@@ -1232,8 +1224,9 @@ class Train {
         this.smokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         this.grp.add(this.smokeMesh);
 
-        // ✅ 新增：预先创建辅助对象，避免 updateSmoke 中反复创建
-        this.dummy = new THREE.Object3D(); 
+        // 预先创建辅助对象，避免反复创建
+        this.dummy = new THREE.Object3D();
+        this._trainDir = new THREE.Vector3(); // 复用的方向向量 
 
         for(let i=0; i<this.smokeMax; i++) {
             // 初始移到无限远
@@ -1275,7 +1268,8 @@ class Train {
         sp.position.set(0,5.2,4); sp.scale.set(10,10,1);
         const sl=new THREE.SpotLight(0xffccaa, CFG.lightPow, 150, 0.8, 0.5);
         sl.position.set(0,5.2,3.8); sl.target.position.set(0,-5,30); sl.castShadow=true;
-        sl.userData={type:'headlight'};
+        sl.userData={type:'headlight_spot'};
+        emissives.push(sl); // 加入 emissives 以支持动态亮度调节
         g.add(boil,cab,this.chim,cow,sp,sl,sl.target);
         return g;
     }
@@ -1287,8 +1281,7 @@ class Train {
         const col = cols[(i - 1) % 4];
         
         const matBody = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.2 });
-        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.8 }); // 金色材质
-        const matRoof = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.8 });
 
         // 1. 车身主体
         const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.8, 7.8), matBody);
@@ -1382,21 +1375,21 @@ class Train {
     spawnSmoke(pos, trainSpeed) {
         const idx = this.smokeIdx;
         const s = this.smokeData[idx];
-        
-        // 激活粒子
+
         s.active = true;
         s.life = 1.0;
         s.scale = 0.4 + Math.random() * 0.4;
-        s.pos = pos.clone(); // 这里的开销可以接受，或者复用 Vector3
-        
-        // 计算速度 (同原逻辑)
-        const trainDir = new THREE.Vector3(0,0,1).applyQuaternion(this.loco.quaternion).normalize();
-        const forwardVel = trainDir.multiplyScalar(trainSpeed * 0.8);
-        s.vel.set(0, 1.2 + Math.random()*0.5, 0).add(forwardVel);
-        s.vel.x += (Math.random()-0.5)*0.2;
-        s.vel.z += (Math.random()-0.5)*0.2;
+        s.pos = pos.clone();
 
-        // 移动指针 (循环队列)
+        // 复用 _trainDir 计算火车前进方向
+        this._trainDir.set(0, 0, 1).applyQuaternion(this.loco.quaternion).normalize();
+        const fwdSpeed = trainSpeed * 0.8;
+        s.vel.set(
+            this._trainDir.x * fwdSpeed + (Math.random() - 0.5) * 0.2,
+            1.2 + Math.random() * 0.5,
+            this._trainDir.z * fwdSpeed + (Math.random() - 0.5) * 0.2
+        );
+
         this.smokeIdx = (this.smokeIdx + 1) % this.smokeMax;
     }
 
@@ -1707,6 +1700,16 @@ function setupControls() {
 function setupUI() {
     const btn = document.getElementById('start-btn');
     
+    // 批量发射烟花（提前定义，供下方回调使用）
+    const launchBatch = () => {
+        if(!STATE.started || document.visibilityState === 'hidden') return;
+        const count = 2 + Math.floor(Math.random() * 4);
+        for(let i=0; i<count; i++) {
+            const delay = i * 300 + Math.random() * 200;
+            setTimeout(() => fwMgr.launch(), delay);
+        }
+    };
+    
     btn.onclick = () => {
         STATE.started = true;
         STATE.running = true;
@@ -1766,7 +1769,7 @@ function setupUI() {
     fEnv.add(CFG, 'fogDen', 0, 0.005).name('大雾浓度').onChange(v => scene.fog.density = v);
     fEnv.add(CFG, 'bloomStr', 0, 3).name('辉光强度').onChange(v => bloomPass.strength = v);
     fEnv.add(CFG, 'bloomThr', 0, 1).name('辉光阈值').onChange(v => bloomPass.threshold = v);
-    fEnv.add(CFG, 'lightPow', 0, 200).name('车灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'headlight') o.intensity = v }));
+    fEnv.add(CFG, 'lightPow', 0, 200).name('车灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'headlight_spot') o.intensity = v }));
     fEnv.add(CFG, 'bulbBri', 0, 50).name('彩灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'bulb') o.material.emissiveIntensity = v }));
 
     const fFw = gui.addFolder('🎆 烟花控制');
@@ -1784,22 +1787,8 @@ function setupUI() {
     fFw.add(debugObj, 'soundStyle', styleOptions)
        .name('💥 爆炸音效风格'); // 使用 .name() 来显示中文标签
 
-    // ✅ 全局暴露 debugObj.soundStyle，供 Fireworks.explode() 直接读取
     window.getFireworkSoundStyle = () => debugObj.soundStyle;
-
-    // [修复] 批量发射函数：增加页面可见性检查
-    const launchBatch = () => {
-        // 如果游戏没开始，或者页面在后台(不可见)，则不生成烟花
-        // 这彻底解决了“切后台回来卡死”的问题
-        if(!STATE.started || document.visibilityState === 'hidden') return;
-        
-        const count = 2 + Math.floor(Math.random() * 4); 
-        for(let i=0; i<count; i++) {
-            const delay = i * 300 + Math.random() * 200;
-            setTimeout(() => fwMgr.launch(), delay);
-        }
-    };
-
+   
     fFw.add(CFG, 'autoFw').name('自动燃放').onChange(v => {
         if (autoTimer) clearInterval(autoTimer);
         if (v) { 
@@ -1823,7 +1812,6 @@ function setupUI() {
 
             const hitTrain = ray.intersectObjects(train.grp.children, true);
             if (hitTrain.length > 0) {
-                // ... (原有火车点击逻辑保持不变) ...
                 STATE.running = !STATE.running;
                 const d = document.getElementById('d-status'), t = document.getElementById('t-status');
                 if (STATE.running) {
@@ -1834,9 +1822,7 @@ function setupUI() {
                 }
                 return;
             }
-            
-            // [修改] 无论点哪里（除了火车），都直接调用无参数 launch()
-            // 这样就会触发 Fireworks 类里的默认逻辑（在中间区域随机释放）
+
             fwMgr.launch(); 
         }
     });
