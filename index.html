@@ -707,7 +707,7 @@ function buildTrack() {
     
     const railPointsL = [];
     const railPointsR = [];
-    const railSamp = 400; // 采样点数，越多越平滑
+    const railSamp = 400;
     const dist = 2.2; // 轨距
 
     // 预分配复用对象，减少 GC 压力
@@ -719,7 +719,8 @@ function buildTrack() {
     for(let i=0; i<=railSamp; i++) {
         const t = i / railSamp;
         const pt = trackCurve.getPointAt(t);
-        const tan = trackCurve.getTangentAt(t); // 获取切线(前进方向)
+        const tan = trackCurve.getTangentAt(t);
+    
         // 复用 rightVec 计算右侧向量
         rightVec.crossVectors(tan, upVec).normalize();
 
