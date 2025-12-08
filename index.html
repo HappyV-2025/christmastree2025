@@ -23,23 +23,34 @@
     #settings-modal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;display:none;width:320px}
     #modal-overlay{position:absolute;top:0;left:0;width:100%;height:100%;z-index:25;display:none;background:rgba(0,0,0,0.5)}
     #loading{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#666;font-size:12px;letter-spacing:2px}
+    /* 右下角烟花按钮 */
+    #firework-btn{position:absolute;bottom:30px;right:30px;z-index:20;width:60px;height:60px;background:radial-gradient(circle at 30% 30%,#ff6b6b,#d32f2f);border-radius:50%;border:2px solid #ff8a80;color:#fff;font-size:28px;display:flex;justify-content:center;align-items:center;cursor:pointer;opacity:0;transition:all 0.3s;box-shadow:0 4px 20px rgba(211,47,47,0.5)}
+    #firework-btn:hover{transform:scale(1.1);box-shadow:0 6px 30px rgba(211,47,47,0.7)}
+    #firework-btn:active{transform:scale(0.95)}
+    #firework-btn.burst{animation:burst 0.4s ease-out}
+    @keyframes burst{0%{transform:scale(1);box-shadow:0 4px 20px rgba(211,47,47,0.5)}50%{transform:scale(1.3);box-shadow:0 0 40px rgba(255,200,100,0.9),0 0 80px rgba(255,100,100,0.6)}100%{transform:scale(1);box-shadow:0 4px 20px rgba(211,47,47,0.5)}}
+    /* HUD启停按钮 */
+    #train-toggle{background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:4px 8px;margin-left:8px;border-radius:8px;transition:0.2s}
+    #train-toggle:hover{background:rgba(255,255,255,0.15)}
+    /* HUD状态可点击 */
+    #hud-status{cursor:pointer;transition:0.2s}
+    #hud-status:hover{color:#4fc3f7}
 </style>
     </head>
     <body>
         <div id="start-screen"><div class="card">
                 <h1>🎄 圣诞快乐</h1>
                 <div class="tips">
-                    <div><span class="k">🚂 点击火车</span> 启动 / 停止 (惯性滑行)</div>
-                    <div><span class="k">🎆 点击空地</span> 燃放物理烟花</div>
-                    <div><span class="k">🖱️ 滚轮缩放</span> 调整跟随距离 (自动记忆)</div>
+                    <div><span class="k">🚂 点击车头</span> 背景音乐 开/关</div>
+                    <div><span class="k">🔔 点击车厢</span> 铃铛响起</div>
+                    <div><span class="k">🎆 右下按钮</span> 燃放烟花</div>
                     <div><span class="k">👆 拖动旋转</span> 360° 自由观察</div>
                 </div>
                 <button id="start-btn">鸣笛发车</button>
             </div></div>
-        <div id="hud"><div class="tag"><div id="d-status"
-                    class="dot"></div><span
-                    id="t-status">智能驾驶模式</span></div></div>
+        <div id="hud"><div class="tag"><div id="d-status" class="dot"></div><span id="hud-status">智能驾驶模式</span><button id="train-toggle">⏸️</button></div></div>
         <div id="settings-btn">⚙️</div>
+        <div id="firework-btn">🎆</div>
         <div id="modal-overlay"></div><div id="settings-modal"></div>
         <div id="loading">正在装载礼物与魔法...</div>
         <div id="canvas-container"></div>
@@ -325,7 +336,46 @@ class AudioEngine {
             src.start(t); src.stop(t + 0.2);
         }
     }
-    // styleIndex: 传入 0-11 选择特定风格，不传则随机
+
+    // 🔔 铃铛声
+    bell() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+
+        // 铃铛音色：高频正弦波 + 快速衰减
+        const frequencies = [1200, 1800, 2400]; // 多个泛音
+
+        frequencies.forEach((freq, i) => {
+            const osc = this.ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+
+            const gain = this.ctx.createGain();
+            const vol = 0.3 / (i + 1); // 高频泛音音量递减
+            gain.gain.setValueAtTime(vol, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+
+            osc.connect(gain);
+            gain.connect(this.nodes.train);
+
+            osc.start(t);
+            osc.stop(t + 1);
+        });
+
+        // 添加金属撞击感
+        const click = this.ctx.createOscillator();
+        click.type = 'square';
+        click.frequency.value = 3000;
+        const clickGain = this.ctx.createGain();
+        clickGain.gain.setValueAtTime(0.15, t);
+        clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+        click.connect(clickGain);
+        clickGain.connect(this.nodes.train);
+        click.start(t);
+        click.stop(t + 0.1);
+    }
+
+    // styleIndex: 传入则选择特定风格，不传则随机
     explode(styleIndex = -1) {
         if (!this.ctx) return;
         const t = this.ctx.currentTime;
@@ -563,11 +613,14 @@ function getDronePosition(droneIndex, trainProg, outPos, outTarget) {
     _v2.normalize();
     outPos.addScaledVector(_v2, DRONE.distance * 0.3);
 
-    // 看向点：火车前方一点
-    let lookT = trainProg + 0.01;
-    if (lookT >= 1) lookT -= 1;
-    outTarget.copy(trackCurve.getPointAt(lookT));
-    outTarget.y += 8; // 看车顶上方
+    // 看向点：地图中心（能看到圣诞树和烟花），但稍微偏向火车位置
+    const centerWeight = 0.7; // 70%看向中心，30%偏向火车
+    const trainPos = trackCurve.getPointAt(trainProg);
+    outTarget.set(
+        trainPos.x * (1 - centerWeight),
+        12, // 稍微抬高，看到圣诞树中部
+        trainPos.z * (1 - centerWeight)
+    );
 }
 
 // 🚁 检测是否需要切换到下一个无人机
@@ -611,21 +664,24 @@ function animate() {
     // 这样雪花就不会瞬间掉到底，火车也不会瞬移
     const deltaTime = dt > 0.1 ? 0.1 : dt; 
 
-    // 1. 物理惯性 (修复速度降不下来的问题)
+    // 1. 物理惯性
     if(STATE.running) {
         // 加速逻辑
         if(STATE.curSpeed < CFG.maxSpeed) {
             STATE.curSpeed += CFG.accel;
-            if(STATE.curSpeed > CFG.maxSpeed) STATE.curSpeed = CFG.maxSpeed; // 钳制
-        } 
+            if(STATE.curSpeed > CFG.maxSpeed) STATE.curSpeed = CFG.maxSpeed;
+        }
         // 减速逻辑 (当你在设置里把极速调低时，火车会慢慢减速适应新设置)
         else if(STATE.curSpeed > CFG.maxSpeed) {
-            STATE.curSpeed -= CFG.decel;
+            STATE.curSpeed *= 0.98; // 摩擦力减速
         }
     } else {
-        // 停车逻辑
-        if(STATE.curSpeed > 0) STATE.curSpeed -= CFG.decel;
-        if(STATE.curSpeed < 0) STATE.curSpeed = 0;
+        // 停车逻辑：摩擦力模型（开始快，结束慢，更自然）
+        if(STATE.curSpeed > 0.001) {
+            STATE.curSpeed *= 0.985; // 每帧衰减1.5%
+        } else {
+            STATE.curSpeed = 0;
+        }
     }
 
     if(train) train.update(deltaTime, STATE.curSpeed);
@@ -1762,19 +1818,21 @@ function setupUI() {
         audio.whistle(); 
         audio.playBGM(); 
         
-        // 自动燃放的启动逻辑
+        // 自动燃放的启动逻辑（延迟等待降落动画完成）
         if (CFG.autoFw) {
-            // 先放一波助兴
-            launchBatch(); 
-            // 启动循环
-            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
+            setTimeout(() => {
+                if (!STATE.started) return; // 防止用户快速关闭
+                launchBatch();
+                autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
+            }, 2500); // 延迟2.5秒，等降落动画完成
         }
 
         document.getElementById('start-screen').style.opacity = 0;
         setTimeout(() => document.getElementById('start-screen').style.display = 'none', 800);
         document.getElementById('hud').style.opacity = 1;
         document.getElementById('settings-btn').style.opacity = 1;
-
+        document.getElementById('firework-btn').style.opacity = 1;
+        
         // 🚁 启动运镜：无人机从侧面高空降落
         // 初始化当前无人机为第一个（或根据火车位置选择最近的）
         droneState.current = Math.floor(train.prog * DRONE.count) % DRONE.count;
@@ -1887,26 +1945,96 @@ function setupUI() {
         }
     });
 
+    // ===== 🎆 烟花按钮 =====
+    const fwBtn = document.getElementById('firework-btn');
+    fwBtn.onclick = () => {
+        if (!STATE.started) return;
+        // 点击特效
+        fwBtn.classList.add('burst');
+        setTimeout(() => fwBtn.classList.remove('burst'), 400);
+        // 发射烟花
+        launchBatch();
+    };
+
+    // ===== 🚂 启停按钮 =====
+    const trainToggle = document.getElementById('train-toggle');
+    const hudStatus = document.getElementById('hud-status');
+    const dot = document.getElementById('d-status');
+
+    const updateTrainUI = () => {
+        trainToggle.textContent = STATE.running ? '⏸️' : '▶️';
+        dot.classList.toggle('stop', !STATE.running);
+    };
+
+    trainToggle.onclick = () => {
+        if (!STATE.started) return;
+        STATE.running = !STATE.running;
+        if (STATE.running) {
+            audio.whistle();
+        }
+        updateTrainUI();
+    };
+
+    // ===== 🚁 模式切换（点击HUD状态文字） =====
+    hudStatus.onclick = () => {
+        if (!STATE.started) return;
+
+        if (STATE.viewMode === 'FOLLOW') {
+            // 切换到自由探索
+            STATE.viewMode = 'FREE';
+            hudStatus.textContent = '自由探索模式';
+            dot.style.background = '#4fc3f7';
+            dot.style.boxShadow = '0 0 8px #4fc3f7';
+        } else {
+            // 切换回智能驾驶：平滑过渡到正确的无人机位置
+            STATE.viewMode = 'FOLLOW';
+            hudStatus.textContent = '智能驾驶模式';
+            dot.style.background = STATE.running ? '#00ff00' : '#ff3300';
+            dot.style.boxShadow = STATE.running ? '0 0 8px #00ff00' : '0 0 8px #ff3300';
+
+            // 计算最近的无人机
+            droneState.current = Math.floor(train.prog * DRONE.count) % DRONE.count;
+
+            // 启动平滑过渡
+            droneState.fromPos.copy(camera.position);
+            droneState.fromTarget.copy(controls.target);
+            getDronePosition(droneState.current, train.prog, droneState.toPos, droneState.toTarget);
+            droneState.switching = true;
+            droneState.switchT = 0;
+        }
+    };
+
+    // ===== 🖱️ 场景点击交互 =====
     const cvs = document.getElementById('canvas-container');
     cvs.addEventListener('pointerdown', () => STATE.clickTime = Date.now());
     cvs.addEventListener('pointerup', (e) => {
         if (Date.now() - STATE.clickTime < 200 && STATE.started && !STATE.settings) {
-            mouse.x = (e.clientX / innerWidth) * 2 - 1; mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+            mouse.x = (e.clientX / innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / innerHeight) * 2 + 1;
             ray.setFromCamera(mouse, camera);
 
             const hitTrain = ray.intersectObjects(train.grp.children, true);
             if (hitTrain.length > 0) {
-                STATE.running = !STATE.running;
-                const d = document.getElementById('d-status'), t = document.getElementById('t-status');
-                if (STATE.running) {
-                    audio.whistle(); 
-                    d.classList.remove('stop'); t.innerText = "智能驾驶模式 (加速中)"; STATE.viewMode = 'FOLLOW';
+                const hitObj = hitTrain[0].object;
+
+                // 判断是否点击的是火车头
+                let isLoco = false;
+                hitObj.traverseAncestors(p => { if (p === train.loco) isLoco = true; });
+
+                if (isLoco) {
+                    // 🎵 点击火车头 → BGM 开/关
+                    if (audio.isBgmPlaying) {
+                        audio.stopBGM();
+                    } else {
+                        audio.playBGM();
+                    }
                 } else {
-                    d.classList.add('stop'); t.innerText = "惯性滑行中 (减速)";
+                    // 🔔 点击车厢 → 铃铛响
+                    audio.bell();
                 }
                 return;
             }
-            fwMgr.launch(); 
+            // 点击空地：无反应（已移除手动烟花）
         }
     });
 }
