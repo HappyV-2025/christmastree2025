@@ -2255,130 +2255,130 @@ class MagicTrail {
         this.geo.setAttribute('size', new THREE.BufferAttribute(new Float32Array(this.maxParticles), 1));
         this.geo.setAttribute('opacity', new THREE.BufferAttribute(new Float32Array(this.maxParticles), 1));
 
-        this.mat = new THREE.ShaderMaterial({
-            uniforms: { map: { value: tex } },
-            vertexShader: `
-                attribute float size;
-                attribute vec3 color;
-                attribute float opacity;
-                varying vec3 vColor;
-                varying float vOpacity;
-                void main() {
-                    vColor = color;
-                    vOpacity = opacity;
-                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_Position = projectionMatrix * mvPosition;
-                    // 尺寸系数降至 700，确保粒子细腻
-                    gl_PointSize = size * (700.0 / -mvPosition.z); 
-                }
-            `,
-            fragmentShader: `
-                uniform sampler2D map;
-                varying vec3 vColor;
-                varying float vOpacity;
-                void main() {
-                    vec4 texColor = texture2D(map, gl_PointCoord);
-                    if (texColor.a < 0.05) discard;
-                    // NormalBlending 混合，柔和不刺眼
-                    gl_FragColor = vec4(vColor, texColor.a * vOpacity); 
-                }
-            `,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.NormalBlending 
-        });
-
-        this.mesh = new THREE.Points(this.geo, this.mat);
-        this.mesh.frustumCulled = false; 
+                this.mat = new THREE.ShaderMaterial({
+                    uniforms: { map: { value: tex } },
+                    vertexShader: `
+                        attribute float size;
+                        attribute vec3 color;
+                        attribute float opacity;
+                        varying vec3 vColor;
+                        varying float vOpacity;
+                        void main() {
+                            vColor = color;
+                            vOpacity = opacity;
+                            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                            gl_Position = projectionMatrix * mvPosition;
+                            // 💡 想要粒子更小？调小这个数字 (当前 550.0)
+                            gl_PointSize = size * (550.0 / -mvPosition.z); 
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D map;
+                        varying vec3 vColor;
+                        varying float vOpacity;
+                        void main() {
+                            vec4 texColor = texture2D(map, gl_PointCoord);
+                            if (texColor.a < 0.05) discard;
+                            // NormalBlending 混合，柔和不刺眼
+                            gl_FragColor = vec4(vColor, texColor.a * vOpacity); 
+                        }
+                    `,
+                    transparent: true,
+                    depthWrite: false,
+                    blending: THREE.NormalBlending 
+                });
         
-        const posAttr = this.geo.attributes.position;
-        for(let i=0; i<this.maxParticles; i++) posAttr.setXYZ(i, 0, -9999, 0);
+                this.mesh = new THREE.Points(this.geo, this.mat);
+                this.mesh.frustumCulled = false; 
+                
+                const posAttr = this.geo.attributes.position;
+                for(let i=0; i<this.maxParticles; i++) posAttr.setXYZ(i, 0, -9999, 0);
+                
+                this.scene.add(this.mesh);
+            }
         
-        this.scene.add(this.mesh);
-    }
-
-    update(dt) {
-        const positions = this.geo.attributes.position;
-        const opacities = this.geo.attributes.opacity;
-        const sizes = this.geo.attributes.size;
-        const colors = this.geo.attributes.color;
-
-        for(let i = this.particles.length - 1; i >= 0; i--) {
-            const p = this.particles[i];
-            p.life -= dt;
-
-            if(p.life <= 0) {
-                this.particles.splice(i, 1);
-                continue;
+            update(dt) {
+                const positions = this.geo.attributes.position;
+                const opacities = this.geo.attributes.opacity;
+                const sizes = this.geo.attributes.size;
+                const colors = this.geo.attributes.color;
+        
+                for(let i = this.particles.length - 1; i >= 0; i--) {
+                    const p = this.particles[i];
+                    p.life -= dt;
+        
+                    if(p.life <= 0) {
+                        this.particles.splice(i, 1);
+                        continue;
+                    }
+        
+                    p.pos.addScaledVector(p.vel, dt);
+                    p.vel.y -= 6.0 * dt; // 保持下坠感
+                    p.vel.multiplyScalar(0.98); 
+        
+                    const age = p.life / p.maxLife; 
+                    p.currOpacity = age * 0.8; // 透明度上限 0.8
+                    p.currSize = p.baseSize * (0.6 + 0.4 * age); 
+                }
+        
+                for(let i=0; i<this.maxParticles; i++) {
+                    if(i < this.particles.length) {
+                        const p = this.particles[i];
+                        positions.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
+                        opacities.setX(i, p.currOpacity);
+                        sizes.setX(i, p.currSize);
+                        // 暗金色，质感更好
+                        colors.setXYZ(i, 0.9, 0.7, 0.2); 
+                    } else {
+                        positions.setXYZ(i, 0, -9999, 0);
+                        opacities.setX(i, 0);
+                    }
+                }
+        
+                positions.needsUpdate = true;
+                opacities.needsUpdate = true;
+                sizes.needsUpdate = true;
+                colors.needsUpdate = true;
             }
-
-            p.pos.addScaledVector(p.vel, dt);
-            p.vel.y -= 6.0 * dt; // 保持下坠感
-            p.vel.multiplyScalar(0.98); 
-
-            const age = p.life / p.maxLife; 
-            p.currOpacity = age * 0.8; // 透明度上限 0.8
-            p.currSize = p.baseSize * (0.6 + 0.4 * age); 
-        }
-
-        for(let i=0; i<this.maxParticles; i++) {
-            if(i < this.particles.length) {
-                const p = this.particles[i];
-                positions.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
-                opacities.setX(i, p.currOpacity);
-                sizes.setX(i, p.currSize);
-                // 暗金色，质感更好
-                colors.setXYZ(i, 0.9, 0.7, 0.2); 
-            } else {
-                positions.setXYZ(i, 0, -9999, 0);
-                opacities.setX(i, 0);
-            }
-        }
-
-        positions.needsUpdate = true;
-        opacities.needsUpdate = true;
-        sizes.needsUpdate = true;
-        colors.needsUpdate = true;
-    }
-
-    emit(pos, quat, intensity) {
-        if (intensity <= 0.05) return;
-
-        const count = Math.floor(2 + intensity * 4); 
-        const offset = new THREE.Vector3();
-        const backDir = new THREE.Vector3(0, 0, 1).applyQuaternion(quat).normalize();
-
-        for(let k=0; k<count; k++) {
-            if(this.particles.length >= this.maxParticles) break;
-
-            const side = Math.random() > 0.5 ? 1.8 : -1.8;
-            
-            offset.set(
-                side + (Math.random()-0.5) * 0.2, 
-                0.0, 
-                4.0 + Math.random() * 2.0 
-            ).applyQuaternion(quat);
-
-            const p = {
-                pos: pos.clone().add(offset),
-                // 保持向后的惯性速度，这部分逻辑是对的
-                vel: backDir.clone().multiplyScalar(4.0 + Math.random() * 4.0) 
-                    .add(new THREE.Vector3(
-                        (Math.random()-0.5) * 0.2, 
-                        0, 
-                        (Math.random()-0.5) * 0.2
-                    )),
-                life: 0.6 + Math.random() * 0.6, 
-                maxLife: 0,
-                baseSize: 1.5 + Math.random() * 2.0, // 尺寸减小
-                currSize: 0,
-                currOpacity: 1
-            };
-            p.maxLife = p.life;
-            this.particles.push(p);
-        }
-    }
-}
+        
+            emit(pos, quat, intensity) {
+                if (intensity <= 0.05) return;
+        
+                const count = Math.floor(2 + intensity * 4); 
+                const offset = new THREE.Vector3();
+                const backDir = new THREE.Vector3(0, 0, 1).applyQuaternion(quat).normalize();
+        
+                for(let k=0; k<count; k++) {
+                    if(this.particles.length >= this.maxParticles) break;
+        
+                    const side = Math.random() > 0.5 ? 1.8 : -1.8;
+                    
+                    offset.set(
+                        side + (Math.random()-0.5) * 0.2, 
+                        0.0, 
+                        4.0 + Math.random() * 2.0 
+                    ).applyQuaternion(quat);
+        
+                    const p = {
+                        pos: pos.clone().add(offset),
+                        // 保持向后的惯性速度
+                        vel: backDir.clone().multiplyScalar(4.0 + Math.random() * 4.0) 
+                            .add(new THREE.Vector3(
+                                (Math.random()-0.5) * 0.2, 
+                                0, 
+                                (Math.random()-0.5) * 0.2
+                            )),
+                        life: 0.6 + Math.random() * 0.6, 
+                        maxLife: 0,
+                        // 💡 想要调整粒子基础大小？改这里
+                        baseSize: 1.0 + Math.random() * 1.5, 
+                        currSize: 0,
+                        currOpacity: 1
+                    };
+                    p.maxLife = p.life;
+                    this.particles.push(p);
+                }
+            }}
 
 // 🦌 圣诞老人驯鹿雪橇 - 增强版
 class SantaSleigh {
