@@ -1617,12 +1617,27 @@ class Train {
         this.smokeMax = 50;
         this.smokeIdx = 0;
         this.smokeData = [];
+        
+        // 🛠️ GC 优化：预分配几何体和材质 (Flyweight Pattern)
+        // 避免每节车厢都 new Geometry，共用一份资源
+        this.sharedResources = {
+            bodyGeo: new THREE.BoxGeometry(3.4, 3.8, 7.8),
+            goldBandGeo: new THREE.BoxGeometry(3.45, 0.2, 7.85),
+            roofGeo: new THREE.CylinderGeometry(2.05, 2.05, 13, 13, 1, false, 0, Math.PI),
+            winGeo: new THREE.PlaneGeometry(1.3, 1.6),
+            borderGeo: new THREE.PlaneGeometry(1.4, 1.7),
+            connectorGeo: new THREE.BoxGeometry(2.4, 2.8, 1.2),
+            wheelGeo: new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12).rotateZ(Math.PI / 2),
+            winMat: new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false })
+        };
+
         const sGeo = new THREE.IcosahedronGeometry(1, 0);
         const sMat = new THREE.MeshStandardMaterial({
             color: 0xdddddd, transparent: true, opacity: 0.6, depthWrite: false, roughness: 1, flatShading: true
         });
         this.smokeMesh = new THREE.InstancedMesh(sGeo, sMat, this.smokeMax);
         this.smokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.smokeMesh.frustumCulled = false; // 关键修复：防止烟雾被错误剔除
         this.grp.add(this.smokeMesh);
 
         // 预先创建辅助对象，避免反复创建
@@ -1678,138 +1693,116 @@ class Train {
 
     mkCar(i) {
         const g = new THREE.Group();
-        // 经典的圣诞特快配色：深红、墨绿、海军蓝
         const cols = [0x8b0000, 0x004d26, 0x003366, 0xb8860b];
         const col = cols[(i - 1) % 4];
         
         const matBody = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.2 });
         const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.8 });
 
-        // 1. 车身主体
-        const body = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.8, 7.8), matBody);
+        // 1. 车身 (共享 Geo)
+        const body = new THREE.Mesh(this.sharedResources.bodyGeo, matBody);
         body.position.y = 3.3;
         
-        // 2. 金色装饰腰线 (新加细节)
-        const goldBand = new THREE.Mesh(new THREE.BoxGeometry(3.45, 0.2, 7.85), matGold);
-        goldBand.position.y = 3.0; // 位于车窗下方
+        // 2. 金色装饰 (共享 Geo)
+        const goldBand = new THREE.Mesh(this.sharedResources.goldBandGeo, matGold);
+        goldBand.position.y = 3.0; 
         g.add(goldBand);
         
-        // 3. 车顶 (改为稍微扁平一点的圆弧，更像火车站)
-        // 使用 scale 压扁圆柱
+        // 3. 车顶 (共享 Geo)
         const roof = new THREE.Mesh(
-            new THREE.CylinderGeometry(2.05, 2.05, 13, 13, 1, false, 0, Math.PI),
-            new THREE.MeshStandardMaterial({color:0x222, roughness:0.9}) // 黑色磨砂顶
+            this.sharedResources.roofGeo,
+            new THREE.MeshStandardMaterial({color:0x222, roughness:0.9}) 
         );
         roof.rotation.set(0, Math.PI/2, Math.PI/2);
         roof.scale.set(1, 0.65, 1);
         roof.position.set(0, 5.1, 0);
 
-        // 3.5 车顶积雪 - 使用共享资源优化
+        // 3.5 车顶积雪 (保持原有逻辑，因积雪形状随机，难以完全共享实例，暂且保留)
         const snowGroup = new THREE.Group();
-        // 顶棚几何分析：
-        // - CylinderGeometry(2.05, 2.05, 13) 创建半径2.05、高度13的半圆柱
-        // - rotation(0, π/2, π/2) 后：原始Z轴(半圆凸起方向)变成+Y轴
-        // - scale(1, 0.65, 1) 压缩原始Y轴(圆柱长度)，不影响拱形高度
-        // - 因此拱形的实际高度是完整的半径2.05，不受scale.y影响
         const roofRadius = 2.05;
         const roofCenterY = 5.1;
 
-        // 计算拱形曲面上的Y坐标（不乘scaleY，因为拱形高度未被压缩）
         const getRoofY = (x) => {
-            const clampedX = Math.max(-roofRadius * 0.98, Math.min(roofRadius * 0.98, x));
-            return roofCenterY + Math.sqrt(roofRadius * roofRadius - clampedX * clampedX);
+            const safeX = Math.max(-roofRadius * 0.98, Math.min(roofRadius * 0.98, x));
+            return roofCenterY + Math.sqrt(roofRadius * roofRadius - safeX * safeX);
+        };
+        const getSlope = (x) => {
+            const safeX = Math.max(-roofRadius * 0.98, Math.min(roofRadius * 0.98, x));
+            return Math.atan2(safeX, Math.sqrt(roofRadius * roofRadius - safeX * safeX));
         };
 
-        // 计算曲面法线的倾斜角度
-        const getSlopeAngle = (x) => {
-            const clampedX = Math.max(-roofRadius * 0.98, Math.min(roofRadius * 0.98, x));
-            return Math.atan2(clampedX, Math.sqrt(roofRadius * roofRadius - clampedX * clampedX));
-        };
-
-        // 主要积雪层 - 沿拱形分布，集中在顶部
-        for (let j = 0; j < 10; j++) {
+        // 主要积雪层
+        for (let j = 0; j < 24; j++) {
             const snowPatch = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
-            // X位置：使用近似正态分布，积雪自然堆积在中央
-            const xRaw = (Math.random() + Math.random() + Math.random()) / 3;
-            const xSpread = (xRaw - 0.5) * 3.2; // 集中在 -1.6 ~ 1.6
+            
+            const xRaw = (Math.random() + Math.random() - 1.0) * 1.6; 
             const zPos = (Math.random() - 0.5) * 11;
-
+            const sizeFactor = 1.0 - Math.abs(xRaw)/2.5;
+            
             snowPatch.scale.set(
-                1.2 + Math.random() * 0.6,
-                0.1 + Math.random() * 0.06,
-                1.0 + Math.random() * 0.5
+                (0.5 + Math.random() * 0.3) * sizeFactor,
+                0.06 + Math.random() * 0.04,
+                (0.5 + Math.random() * 0.3) * sizeFactor
             );
 
-            const roofY = getRoofY(xSpread);
-            const slopeAngle = getSlopeAngle(xSpread);
+            const roofY = getRoofY(xRaw);
+            const slope = getSlope(xRaw);
 
-            snowPatch.position.set(
-                xSpread,
-                roofY + 0.02, // 紧贴曲面
-                zPos
-            );
-            // 根据曲面斜率倾斜积雪
-            snowPatch.rotation.z = -slopeAngle * 0.85;
-            snowPatch.rotation.y = Math.random() * 0.15;
+            snowPatch.position.set(xRaw, roofY - 0.15, zPos);
+            snowPatch.rotation.z = -slope;
+            snowPatch.rotation.y = Math.random() * Math.PI * 2;
+            
             snowGroup.add(snowPatch);
         }
 
-        // 边缘积雪 - 沿拱形两侧分布（模拟积雪滑落堆积）
+        // 边缘积雪
         for (let side = -1; side <= 1; side += 2) {
-            for (let j = 0; j < 5; j++) {
+            for (let j = 0; j < 6; j++) {
                 const edgeSnow = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
-                const xPos = side * (1.5 + Math.random() * 0.35);
-                const zPos = -4.5 + j * 2.2 + Math.random() * 0.3;
+                const xPos = side * (1.6 + Math.random() * 0.3);
+                const zPos = -4.5 + j * 1.8 + Math.random() * 0.5;
 
-                edgeSnow.scale.set(0.6, 0.08, 0.45);
+                edgeSnow.scale.set(0.4, 0.08, 0.35);
 
                 const roofY = getRoofY(xPos);
-                const slopeAngle = getSlopeAngle(xPos);
+                const slope = getSlope(xPos);
 
-                edgeSnow.position.set(
-                    xPos,
-                    roofY + 0.01,
-                    zPos
-                );
-                // 边缘积雪贴合斜面
-                edgeSnow.rotation.z = -slopeAngle;
+                edgeSnow.position.set(xPos, roofY - 0.1, zPos);
+                edgeSnow.rotation.z = -slope;
                 snowGroup.add(edgeSnow);
             }
         }
         g.add(snowGroup);
 
-        // 4. 车窗 (Basic材质防遮罩) - 保存引用用于闪烁效果
-        const winGeo = new THREE.PlaneGeometry(1.3, 1.6);
-        const winMat = new THREE.MeshBasicMaterial({ color: 0xffccaa, fog: false });
+        // 4. 车窗 (共享 Geo)
         const windows = [];
-
         for (let side = -1; side <= 1; side += 2) {
             for (let k = 0; k < 3; k++) {
-                const w = new THREE.Mesh(winGeo, winMat.clone()); // 克隆材质以便单独控制
-                const border = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.7), matGold);
+                const w = new THREE.Mesh(this.sharedResources.winGeo, this.sharedResources.winMat.clone()); 
+                const border = new THREE.Mesh(this.sharedResources.borderGeo, matGold);
 
                 w.position.set(1.76 * side, 3.8, -2.5 + k * 2.5);
                 w.rotation.y = side * Math.PI / 2;
-                w.userData.isWindow = true; // 标记为窗户
+                w.userData.isWindow = true; 
                 windows.push(w);
 
                 border.position.copy(w.position);
-                border.position.x -= 0.01 * side; // 往里一点
+                border.position.x -= 0.01 * side; 
                 border.rotation.copy(w.rotation);
 
                 g.add(border);
                 g.add(w);
             }
         }
-        g.userData.windows = windows; // 保存窗户引用
+        g.userData.windows = windows; 
 
-        // 5. 连接处 & 轮子 (保持不变)
-        const gw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x111 }));
+        // 5. 连接处 & 轮子 (共享 Geo)
+        const gw = new THREE.Mesh(this.sharedResources.connectorGeo, new THREE.MeshStandardMaterial({ color: 0x111 }));
         gw.position.set(0, 3, 4.2);
 
         const ab = z => {
             const gr = new THREE.Group(); gr.position.set(0, 0, z);
-            const w = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x111 }));
+            const w = new THREE.Mesh(this.sharedResources.wheelGeo, new THREE.MeshStandardMaterial({ color: 0x111 }));
             w.position.set(1.6, 0.65, 0);
             const w2 = w.clone(); w2.position.set(-1.6, 0.65, 0);
             gr.add(w, w2); g.add(gr); this.wheels.push(w, w2);
@@ -1839,21 +1832,16 @@ class Train {
         this.wheels.forEach(w => w.rotation.x -= dist * 150 * CFG.wheelMult);
 
         // 🚂 烟雾生成逻辑优化
-        // 1. 速度越快，喷烟频率越高
-        // 2. 即使静止，也会偶尔冒一点点烟
-
-        // 确保烟囱的世界矩阵是最新的
+        // 确保矩阵更新，以获取准确的烟囱位置
         this.loco.updateMatrixWorld(true);
         this.chim.updateMatrixWorld(true);
 
-        // 速度相关的烟雾频率
-        const baseProb = 0.15;  // 基础概率
-        const speedBonus = Math.min(speed * 4, 0.6); // 速度加成，最高0.6
-        const smokeProb = speed > 0.005 ? (baseProb + speedBonus) : 0.03;
+        // 冒烟概率：保底 0.05 (静止也有呼吸感) + 速度加成
+        const smokeProb = 0.05 + Math.min(speed * 5.0, 0.8);
 
         if(Math.random() < smokeProb) {
             vec3.setFromMatrixPosition(this.chim.matrixWorld);
-            // 从烟囱顶部喷出
+            // 从烟囱顶部喷出 (y轴向上偏移)
             vec3.y += 1.2;
             this.spawnSmoke(vec3, speed);
         }
@@ -1867,23 +1855,25 @@ class Train {
         const s = this.smokeData[idx];
 
         s.active = true;
-        s.life = 1.2 + Math.random() * 0.4; // 稍微增加生命值
-        s.scale = 0.5 + Math.random() * 0.5; // 稍大一点
+        s.life = 1.0 + Math.random() * 0.5; 
+        s.scale = 0.6 + Math.random() * 0.4; 
         s.pos = pos.clone();
-        s.trainSpeed = trainSpeed; // 记录当前速度用于后续更新
+        s.trainSpeed = trainSpeed; 
 
-        // 复用 _trainDir 计算火车前进方向（烟向后飘）
-        this._trainDir.set(0, 0, 1).applyQuaternion(this.loco.quaternion).normalize();
+        const q = new THREE.Quaternion();
+        this.loco.getWorldQuaternion(q);
+        const upDir = new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize();
 
-        // 烟雾向后飘的速度与车速成正比
-        // 负号因为烟要向后飘（与前进方向相反）
-        const backSpeed = trainSpeed * 15 * STATE.trainDir; // 增强向后飘的效果
+        // 修正：大幅降低速度对喷射力度的影响系数
+        // 基础 2.5，最大增量也就 +3.2 (当 speed=0.4时)
+        // 这样高速时虽然喷得快，但不会窜上天
+        const burstPower = 2.5 + trainSpeed * 8.0; 
 
-        s.vel.set(
-            -this._trainDir.x * backSpeed + (Math.random() - 0.5) * 0.3,
-            1.5 + Math.random() * 0.8 + trainSpeed * 2, // 车速快时上升更快
-            -this._trainDir.z * backSpeed + (Math.random() - 0.5) * 0.3
-        );
+        s.vel.copy(upDir).multiplyScalar(burstPower);
+
+        // 修正：减小随机湍流，让烟柱更凝聚
+        s.vel.x += (Math.random() - 0.5) * 0.6;
+        s.vel.z += (Math.random() - 0.5) * 0.6;
 
         this.smokeIdx = (this.smokeIdx + 1) % this.smokeMax;
     }
@@ -1891,21 +1881,41 @@ class Train {
     updateSmoke(currentSpeed) {
         let dirty = false;
 
+        // 💨 动态风场计算 (Dynamic Wind Field)
+        const t = clock.getElapsedTime();
+        // 基础风力 + 阵风扰动 (使用不同频率的正弦波叠加)
+        // 模拟一阵阵的风，风向和力度随时间变化
+        const windX = (Math.sin(t * 0.8) + Math.sin(t * 2.5) * 0.6) * 0.015;
+        const windZ = (Math.cos(t * 0.6) + Math.sin(t * 1.9) * 0.6) * 0.015;
+
         for(let i=0; i<this.smokeMax; i++) {
             const s = this.smokeData[i];
             if(!s.active) continue;
 
+            // 1. 应用风力 (在阻力之前应用，让风持续推动)
+            s.vel.x += windX;
+            s.vel.z += windZ;
+
+            // 2. 物理运动
             s.pos.add(s.vel);
-            // 阻力 - 车速快时阻力小（烟飘得更远）
-            const drag = 0.92 - currentSpeed * 0.3;
-            s.vel.x *= drag; s.vel.z *= drag;
-            s.vel.y *= 0.97;
-            s.vel.y += 0.008; // 轻微上浮
-            s.life -= 0.018;
+
+            // 3. 空气阻力 (Air Resistance)
+            // 速度极快衰减，模拟撞击静止空气
+            s.vel.multiplyScalar(0.85); 
+
+            // 4. 热浮力 (Buoyancy)
+            if (s.vel.y < 0.8) {
+                s.vel.y += 0.02; 
+            }
+
+            // 气体膨胀
+            const age = 1.0 - (s.life / 1.5); 
+            const expansion = 1.0 + age * 3.0; 
+            
+            s.life -= 0.016;
 
             if(s.life <= 0) {
                 s.active = false;
-                // 归位到看不见的地方
                 this.dummy.position.set(0, -1000, 0);
                 this.dummy.updateMatrix();
                 this.smokeMesh.setMatrixAt(i, this.dummy.matrix);
@@ -1914,21 +1924,13 @@ class Train {
             }
 
             // 更新变换
-            const progress = 1 - s.life;
-            const curScale = s.scale * (1 + progress * 5.0);
-            
             this.dummy.position.copy(s.pos);
-            this.dummy.scale.setScalar(curScale);
-            // 旋转增加动态感
-            this.dummy.rotation.set(progress, progress, progress); 
+            this.dummy.scale.setScalar(s.scale * expansion);
+            this.dummy.rotation.set(age, age, age); 
             this.dummy.updateMatrix();
             
             this.smokeMesh.setMatrixAt(i, this.dummy.matrix);
             dirty = true;
-            
-            // 注意：InstancedMesh 默认不支持修改单个实例的 Opacity (透明度)。
-            // 这里的折中方案是：让它变小或者完全消失，或者接受统一的 opacity。
-            // 如果必须淡出，需要自定义 Shader，但对于性能优化版，我们主要追求流畅。
         }
 
         if(dirty) this.smokeMesh.instanceMatrix.needsUpdate = true;
@@ -1950,8 +1952,8 @@ class Train {
             this.buildGiftTemplate();
         }
 
-        // 冷却检查 (0.8秒)
-        if (Date.now() - this.giftCooldown < 800) return false;
+        // 冷却检查 (0.2秒，可以扔快点)
+        if (Date.now() - this.giftCooldown < 200) return false;
         this.giftCooldown = Date.now();
 
         // 创建礼盒
@@ -1967,32 +1969,41 @@ class Train {
         const worldPos = new THREE.Vector3();
         car.getWorldPosition(worldPos);
 
-        // 随机选择左侧或右侧
+        // 随机选择左侧或右侧 (-1 或 1)
         const side = Math.random() > 0.5 ? 1 : -1;
 
-        // 计算车厢的侧向方向（垂直于行驶方向）
-        const sideDir = new THREE.Vector3(side, 0, 0);
-        sideDir.applyQuaternion(car.quaternion);
+        // 获取车厢的“右”向量 (Local X axis)
+        const rightVec = new THREE.Vector3(1, 0, 0).applyQuaternion(car.quaternion);
+        
+        // 获取车厢的“上”向量 (Local Y axis)
+        const upVec = new THREE.Vector3(0, 1, 0).applyQuaternion(car.quaternion);
 
-        // 礼物从车厢侧边抛出
+        // 起始位置：车厢侧面窗户高度
         gift.position.copy(worldPos);
-        gift.position.y += 5; // 从车顶扔出
-        gift.position.add(sideDir.clone().multiplyScalar(2)); // 向侧边偏移
+        gift.position.addScaledVector(rightVec, side * 2.0); // 向外偏移
+        gift.position.addScaledVector(upVec, 1.0); // 稍微向上
         gift.scale.set(0.5, 0.5, 0.5);
 
         scene.add(gift);
 
-        // 向侧面抛出（增大侧向速度，减小向上速度）
-        const throwDir = new THREE.Vector3(side * 1.0, 0.25, (Math.random() - 0.5) * 0.1);
-        throwDir.applyQuaternion(car.quaternion);
+        // 计算抛出速度向量
+        // 1. 基础侧向速度 (向外)
+        const throwVel = rightVec.clone().multiplyScalar(side * (8 + Math.random() * 8)); 
+        
+        // 2. 垂直分量 (向上抛)
+        throwVel.add(upVec.clone().multiplyScalar(5 + Math.random() * 5));
+
+        // 3. 前后随机分量 (避免落点成一条直线)
+        const forwardVec = new THREE.Vector3(0, 0, 1).applyQuaternion(car.quaternion);
+        throwVel.add(forwardVec.multiplyScalar((Math.random() - 0.5) * 10));
 
         this.droppedGifts.push({
             mesh: gift,
-            vel: throwDir.multiplyScalar(10),
+            vel: throwVel,
             rotVel: new THREE.Vector3(
-                (Math.random() - 0.5) * 0.15,
-                (Math.random() - 0.5) * 0.15,
-                (Math.random() - 0.5) * 0.15
+                (Math.random() - 0.5) * 0.5,
+                (Math.random() - 0.5) * 0.5,
+                (Math.random() - 0.5) * 0.5
             ),
             landed: false
         });
@@ -2017,6 +2028,20 @@ class Train {
         while (this.droppedGifts.length > 20) {
             const oldest = this.droppedGifts.shift();
             scene.remove(oldest.mesh);
+
+            // 🗑️ 内存清理
+            oldest.mesh.traverse(child => {
+                if (child.isMesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -2208,276 +2233,659 @@ class Fireworks {
     }
 }
 
+// ✨ 独立的魔法尾迹系统 (晶莹星尘版 - 最终优化)
+class MagicTrail {
+    constructor(scene) {
+        this.maxParticles = 1500; // 更多、更细碎的粒子
+        this.particles = [];
+        this.scene = scene;
+
+        // 1. 纹理：锐利的星点 + 极淡的光晕
+        // 之前的纹理太糊、太满，导致重叠后像棉花/火焰
+        const cv = document.createElement('canvas'); cv.width=64; cv.height=64;
+        const cx = cv.getContext('2d'); 
+        
+        // 背景光晕 (极淡)
+        const g = cx.createRadialGradient(32,32,0,32,32,32);
+        g.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+        g.addColorStop(0.5, 'rgba(255, 240, 200, 0.1)');
+        g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        cx.fillStyle = g; cx.fillRect(0,0,64,64);
+        
+        // 核心星点 (锐利)
+        cx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+        cx.beginPath(); cx.arc(32,32,3,0,Math.PI*2); cx.fill();
+
+        const tex = new THREE.CanvasTexture(cv);
+
+        // 2. 几何体
+        this.geo = new THREE.BufferGeometry();
+        this.geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.maxParticles * 3), 3));
+        this.geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.maxParticles * 3), 3));
+        this.geo.setAttribute('size', new THREE.BufferAttribute(new Float32Array(this.maxParticles), 1));
+        this.geo.setAttribute('opacity', new THREE.BufferAttribute(new Float32Array(this.maxParticles), 1));
+
+        // 3. 材质
+        this.mat = new THREE.ShaderMaterial({
+            uniforms: { map: { value: tex } },
+            vertexShader: `
+                attribute float size;
+                attribute vec3 color;
+                attribute float opacity;
+                varying vec3 vColor;
+                varying float vOpacity;
+                void main() {
+                    vColor = color;
+                    vOpacity = opacity;
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                    // 减小尺寸系数，让粒子看起来更远、更细
+                    gl_PointSize = size * (800.0 / -mvPosition.z); 
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D map;
+                varying vec3 vColor;
+                varying float vOpacity;
+                void main() {
+                    vec4 texColor = texture2D(map, gl_PointCoord);
+                    if (texColor.a < 0.05) discard; // 剔除极淡的边缘，保持清爽
+                    gl_FragColor = vec4(vColor, texColor.a * vOpacity); 
+                }
+            `,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.NormalBlending // 保持 NormalBlending，柔和不刺眼
+        });
+
+        this.mesh = new THREE.Points(this.geo, this.mat);
+        this.mesh.frustumCulled = false; 
+        
+        const posAttr = this.geo.attributes.position;
+        for(let i=0; i<this.maxParticles; i++) posAttr.setXYZ(i, 0, -9999, 0);
+        
+        this.scene.add(this.mesh);
+    }
+
+    update(dt) {
+        const positions = this.geo.attributes.position;
+        const opacities = this.geo.attributes.opacity;
+        const sizes = this.geo.attributes.size;
+        const colors = this.geo.attributes.color;
+
+        for(let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.life -= dt;
+
+            if(p.life <= 0) {
+                this.particles.splice(i, 1);
+                continue;
+            }
+
+            p.pos.add(p.vel);
+            p.vel.multiplyScalar(0.92); // 强阻力，让星尘尽快停留在原地
+            p.vel.y -= 0.01 * dt;       // 几乎悬浮
+
+            // 闪烁效果
+            const age = p.life / p.maxLife; 
+            // 随机闪烁因子
+            const blink = Math.sin(age * 20.0 + p.randomPhase) * 0.3 + 0.7;
+            
+            p.currOpacity = age * blink * 0.8; 
+            p.currSize = p.baseSize * age; 
+        }
+
+        for(let i=0; i<this.maxParticles; i++) {
+            if(i < this.particles.length) {
+                const p = this.particles[i];
+                positions.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
+                opacities.setX(i, p.currOpacity);
+                sizes.setX(i, p.currSize);
+                // 香槟金 (Champagne Gold) - 去除红味，增加高贵感
+                colors.setXYZ(i, 1.0, 0.95, 0.6); 
+            } else {
+                positions.setXYZ(i, 0, -9999, 0);
+                opacities.setX(i, 0);
+            }
+        }
+
+        positions.needsUpdate = true;
+        opacities.needsUpdate = true;
+        sizes.needsUpdate = true;
+        colors.needsUpdate = true;
+    }
+
+    emit(pos, quat, intensity) {
+        if (intensity <= 0.05) return;
+
+        // 减少每帧发射数量，避免重叠成团
+        const count = Math.floor(1 + intensity * 3); 
+        const offset = new THREE.Vector3();
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quat); 
+
+        for(let k=0; k<count; k++) {
+            if(this.particles.length >= this.maxParticles) break;
+
+            // 宽阔的散布 (Wide Spread) - 避免成线
+            offset.set(
+                (Math.random() - 0.5) * 12.0, // 很宽的左右散布
+                (Math.random() - 0.5) * 4.0 + 2.0, 
+                (Math.random() - 0.5) * 6.0 + 10.0 // 靠后
+            ).applyQuaternion(quat);
+
+            const p = {
+                pos: pos.clone().add(offset),
+                // 速度主要是扩散，而不是向后喷射
+                vel: forward.clone().multiplyScalar(0.2) // 很小的向后初速度
+                    .add(new THREE.Vector3(
+                        (Math.random()-0.5) * 0.8, 
+                        (Math.random()-0.5) * 0.8, 
+                        (Math.random()-0.5) * 0.8
+                    )),
+                life: 2.0 + Math.random() * 2.0, // 长寿命
+                maxLife: 0,
+                baseSize: 1.5 + Math.random() * 2.5, // 小尺寸
+                currSize: 0,
+                currOpacity: 1,
+                randomPhase: Math.random() * 100
+            };
+            p.maxLife = p.life;
+            this.particles.push(p);
+        }
+    }
+}
+
 // 🦌 圣诞老人驯鹿雪橇 - 增强版
 class SantaSleigh {
     constructor(sc) {
         this.scene = sc;
         this.group = new THREE.Group();
         this.active = false;
-        this.nextTrigger = 12 + Math.random() * 8; // 首次12-20秒后出现
+        this.nextTrigger = 12 + Math.random() * 8; 
         this.elapsed = 0;
 
-        // 飞行阶段: 'approach' → 'sync' → 'drop' → 'depart'
         this.phase = 'idle';
         this.phaseTime = 0;
 
-        // 飞行参数
-        this.approachDur = 4;    // 飞来时间
-        this.syncDur = 3;        // 同步飞行时间
-        this.dropDur = 0.8;      // 扔礼物时间
-        this.departDur = 4;      // 飞走时间
-        this.hoverHeight = 35;   // 火车上方高度
+        this.approachDur = 4;    
+        this.syncDur = 3;        
+        this.dropDur = 0.8;      
+        this.departDur = 4;      
+        this.hoverHeight = 35;   
 
-        // 落下的礼盒
         this.fallingGifts = [];
-        this._tempVel = new THREE.Vector3();  // 复用向量
-
-        // 复用对象（避免每帧 GC）
+        
+        // 🛠️ GC 优化：预分配复用对象
+        this._tempVel = new THREE.Vector3();
+        this._tempVec = new THREE.Vector3();
+        this._targetPos = new THREE.Vector3();
+        this._lookPos = new THREE.Vector3();
+        this._sleighWorldPos = new THREE.Vector3();
+        
         this._targetQuat = new THREE.Quaternion();
         this._lookMatrix = new THREE.Matrix4();
         this._upVector = new THREE.Vector3(0, 1, 0);
         this._lookDir = new THREE.Vector3();
 
-        // 构建雪橇组
         this.buildSleigh();
         this.buildReindeer();
-        this.buildTrail();
+        // 🌟 使用新的模块化尾迹系统
+        this.trail = new MagicTrail(sc);
         this.buildGiftTemplate();
 
+        // 🔧 修正朝向与位置
+        this.reindeer.rotation.y = Math.PI; 
+        this.sleigh.rotation.y = Math.PI;
+        this.reindeer.position.set(0, 0, -6); 
+        this.sleigh.position.set(0, 0, 6);
+
         this.group.visible = false;
-        this.group.scale.set(1.0, 1.0, 1.0); // 保持原始大小以提高可见性
+        this.group.scale.set(1.0, 1.0, 1.0); 
         sc.add(this.group);
     }
 
     buildSleigh() {
         const sleighG = new THREE.Group();
 
-        // 材质
-        const matRed = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.6 });
-        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.5 });
-        const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+        const matRed = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.4 });
+        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
+        const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }); // 绒毛感
+        const matFace = new THREE.MeshStandardMaterial({ color: 0xffccaa, roughness: 0.5 });
 
-        // 雪橇底座
-        const baseGeo = new THREE.BoxGeometry(8, 1.5, 3);
-        const base = new THREE.Mesh(baseGeo, matRed);
-        sleighG.add(base);
+        // 🛷 雪橇主体
+        const createRunner = (x) => {
+            const rG = new THREE.Group();
+            rG.position.set(x, 0, 0);
+            
+            // 直段
+            const straight = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 6), matGold);
+            straight.position.y = 0.2;
+            rG.add(straight);
 
-        // 雪橇滑板
-        const runnerGeo = new THREE.BoxGeometry(10, 0.3, 0.4);
-        const runner1 = new THREE.Mesh(runnerGeo, matGold);
-        runner1.position.set(0, -1, 1.2);
-        const runner2 = new THREE.Mesh(runnerGeo, matGold);
-        runner2.position.set(0, -1, -1.2);
-        sleighG.add(runner1, runner2);
+            // 卷曲前端
+            const curl = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.15, 8, 16, Math.PI), matGold);
+            curl.position.set(0, 1.7, 3.0); // 前端
+            curl.rotation.y = Math.PI/2;
+            curl.rotation.z = Math.PI/4; // 向上卷
+            rG.add(curl);
 
-        // 雪橇靠背
-        const backGeo = new THREE.BoxGeometry(0.5, 4, 2.5);
-        const back = new THREE.Mesh(backGeo, matRed);
-        back.position.set(-3.5, 2, 0);
-        sleighG.add(back);
+            // 支撑杆
+            const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5), matGold);
+            leg1.position.set(0, 1.0, 1.5);
+            const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5), matGold);
+            leg2.position.set(0, 1.0, -1.5);
+            rG.add(leg1, leg2);
 
-        // 圣诞老人（简化版：红色球+白色底部）
-        const santaBody = new THREE.Mesh(
-            new THREE.SphereGeometry(1.8, 12, 12),
-            matRed
-        );
-        santaBody.position.set(-1, 2.5, 0);
-        santaBody.scale.y = 1.3;
-        sleighG.add(santaBody);
+            return rG;
+        };
+        sleighG.add(createRunner(1.8));
+        sleighG.add(createRunner(-1.8));
 
-        // 圣诞老人头
-        const santaHead = new THREE.Mesh(
-            new THREE.SphereGeometry(0.9, 10, 10),
-            new THREE.MeshStandardMaterial({ color: 0xffccaa })
-        );
-        santaHead.position.set(-1, 4.5, 0);
-        sleighG.add(santaHead);
+        // 车厢
+        const carriage = new THREE.Group();
+        carriage.position.y = 2.0;
+        
+        // 底板
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(4, 0.5, 5), matRed);
+        carriage.add(floor);
+        
+        // 侧板 (带弧度)
+        const sideGeo = new THREE.BoxGeometry(0.2, 2, 5);
+        const sideL = new THREE.Mesh(sideGeo, matRed); sideL.position.set(1.9, 1, 0);
+        const sideR = new THREE.Mesh(sideGeo, matRed); sideR.position.set(-1.9, 1, 0);
+        // 靠背
+        const back = new THREE.Mesh(new THREE.BoxGeometry(4, 2.5, 0.2), matRed);
+        back.position.set(0, 1.25, -2.4);
+        
+        // 金色边缘
+        const rimL = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 5.2).rotateX(Math.PI/2), matGold);
+        rimL.position.set(1.9, 2.0, 0);
+        const rimR = rimL.clone(); rimR.position.set(-1.9, 2.0, 0);
+        
+        carriage.add(sideL, sideR, back, rimL, rimR);
+        sleighG.add(carriage);
 
-        // 圣诞帽
-        const hatCone = new THREE.Mesh(
-            new THREE.ConeGeometry(0.7, 1.8, 10),
-            matRed
-        );
-        hatCone.position.set(-1, 5.8, 0);
-        hatCone.rotation.z = 0.3;
-        sleighG.add(hatCone);
+        // 🎅 圣诞老人
+        const santa = new THREE.Group();
+        santa.position.set(0, 2.5, -0.5);
 
-        // 帽子白边
-        const hatBrim = new THREE.Mesh(
-            new THREE.TorusGeometry(0.75, 0.15, 6, 12),
-            matWhite
-        );
-        hatBrim.position.set(-1, 5.2, 0);
-        hatBrim.rotation.x = Math.PI / 2;
-        sleighG.add(hatBrim);
+        // 身体 (胖)
+        const body = new THREE.Mesh(new THREE.SphereGeometry(1.4, 12, 12), matRed);
+        body.scale.y = 1.2;
+        santa.add(body);
 
-        // 帽子白球
-        const hatPom = new THREE.Mesh(
-            new THREE.SphereGeometry(0.25, 8, 8),
-            matWhite
-        );
-        hatPom.position.set(-0.5, 6.6, 0);
-        sleighG.add(hatPom);
+        // 纽扣
+        for(let i=0; i<3; i++) {
+            const btn = new THREE.Mesh(new THREE.SphereGeometry(0.15), matGold);
+            btn.position.set(0, 0.5 + i*0.6, 1.2);
+            santa.add(btn);
+        }
 
-        // 礼物袋
-        const bagGeo = new THREE.SphereGeometry(2, 10, 10);
-        const bag = new THREE.Mesh(bagGeo, matRed);
-        bag.position.set(-2.5, 2, 0);
-        bag.scale.set(1.2, 1.5, 1);
-        sleighG.add(bag);
+        // 头
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 12), matFace);
+        head.position.y = 2.2;
+        santa.add(head);
 
-        // 旋转雪橇组，使其面向-Z方向（与驯鹿一致）
-        sleighG.rotation.y = -Math.PI / 2;
+        // 大胡子 (不规则形状)
+        const beard = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6, 0), matWhite);
+        beard.position.set(0, 1.9, 0.6);
+        beard.scale.set(1, 1.2, 0.5);
+        santa.add(beard);
+
+        // 帽子
+        const hatGroup = new THREE.Group();
+        hatGroup.position.y = 2.7;
+        hatGroup.rotation.x = -0.2; // 稍微后仰
+        
+        const hatBrim = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.2, 8, 16), matWhite);
+        hatBrim.rotation.x = Math.PI/2;
+        
+        const hatCone = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.8, 16), matRed);
+        hatCone.position.y = 0.9;
+        hatCone.rotation.x = -0.2; // 帽尖后垂
+        
+        const hatBall = new THREE.Mesh(new THREE.SphereGeometry(0.25), matWhite);
+        hatBall.position.set(0, 1.7, -0.4); // 垂在后面
+
+        hatGroup.add(hatBrim, hatCone, hatBall);
+        santa.add(hatGroup);
+
+        // 手臂 (举着缰绳)
+        const armGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.5);
+        const armL = new THREE.Mesh(armGeo, matRed);
+        armL.position.set(1.2, 1.2, 0.5);
+        armL.rotation.set(1.0, 0, -0.5); // 向前举
+        const armR = new THREE.Mesh(armGeo, matRed);
+        armR.position.set(-1.2, 1.2, 0.5);
+        armR.rotation.set(1.0, 0, 0.5);
+        
+        // 手套
+        const gloveL = new THREE.Mesh(new THREE.SphereGeometry(0.35), matWhite);
+        gloveL.position.y = 0.8; 
+        armL.add(gloveL);
+        const gloveR = gloveL.clone();
+        armR.add(gloveR);
+
+        santa.add(armL, armR);
+        sleighG.add(santa);
+
+        // 🎁 礼物袋
+        const sack = new THREE.Mesh(new THREE.IcosahedronGeometry(1.8, 0), new THREE.MeshStandardMaterial({color:0x8b4513}));
+        sack.position.set(0, 3.0, -2.0);
+        sack.scale.set(1.2, 1.0, 0.8);
+        sack.rotation.z = 0.2;
+        sleighG.add(sack);
+
+        // 整体位置：放在驯鹿后面 (reindeer 在 0,0,0 附近)
+        // 我们的驯鹿朝向 +Z (前进)，所以雪橇在 -Z 方向
+        // 之前的代码逻辑里 forward 是 -Z? 不，我们之前的 buildReindeer 改为 +Z 前进了。
+        // 所以这里雪橇应该在 -Z 位置。
+        sleighG.position.set(0, 0, -5);
+        sleighG.scale.set(0.8, 0.8, 0.8);
 
         this.sleigh = sleighG;
-        this.sleigh.position.z = 6; // 雪橇在驯鹿后方（+Z方向，因为-Z是前方）
         this.group.add(sleighG);
     }
 
     buildReindeer() {
         const reindeerG = new THREE.Group();
-        const matBrown = new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.8 });
-        const matDarkBrown = new THREE.MeshStandardMaterial({ color: 0x5d3a1a, roughness: 0.7 });
-        const matRed = new THREE.MeshStandardMaterial({
-            color: 0xff0000,
-            roughness: 0.3,
-            emissive: 0xff0000,
-            emissiveIntensity: 0.5
-        });
+        
+        // 材质
+        const matSkin = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9 }); // 鹿皮褐
+        const matDark = new THREE.MeshStandardMaterial({ color: 0x4a3015, roughness: 0.9 }); // 深色蹄子/角
+        const matNose = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4 }); // 黑鼻子
+        const matRed = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive:0xff0000, emissiveIntensity:0.8 }); // 红鼻子
 
-        // 创建一只驯鹿
-        const createReindeer = (isRudolph = false) => {
+        // 🦌 构建单只驯鹿
+        const createDeer = (isRudolph) => {
             const deer = new THREE.Group();
 
-            // 身体
-            const body = new THREE.Mesh(
-                new THREE.CapsuleGeometry(0.8, 2.5, 6, 8),
-                matBrown
-            );
-            body.rotation.z = Math.PI / 2;
+            // 1. 躯干 (Torso)
+            const bodyGeo = new THREE.BoxGeometry(1.1, 1.3, 2.6);
+            const body = new THREE.Mesh(bodyGeo, matSkin);
+            body.position.y = 2.0;
             deer.add(body);
 
-            // 头
-            const head = new THREE.Mesh(
-                new THREE.SphereGeometry(0.5, 8, 8),
-                matBrown
-            );
-            head.position.set(2, 0.3, 0);
-            head.scale.set(1.3, 1, 1);
-            deer.add(head);
+            // 2. 脖子 (Neck)
+            const neck = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.9), matSkin);
+            neck.position.set(0, 3.0, 1.4); // 偏前
+            neck.rotation.x = -Math.PI / 6; // 向后仰
+            deer.add(neck);
 
-            // 鹿角
-            const antlerMat = matDarkBrown;
-            const antlerGeo = new THREE.CylinderGeometry(0.05, 0.08, 0.8, 6);
+            // 3. 头部 (Head)
+            const headGroup = new THREE.Group();
+            headGroup.position.set(0, 3.8, 1.9);
+            
+            // 脸部主体
+            const face = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.85, 1.2), matSkin);
+            headGroup.add(face);
+            
+            // 嘴部突出
+            const snout = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.5, 0.6), matSkin);
+            snout.position.set(0, -0.15, 0.7);
+            headGroup.add(snout);
 
-            [-1, 1].forEach(side => {
-                const antler = new THREE.Mesh(antlerGeo, antlerMat);
-                antler.position.set(1.8, 0.8, side * 0.3);
-                antler.rotation.z = side * 0.4;
-                deer.add(antler);
-
-                // 分叉
-                const branch = new THREE.Mesh(antlerGeo, antlerMat);
-                branch.scale.set(0.7, 0.5, 0.7);
-                branch.position.set(1.6, 1.1, side * 0.35);
-                branch.rotation.z = side * 0.8;
-                deer.add(branch);
-            });
-
-            // 腿
-            const legGeo = new THREE.CylinderGeometry(0.12, 0.1, 1.2, 6);
-            [[-0.8, -0.3], [-0.8, 0.3], [0.8, -0.3], [0.8, 0.3]].forEach(([x, z]) => {
-                const leg = new THREE.Mesh(legGeo, matBrown);
-                leg.position.set(x, -1.2, z);
-                deer.add(leg);
-            });
-
-            // 红鼻子（仅 Rudolph）
-            if (isRudolph) {
-                const nose = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.18, 8, 8),
-                    matRed
-                );
-                nose.position.set(2.6, 0.25, 0);
-                deer.add(nose);
-
-                // 发光
-                const light = new THREE.PointLight(0xff0000, 0.8, 15);
-                light.position.copy(nose.position);
-                deer.add(light);
+            // 鼻子 (Nose)
+            const noseMat = isRudolph ? matRed : matNose;
+            const nose = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), noseMat);
+            nose.position.set(0, 0.15, 1.0);
+            headGroup.add(nose);
+            if(isRudolph) {
+                const light = new THREE.PointLight(0xff0000, 1.5, 10);
+                light.position.set(0, 0.2, 1.2);
+                headGroup.add(light);
             }
+
+            // 耳朵
+            const earGeo = new THREE.BoxGeometry(0.6, 0.3, 0.15);
+            const earL = new THREE.Mesh(earGeo, matSkin);
+            earL.position.set(0.5, 0.2, -0.3);
+            earL.rotation.set(0, 0.4, 0.3);
+            const earR = new THREE.Mesh(earGeo, matSkin);
+            earR.position.set(-0.5, 0.2, -0.3);
+            earR.rotation.set(0, -0.4, -0.3);
+            headGroup.add(earL, earR);
+
+            // 鹿角 (Antlers)
+            const antGeo = new THREE.CylinderGeometry(0.04, 0.06, 1.2);
+            [1, -1].forEach(side => {
+                const ant = new THREE.Mesh(antGeo, matDark);
+                ant.position.set(side * 0.3, 0.8, -0.2);
+                ant.rotation.z = side * 0.3;
+                ant.rotation.x = -0.2;
+                
+                // 分叉
+                const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.04,0.6), matDark);
+                branch.position.y = 0.2;
+                branch.position.z = 0.2;
+                branch.rotation.x = Math.PI/3;
+                ant.add(branch);
+
+                headGroup.add(ant);
+            });
+
+            deer.add(headGroup);
+
+            // 4. 四肢 (Legs) - 简单的关节运动模拟
+            // 腿部几何体
+            const upperLegGeo = new THREE.BoxGeometry(0.35, 1.2, 0.35);
+            const lowerLegGeo = new THREE.BoxGeometry(0.25, 1.2, 0.25);
+
+            const createLeg = (x, z, isFront) => {
+                const legG = new THREE.Group();
+                legG.position.set(x, 1.5, z); // 髋关节位置
+
+                // 大腿
+                const upper = new THREE.Mesh(upperLegGeo, matSkin);
+                upper.position.y = -0.5;
+                // 关节弯曲：前腿向后弯，后腿向前弯
+                upper.rotation.x = isFront ? 0.1 : -0.1; 
+                
+                // 小腿
+                const lower = new THREE.Mesh(lowerLegGeo, matSkin);
+                lower.position.y = -1.1;
+                lower.position.z = isFront ? -0.1 : 0.1;
+                lower.rotation.x = isFront ? -0.2 : 0.2;
+                
+                upper.add(lower);
+                legG.add(upper);
+                return legG;
+            };
+
+            // 前腿
+            deer.add(createLeg(0.35, 1.0, true));
+            deer.add(createLeg(-0.35, 1.0, true));
+            // 后腿
+            deer.add(createLeg(0.35, -1.0, false));
+            deer.add(createLeg(-0.35, -1.0, false));
+
+            // 小尾巴
+            const tail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.2), matSkin);
+            tail.position.set(0, 2.2, -1.4);
+            tail.rotation.x = 0.5;
+            deer.add(tail);
 
             return deer;
         };
 
-        // 领头的 Rudolph
-        const rudolph = createReindeer(true);
-        rudolph.position.set(8, 0, 0);
+        // 🦌 编队
+        // 领头 Rudolph
+        const rudolph = createDeer(true);
+        rudolph.position.set(0, 0, 10); // 最前面
         reindeerG.add(rudolph);
 
-        // 第二排两只
-        const deer1 = createReindeer();
-        deer1.position.set(4, 0, -2);
-        const deer2 = createReindeer();
-        deer2.position.set(4, 0, 2);
-        reindeerG.add(deer1, deer2);
+        // 中间两对
+        const d1 = createDeer(false); d1.position.set(-1.8, 0, 6);
+        const d2 = createDeer(false); d2.position.set(1.8, 0, 6);
+        const d3 = createDeer(false); d3.position.set(-1.8, 0, 2);
+        const d4 = createDeer(false); d4.position.set(1.8, 0, 2);
+        reindeerG.add(d1, d2, d3, d4);
 
-        // 第三排两只
-        const deer3 = createReindeer();
-        deer3.position.set(0, 0, -2);
-        const deer4 = createReindeer();
-        deer4.position.set(0, 0, 2);
-        reindeerG.add(deer3, deer4);
-
-        // 缰绳（简单的线条）
-        const ropeMat = new THREE.LineBasicMaterial({ color: 0x8b4513 });
-        const ropePoints = [
-            new THREE.Vector3(-4, 0, 0),  // 雪橇前端
-            new THREE.Vector3(0, 0, 0),    // 后排
-            new THREE.Vector3(4, 0, 0),    // 前排
-            new THREE.Vector3(8, 0, 0),    // Rudolph
+        // 缰绳连接
+        const ropeMat = new THREE.LineBasicMaterial({ color: 0x5d3a1a });
+        const pts = [
+            new THREE.Vector3(0, 2.5, 10), // Rudolph Neck (Leader)
+            new THREE.Vector3(0, 2.5, 6),  // Mid
+            new THREE.Vector3(0, 2.5, 2),  // Back
+            // 🔧 修复：延长缰绳以匹配新的雪橇位置
+            // 驯鹿在 -6，雪橇在 6，间距 12。
+            // 驯鹿局部坐标 -Z 是后方，所以要延伸到 -13 左右才能碰到圣诞老人的手
+            new THREE.Vector3(0, 3.5, -13)  
         ];
-        const ropeGeo = new THREE.BufferGeometry().setFromPoints(ropePoints);
-        const rope = new THREE.Line(ropeGeo, ropeMat);
-        reindeerG.add(rope);
+        reindeerG.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), ropeMat));
 
-        // 旋转驯鹿组，使其面向-Z方向（Three.js lookAt的默认前方）
-        reindeerG.rotation.y = -Math.PI / 2;
-
+        // 整体缩放：现在的模型单位比较大，需要缩小一点以匹配火车
+        reindeerG.scale.set(0.7, 0.7, 0.7);
+        
+        // **关键修正**：之前的模型是朝向 -Z 的，现在我的模型构建是朝向 +Z (Face z=0.7)，
+        // 所以不需要旋转 -Math.PI/2，或者需要调整。
+        // 检查 SantaSleigh.update: lookAt 也是朝向目标的。
+        // 通常物体应该朝向 +Z 或 -Z。这里为了统一，我们让它朝向 +Z（前进方向）。
+        // 所以不需要额外的 rotation.y。
+        
         this.reindeer = reindeerG;
         this.group.add(reindeerG);
     }
 
     buildTrail() {
-        // 星星粒子尾迹
-        const count = 100;
-        const pos = new Float32Array(count * 3);
-        const sizes = new Float32Array(count);
-
-        for (let i = 0; i < count; i++) {
-            pos[i * 3] = 0;
-            pos[i * 3 + 1] = 0;
-            pos[i * 3 + 2] = 0;
-            sizes[i] = Math.random() * 2 + 1;
-        }
+        // 🌟 粒子尾迹系统初始化
+        this.maxTrailParticles = 1000; // 增加粒子上限
+        this.trailParticles = []; 
 
         const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.maxTrailParticles * 3), 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.maxTrailParticles * 3), 3));
+        geo.setAttribute('size', new THREE.BufferAttribute(new Float32Array(this.maxTrailParticles), 1));
 
-        const mat = new THREE.PointsMaterial({
-            color: 0xffd700,
-            size: 3,
+        const cv = document.createElement('canvas'); cv.width=64; cv.height=64;
+        const cx = cv.getContext('2d'); 
+        const g = cx.createRadialGradient(32,32,0,32,32,32);
+        g.addColorStop(0,'rgba(255,255,255,1)');
+        g.addColorStop(0.2,'rgba(255,220,100,0.9)');
+        g.addColorStop(0.5,'rgba(255,180,50,0.4)');
+        g.addColorStop(1,'rgba(0,0,0,0)'); 
+        cx.fillStyle=g; cx.fillRect(0,0,64,64);
+        const tex = new THREE.CanvasTexture(cv);
+
+        const mat = new THREE.ShaderMaterial({
+            uniforms: { map: { value: tex } },
+            vertexShader: `
+                attribute float size;
+                attribute vec3 color;
+                varying vec3 vColor;
+                void main() {
+                    vColor = color;
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                    // 超大尺寸系数，确保远看也清晰
+                    gl_PointSize = size * (3000.0 / -mvPosition.z);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D map;
+                varying vec3 vColor;
+                void main() {
+                    vec4 texColor = texture2D(map, gl_PointCoord);
+                    // 增强透明度，防止看不见
+                    gl_FragColor = vec4(vColor, 1.0) * texColor * 1.5;
+                }
+            `,
             transparent: true,
-            opacity: 0.8,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
         });
 
         this.trail = new THREE.Points(geo, mat);
-        this.trailPositions = [];
+        this.trail.frustumCulled = false; // 关键修复：防止尾迹因包围盒过期而被剔除
+        
+        const posAttr = geo.attributes.position;
+        for(let i=0; i<this.maxTrailParticles; i++) posAttr.setXYZ(i, 0, -5000, 0);
+        
         this.scene.add(this.trail);
     }
+
+    // 发射新粒子 (在飞行时持续调用)
+    emitTrail() {
+        const count = 8; // 加大发射量
+        const offset = new THREE.Vector3();
+        
+        for(let k=0; k<count; k++) {
+            if(this.trailParticles.length >= this.maxTrailParticles) break;
+
+            // 扇形发射源：雪橇尾部
+            // 因为之前我们将 group 里的模型转了 180度，但 group 本身的坐标系没变。
+            // 我们的模型：头部在局部 -Z，尾部在局部 +Z。
+            // 所以尾迹应该在 +Z 方向生成，并向 +Z 方向喷射。
+            offset.set(
+                (Math.random()-0.5) * 4.0,  // 宽一点
+                (Math.random()-0.5) * 2.0 + 2.0, 
+                (Math.random()-0.5) * 2.0 + 8.0 // 靠后 (局部+Z)
+            ).applyQuaternion(this.group.quaternion); 
+            
+            const p = {
+                pos: this.group.position.clone().add(offset),
+                // 粒子初速度：向后喷射 (局部 +Z)
+                vel: new THREE.Vector3(0,0,1).applyQuaternion(this.group.quaternion).multiplyScalar(0.8) 
+                    .add(new THREE.Vector3(
+                        (Math.random()-0.5) * 0.5, 
+                        -Math.random() * 0.2, 
+                        (Math.random()-0.5) * 0.5
+                    )),
+                life: 2.0 + Math.random() * 1.5, // 寿命更长
+                maxLife: 0, 
+                size: 6.0 + Math.random() * 6.0 // 基础尺寸更大
+            };
+            p.maxLife = p.life;
+            this.trailParticles.push(p);
+        }
+    }
+
+    // 更新所有粒子
+    updateTrailParticles(dt) {
+        const positions = this.trail.geometry.attributes.position;
+        const colors = this.trail.geometry.attributes.color;
+        const sizes = this.trail.geometry.attributes.size;
+
+        // 1. 逻辑更新
+        for(let i = this.trailParticles.length - 1; i >= 0; i--) {
+            const p = this.trailParticles[i];
+            p.life -= dt;
+
+            if(p.life <= 0) {
+                this.trailParticles.splice(i, 1);
+                continue;
+            }
+
+            p.pos.add(p.vel);
+            p.vel.multiplyScalar(0.97); // 阻力
+        }
+
+        // 2. 渲染更新
+        for(let i=0; i<this.maxTrailParticles; i++) {
+            if(i < this.trailParticles.length) {
+                const p = this.trailParticles[i];
+                positions.setXYZ(i, p.pos.x, p.pos.y, p.pos.z);
+                
+                // 颜色与大小随生命周期衰减
+                const alpha = Math.pow(p.life / p.maxLife, 1.2); 
+                
+                // 金色系：R=1.0, G=0.8~0.5, B=0.0
+                colors.setXYZ(i, 1.0 * alpha, (0.4 + 0.4 * alpha) * alpha, 0.0); 
+
+                sizes.setX(i, p.size * (0.3 + 0.7 * alpha));
+            } else {
+                // 隐藏未使用的点
+                positions.setXYZ(i, 0, -5000, 0); 
+                sizes.setX(i, 0);
+            }
+        }
+
+        positions.needsUpdate = true;
+        colors.needsUpdate = true;
+        sizes.needsUpdate = true;
+    }
+
+
 
     buildGiftTemplate() {
         // 使用共享工厂创建大号礼盒模板（带蝴蝶结中心结，白色蝴蝶结）
@@ -2530,216 +2938,264 @@ class SantaSleigh {
     update(dt) {
         this.elapsed += dt;
 
-        // 更新落下的礼盒
+        // 1. 始终更新尾迹系统 (处理残留粒子)
+        if (this.trail) this.trail.update(dt);
+        
         this.updateFallingGifts(dt);
 
-        // 检查是否触发
         if (!this.active && this.elapsed >= this.nextTrigger) {
             this.trigger();
-            this.nextTrigger = this.elapsed + 30 + Math.random() * 40; // 下次30-70秒后
+            this.nextTrigger = this.elapsed + 30 + Math.random() * 40; 
         }
 
-        if (!this.active) return;
+        if (!this.active) {
+            // 如果不活动，重置上一帧位置，防止下次出现时速度计算错误
+            if (this._lastPos) this._lastPos.copy(this.group.position);
+            return;
+        }
+
+        // 初始化上一帧位置
+        if (!this._lastPos) this._lastPos = this.group.position.clone();
+
+        // 2. 计算物理速度 (用于控制尾迹强度)
+        const dist = this.group.position.distanceTo(this._lastPos);
+        const currentSpeed = dist / dt; // 单位/秒
+        
+        // 更新上一帧位置
+        this._lastPos.copy(this.group.position);
+
+        // 3. 基于速度的喷射强度
+        // 速度约快，喷得越猛；悬停时速度接近0，自动停止喷射
+        // 30.0 是经验值，大概对应全速飞行时的速度
+        const emissionIntensity = Math.min(currentSpeed / 30.0, 1.0);
+
+        // 发射尾迹
+        if (this.trail) {
+            this.trail.emit(this.group.position, this.group.quaternion, emissionIntensity);
+        }
 
         this.phaseTime += dt;
 
-        // 获取当前火车位置和方向
-        const trainPos = train ? trackCurve.getPointAt(train.prog) : new THREE.Vector3();
-        const trainTan = train ? trackCurve.getTangentAt(train.prog) : new THREE.Vector3(0, 0, 1);
-        const trainDir = trainTan.clone().multiplyScalar(STATE.trainDir);
+        // --- 原有飞行逻辑 ---
+        const trainPos = train ? trackCurve.getPointAt(train.prog) : this._tempVec.set(0,0,0);
+        const trainTan = train ? trackCurve.getTangentAt(train.prog) : new THREE.Vector3(0, 0, 1); 
+        
+        this._lookPos.copy(trainTan).multiplyScalar(STATE.trainDir); 
+        const trainDir = this._lookPos; 
 
-        // 目标悬停位置（火车上方）
-        const hoverPos = trainPos.clone();
+        const hoverPos = this._tempVec.copy(trainPos);
         hoverPos.y += this.hoverHeight;
 
-        let targetPos, targetLook;
+        let updateLook = false;
 
         switch (this.phase) {
             case 'approach': {
-                // 从天边飞向火车上空
                 const t = Math.min(this.phaseTime / this.approachDur, 1);
-                const easeT = 1 - Math.pow(1 - t, 3); // ease out cubic
+                const easeT = 1 - Math.pow(1 - t, 3); 
 
-                targetPos = this.startPos.clone().lerp(hoverPos, easeT);
-                targetPos.y += Math.sin(t * Math.PI) * 20; // 弧线飞行
+                this._targetPos.copy(this.startPos).lerp(hoverPos, easeT);
+                this._targetPos.y += Math.sin(t * Math.PI) * 20; 
 
-                // 朝向火车方向
-                targetLook = hoverPos.clone();
+                this._lookPos.copy(hoverPos);
+                updateLook = true;
 
                 if (t >= 1) {
                     this.phase = 'sync';
                     this.phaseTime = 0;
-                    // 到达时播放铃铛
                     if (audio && audio.bell) audio.bell();
                 }
                 break;
             }
 
             case 'sync': {
-                // 与火车同步飞行
                 const t = this.phaseTime / this.syncDur;
 
-                targetPos = hoverPos.clone();
-                // 轻微上下浮动
-                targetPos.y += Math.sin(this.elapsed * 2) * 1.5;
+                this._targetPos.copy(hoverPos);
+                this._targetPos.y += Math.sin(this.elapsed * 2) * 1.5;
 
-                // 朝向与火车一致
-                targetLook = targetPos.clone().add(trainDir.clone().multiplyScalar(20));
+                const tDir = trainTan.clone().multiplyScalar(STATE.trainDir);
+                this._lookPos.copy(this._targetPos).addScaledVector(tDir, 20);
+                updateLook = true;
 
                 if (t >= 0.5 && !this.giftDropped) {
-                    // 中途扔下礼盒（传入火车运动方向，让礼物继承水平速度）
-                    this.dropGift(targetPos.clone(), trainDir.clone());
+                    if (!this._sleighWorldPos) this._sleighWorldPos = new THREE.Vector3();
+                    this._sleighWorldPos.set(0, 2, 5); 
+                    this._sleighWorldPos.applyMatrix4(this.group.matrixWorld);
+
+                    this.dropGift(this._sleighWorldPos);
                     this.giftDropped = true;
                 }
 
                 if (t >= 1) {
                     this.phase = 'depart';
                     this.phaseTime = 0;
-                    this.departStart = targetPos.clone();
+                    if(!this.departStart) this.departStart = new THREE.Vector3();
+                    this.departStart.copy(this._targetPos);
                 }
                 break;
             }
 
             case 'depart': {
-                // 飞向远方
                 const t = Math.min(this.phaseTime / this.departDur, 1);
-                const easeT = t * t; // ease in quad
+                const easeT = t * t; 
 
-                targetPos = this.departStart.clone().lerp(this.exitPos, easeT);
-                targetPos.y += Math.sin(t * Math.PI) * 30; // 弧线飞走
+                this._targetPos.copy(this.departStart).lerp(this.exitPos, easeT);
+                this._targetPos.y += Math.sin(t * Math.PI) * 30; 
 
-                targetLook = this.exitPos.clone();
+                this._lookPos.copy(this.exitPos);
+                updateLook = true;
 
                 if (t >= 1) {
                     this.active = false;
                     this.group.visible = false;
                     this.phase = 'idle';
-                    return;
                 }
                 break;
             }
         }
 
-        // 平滑移动
-        this.group.position.lerp(targetPos, 0.1);
+        if (this.active) {
+            this.group.position.lerp(this._targetPos, 0.1);
 
-        // 平滑转向（使用复用对象避免 GC）
-        if (targetLook) {
-            this._lookDir.copy(targetLook).sub(this.group.position).normalize();
-            if (this._lookDir.length() > 0.01) {
-                this._lookMatrix.lookAt(this.group.position, targetLook, this._upVector);
-                this._targetQuat.setFromRotationMatrix(this._lookMatrix);
-                this.group.quaternion.slerp(this._targetQuat, 0.05);
+            if (updateLook) {
+                this._lookDir.copy(this._lookPos).sub(this.group.position).normalize();
+                if (this._lookDir.length() > 0.01) {
+                    this._lookMatrix.lookAt(this.group.position, this._lookPos, this._upVector);
+                    this._targetQuat.setFromRotationMatrix(this._lookMatrix);
+                    this.group.quaternion.slerp(this._targetQuat, 0.05);
+                }
+            }
+
+            this.group.position.y += Math.sin(this.elapsed * 3) * 0.5;
+
+            if (this.reindeer) {
+                this.reindeer.children.forEach((deer, i) => {
+                    if (deer.type === 'Group') {
+                        deer.rotation.x = Math.sin(this.elapsed * 8 + i) * 0.15;
+                    }
+                });
             }
         }
-
-        // 轻微的上下摆动
-        this.group.position.y += Math.sin(this.elapsed * 3) * 0.5;
-
-        // 驯鹿腿部动画
-        if (this.reindeer) {
-            this.reindeer.children.forEach((deer, i) => {
-                if (deer.type === 'Group') {
-                    deer.rotation.x = Math.sin(this.elapsed * 8 + i) * 0.15;
-                }
-            });
-        }
-
-        // 更新粒子尾迹
-        this.updateTrail(this.group.position);
     }
 
-    dropGift(fromPos, trainDir = null) {
+    dropGift(fromPos) {
+        if (!train || train.cars.length === 0) return;
+
+        // 1. 随机锁定一节目标车厢
+        const targetIndex = Math.floor(Math.random() * train.cars.length);
+        const targetCar = train.cars[targetIndex];
+
         const gift = this.createGift();
         gift.position.copy(fromPos);
         gift.scale.set(0.8, 0.8, 0.8);
         this.scene.add(gift);
 
-        // 播放扔礼物声音
         if (audio && audio.bell) audio.bell();
 
-        // 礼物继承火车的水平速度（物理正确：从移动物体上掉落）
-        // 火车速度约 speed * 0.2，默认 speed=1，所以约 0.2 单位/帧
-        // 换算成每秒约 12 单位（假设 60fps）
-        const inheritedVel = trainDir ? trainDir.clone().multiplyScalar(12) : new THREE.Vector3(0, 0, 0);
-        inheritedVel.y = 0; // 确保初始垂直速度为0
-
+        // 2. 启用“制导模式”
         this.fallingGifts.push({
             mesh: gift,
-            vel: inheritedVel,
-            rotVel: new THREE.Vector3(
-                (Math.random() - 0.5) * 0.1,
-                (Math.random() - 0.5) * 0.1,
-                (Math.random() - 0.5) * 0.1
-            ),
+            startPos: fromPos.clone(), // 记录起点
+            targetCar: targetCar,      // 锁定目标
+            time: 0,                   // 已飞时间
+            duration: 1.2,             // 总飞行时间 (秒) - 稍微快一点
+            arcHeight: 25,             // 抛物线高度
             landed: false,
-            targetY: 6.5, // 火车顶部高度
-            attachedOffset: null, // 落地后相对于火车的偏移
-            attachedProg: null    // 落地时火车的进度位置
+            rotVel: new THREE.Vector3( // 随机自旋
+                Math.random() - 0.5,
+                Math.random() - 0.5,
+                Math.random() - 0.5
+            ).multiplyScalar(5.0)
         });
     }
 
     updateFallingGifts(dt) {
+        // 复用向量，减少GC
+        const _targetWorldPos = new THREE.Vector3();
+        const _currentPos = new THREE.Vector3();
+
         for (let i = this.fallingGifts.length - 1; i >= 0; i--) {
             const g = this.fallingGifts[i];
 
-            if (g.landed && g.attachedOffset) {
-                // 已落地的礼物跟随火车移动
-                if (train) {
-                    const trainPos = trackCurve.getPointAt(train.prog);
-                    const trainTan = trackCurve.getTangentAt(train.prog);
-
-                    // 计算火车的旋转矩阵
-                    const dir = STATE.trainDir > 0 ? 1 : -1;
-                    const lookTarget = new THREE.Vector3(
-                        trainPos.x + trainTan.x * dir,
-                        trainPos.y + trainTan.y * dir,
-                        trainPos.z + trainTan.z * dir
-                    );
-
-                    // 使用四元数计算旋转后的偏移
-                    const tempObj = new THREE.Object3D();
-                    tempObj.position.copy(trainPos);
-                    tempObj.lookAt(lookTarget);
-
-                    // 将局部偏移转换为世界坐标
-                    const worldOffset = g.attachedOffset.clone();
-                    worldOffset.applyQuaternion(tempObj.quaternion);
-
-                    g.mesh.position.copy(trainPos).add(worldOffset);
+            if (g.landed) {
+                // 已落地逻辑：随车移动一段时间后消失
+                g.life -= dt;
+                if(g.life <= 0) {
+                    if(g.mesh.parent) g.mesh.parent.remove(g.mesh);
+                    
+                    // 🗑️ 内存清理：深度销毁几何体和材质
+                    g.mesh.traverse(child => {
+                        if (child.isMesh) {
+                            if (child.geometry) child.geometry.dispose();
+                            if (child.material) {
+                                if (Array.isArray(child.material)) {
+                                    child.material.forEach(m => m.dispose());
+                                } else {
+                                    child.material.dispose();
+                                }
+                            }
+                        }
+                    });
+                    
+                    this.fallingGifts.splice(i, 1);
                 }
-            } else {
-                // 使用统一的物理更新，返回值表示是否刚刚落地
-                const justLanded = GiftFactory.updateGiftPhysics(g, dt, { gravity: 30 });
+                continue; 
+            }
 
-                // 落地时记录相对于火车的偏移
-                if (justLanded && train) {
-                    const trainPos = trackCurve.getPointAt(train.prog);
-                    const trainTan = trackCurve.getTangentAt(train.prog);
-                    const dir = STATE.trainDir > 0 ? 1 : -1;
+            // --- 制导飞行逻辑 ---
+            g.time += dt;
+            const t = Math.min(g.time / g.duration, 1.0);
+            
+            // 1. 获取目标车厢当前的实时世界坐标 (车顶位置)
+            g.targetCar.getWorldPosition(_targetWorldPos);
+            _targetWorldPos.y += 3.0; // 修正到车顶高度
 
-                    // 计算火车的逆旋转
-                    const tempObj = new THREE.Object3D();
-                    tempObj.position.copy(trainPos);
-                    tempObj.lookAt(new THREE.Vector3(
-                        trainPos.x + trainTan.x * dir,
-                        trainPos.y + trainTan.y * dir,
-                        trainPos.z + trainTan.z * dir
-                    ));
+            // 2. 线性插值 (Lerp) - 基础轨迹
+            _currentPos.copy(g.startPos).lerp(_targetWorldPos, t);
 
-                    // 计算礼物相对于火车的局部偏移
-                    const worldOffset = g.mesh.position.clone().sub(trainPos);
-                    const invQuat = tempObj.quaternion.clone().invert();
-                    g.attachedOffset = worldOffset.applyQuaternion(invQuat);
-                    g.attachedProg = train.prog;
+            // 3. 叠加抛物线高度 (Arc)
+            const heightOffset = Math.sin(t * Math.PI) * g.arcHeight;
+            _currentPos.y += heightOffset;
 
-                    // 落地后5秒移除礼盒
-                    setTimeout(() => {
-                        this.scene.remove(g.mesh);
-                        const idx = this.fallingGifts.indexOf(g);
-                        if (idx > -1) this.fallingGifts.splice(idx, 1);
-                    }, 5000);
-                }
+            g.mesh.position.copy(_currentPos);
+
+            // 4. 旋转动画
+            g.mesh.rotation.x += g.rotVel.x * dt;
+            g.mesh.rotation.y += g.rotVel.y * dt;
+            g.mesh.rotation.z += g.rotVel.z * dt;
+
+            // --- 判定落地 ---
+            if (t >= 1.0) {
+                // 强制吸附
+                const car = g.targetCar;
+                this.scene.remove(g.mesh);
+                car.add(g.mesh);
+
+                // 设定在车顶的局部坐标
+                // 限制在车顶较平坦的区域 (-1.0 ~ 1.0)，避免滑落
+                const localX = (Math.random() - 0.5) * 2.0; 
+                const localZ = (Math.random() - 0.5) * 6.5; // 车长范围
+
+                // 计算精确的车顶表面高度
+                const roofRadius = 2.05;
+                const roofCenterY = 5.1;
+                const safeX = Math.max(-roofRadius * 0.9, Math.min(roofRadius * 0.9, localX));
+                const surfaceY = roofCenterY + Math.sqrt(roofRadius * roofRadius - safeX * safeX);
+                
+                // 礼物中心高度 = 表面高度 + 半高(0.4) - 嵌入量(0.05)
+                const giftY = surfaceY + 0.35;
+
+                g.mesh.position.set(localX, giftY, localZ); 
+                
+                // 计算斜率，让礼物贴合圆弧
+                const slope = Math.atan2(safeX, Math.sqrt(roofRadius * roofRadius - safeX * safeX));
+                
+                // 设置旋转：水平随机转 + 垂直贴合斜率
+                g.mesh.rotation.set(0, Math.random() * Math.PI * 2, -slope);
+                g.mesh.scale.set(0.8, 0.8, 0.8);
+
+                g.landed = true;
+                g.life = 15.0; // 存活时间
             }
         }
     }
@@ -2885,6 +3341,7 @@ function setupUI() {
     btn.onclick = () => {
         STATE.started = true;
         STATE.running = true;
+        STATE.viewMode = 'INTRO'; // 🚫 关键修复：暂时屏蔽主循环的相机控制，防止抖动
         audio.init(); 
         audio.whistle(); 
         audio.playBGM(); 
@@ -2893,7 +3350,7 @@ function setupUI() {
         if (CFG.autoFw) {
             setTimeout(() => {
                 if (!STATE.started) return; // 防止用户快速关闭
-                launchBatch();
+                launchBatch(); 
                 autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
             }, 2500); // 延迟2.5秒，等降落动画完成
         }
@@ -2937,7 +3394,7 @@ function setupUI() {
 
             if (t >= 1) {
                 clearInterval(iv);
-                STATE.viewMode = 'FOLLOW';
+                STATE.viewMode = 'FOLLOW'; // ✅ 动画结束，无缝切换回智能跟拍模式
                 // 确保最终位置精确
                 camera.position.copy(endPos);
                 controls.target.copy(endTarget);
