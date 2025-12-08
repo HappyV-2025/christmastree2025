@@ -1706,35 +1706,55 @@ class Train {
 
         // 3.5 车顶积雪 - 使用共享资源优化
         const snowGroup = new THREE.Group();
-        snowGroup.position.set(0, 5.4, 0);
+        // 顶棚参数：半径2.05，Y轴缩放0.65，中心在y=5.1
+        const roofRadius = 2.05;
+        const roofScaleY = 0.65;
+        const roofCenterY = 5.1;
 
-        // 主要积雪层 - 使用共享几何体和材质
-        for (let j = 0; j < 6; j++) { // 减少到6个
+        // 计算拱形曲面上的Y坐标
+        const getRoofY = (x) => {
+            const clampedX = Math.max(-roofRadius * 0.95, Math.min(roofRadius * 0.95, x));
+            return roofCenterY + Math.sqrt(roofRadius * roofRadius - clampedX * clampedX) * roofScaleY;
+        };
+
+        // 主要积雪层 - 沿拱形分布
+        for (let j = 0; j < 8; j++) {
             const snowPatch = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
+            // X位置：集中在顶部中央区域，模拟积雪自然堆积
+            const xSpread = (Math.random() - 0.5) * 2.8; // -1.4 ~ 1.4
+            const zPos = (Math.random() - 0.5) * 10;     // 沿车厢长度分布
+
             snowPatch.scale.set(
-                1.8 + Math.random() * 1.0,
-                0.18 + Math.random() * 0.1,
-                1.4 + Math.random() * 0.8
+                1.5 + Math.random() * 0.8,
+                0.15 + Math.random() * 0.1,
+                1.2 + Math.random() * 0.6
             );
             snowPatch.position.set(
-                (Math.random() - 0.5) * 2.2,
-                Math.random() * 0.08,
-                (Math.random() - 0.5) * 5.5
+                xSpread,
+                getRoofY(xSpread) + 0.05, // 贴合曲面 + 小偏移
+                zPos
             );
-            snowPatch.rotation.y = Math.random() * Math.PI;
+            // 轻微倾斜贴合曲面
+            snowPatch.rotation.z = -xSpread * 0.15;
+            snowPatch.rotation.y = Math.random() * 0.3;
             snowGroup.add(snowPatch);
         }
 
-        // 边缘积雪 - 使用共享资源
+        // 边缘积雪 - 沿拱形边缘分布
         for (let side = -1; side <= 1; side += 2) {
-            for (let j = 0; j < 3; j++) { // 减少到3个
+            for (let j = 0; j < 4; j++) {
                 const edgeSnow = new THREE.Mesh(CarSnowResources.geo, CarSnowResources.mat);
-                edgeSnow.scale.set(1.0, 0.18, 0.7);
+                const xPos = side * (1.3 + Math.random() * 0.3);
+                const zPos = -3.5 + j * 2.3 + Math.random() * 0.3;
+
+                edgeSnow.scale.set(0.8, 0.12, 0.6);
                 edgeSnow.position.set(
-                    side * (1.15 + Math.random() * 0.25),
-                    -0.15,
-                    -2 + j * 2.2 + Math.random() * 0.4
+                    xPos,
+                    getRoofY(xPos) - 0.05, // 稍微低一点，像是从顶部滑落
+                    zPos
                 );
+                // 倾斜贴合边缘曲面
+                edgeSnow.rotation.z = -side * 0.4;
                 snowGroup.add(edgeSnow);
             }
         }
@@ -1928,20 +1948,29 @@ class Train {
         // 从车厢世界位置扔出
         const worldPos = new THREE.Vector3();
         car.getWorldPosition(worldPos);
+
+        // 随机选择左侧或右侧
+        const side = Math.random() > 0.5 ? 1 : -1;
+
+        // 计算车厢的侧向方向（垂直于行驶方向）
+        const sideDir = new THREE.Vector3(side, 0, 0);
+        sideDir.applyQuaternion(car.quaternion);
+
+        // 礼物从车厢侧边抛出
         gift.position.copy(worldPos);
-        gift.position.y += 4; // 从车顶扔出
+        gift.position.y += 5; // 从车顶扔出
+        gift.position.add(sideDir.clone().multiplyScalar(2)); // 向侧边偏移
         gift.scale.set(0.5, 0.5, 0.5);
 
         scene.add(gift);
 
-        // 向侧面抛出
-        const side = Math.random() > 0.5 ? 1 : -1;
-        const throwDir = new THREE.Vector3(side * 0.3, 0.5, (Math.random() - 0.5) * 0.2);
+        // 向侧面抛出（增大侧向速度，减小向上速度）
+        const throwDir = new THREE.Vector3(side * 1.0, 0.25, (Math.random() - 0.5) * 0.1);
         throwDir.applyQuaternion(car.quaternion);
 
         this.droppedGifts.push({
             mesh: gift,
-            vel: throwDir.multiplyScalar(8),
+            vel: throwDir.multiplyScalar(10),
             rotVel: new THREE.Vector3(
                 (Math.random() - 0.5) * 0.15,
                 (Math.random() - 0.5) * 0.15,
@@ -2198,7 +2227,7 @@ class SantaSleigh {
         this.buildGiftTemplate();
 
         this.group.visible = false;
-        this.group.scale.set(0.6, 0.6, 0.6); // 稍微缩小一点
+        this.group.scale.set(1.0, 1.0, 1.0); // 保持原始大小以提高可见性
         sc.add(this.group);
     }
 
@@ -2279,8 +2308,11 @@ class SantaSleigh {
         bag.scale.set(1.2, 1.5, 1);
         sleighG.add(bag);
 
+        // 旋转雪橇组，使其面向-Z方向（与驯鹿一致）
+        sleighG.rotation.y = -Math.PI / 2;
+
         this.sleigh = sleighG;
-        this.sleigh.position.z = -6; // 雪橇在驯鹿后面
+        this.sleigh.position.z = 6; // 雪橇在驯鹿后方（+Z方向，因为-Z是前方）
         this.group.add(sleighG);
     }
 
@@ -2390,6 +2422,9 @@ class SantaSleigh {
         const ropeGeo = new THREE.BufferGeometry().setFromPoints(ropePoints);
         const rope = new THREE.Line(ropeGeo, ropeMat);
         reindeerG.add(rope);
+
+        // 旋转驯鹿组，使其面向-Z方向（Three.js lookAt的默认前方）
+        reindeerG.rotation.y = -Math.PI / 2;
 
         this.reindeer = reindeerG;
         this.group.add(reindeerG);
@@ -2534,8 +2569,8 @@ class SantaSleigh {
                 targetLook = targetPos.clone().add(trainDir.clone().multiplyScalar(20));
 
                 if (t >= 0.5 && !this.giftDropped) {
-                    // 中途扔下礼盒
-                    this.dropGift(targetPos.clone());
+                    // 中途扔下礼盒（传入火车运动方向，让礼物继承水平速度）
+                    this.dropGift(targetPos.clone(), trainDir.clone());
                     this.giftDropped = true;
                 }
 
@@ -2596,7 +2631,7 @@ class SantaSleigh {
         this.updateTrail(this.group.position);
     }
 
-    dropGift(fromPos) {
+    dropGift(fromPos, trainDir = null) {
         const gift = this.createGift();
         gift.position.copy(fromPos);
         gift.scale.set(0.8, 0.8, 0.8);
@@ -2605,16 +2640,24 @@ class SantaSleigh {
         // 播放扔礼物声音
         if (audio && audio.bell) audio.bell();
 
+        // 礼物继承火车的水平速度（物理正确：从移动物体上掉落）
+        // 火车速度约 speed * 0.2，默认 speed=1，所以约 0.2 单位/帧
+        // 换算成每秒约 12 单位（假设 60fps）
+        const inheritedVel = trainDir ? trainDir.clone().multiplyScalar(12) : new THREE.Vector3(0, 0, 0);
+        inheritedVel.y = 0; // 确保初始垂直速度为0
+
         this.fallingGifts.push({
             mesh: gift,
-            vel: new THREE.Vector3(0, 0, 0),
+            vel: inheritedVel,
             rotVel: new THREE.Vector3(
                 (Math.random() - 0.5) * 0.1,
                 (Math.random() - 0.5) * 0.1,
                 (Math.random() - 0.5) * 0.1
             ),
             landed: false,
-            targetY: 6.5 // 火车顶部高度
+            targetY: 6.5, // 火车顶部高度
+            attachedOffset: null, // 落地后相对于火车的偏移
+            attachedProg: null    // 落地时火车的进度位置
         });
     }
 
@@ -2622,38 +2665,88 @@ class SantaSleigh {
         for (let i = this.fallingGifts.length - 1; i >= 0; i--) {
             const g = this.fallingGifts[i];
 
-            // 使用统一的物理更新，返回值表示是否刚刚落地
-            const justLanded = GiftFactory.updateGiftPhysics(g, dt, { gravity: 30 });
+            if (g.landed && g.attachedOffset) {
+                // 已落地的礼物跟随火车移动
+                if (train) {
+                    const trainPos = trackCurve.getPointAt(train.prog);
+                    const trainTan = trackCurve.getTangentAt(train.prog);
 
-            // 落地后5秒移除礼盒
-            if (justLanded) {
-                setTimeout(() => {
-                    this.scene.remove(g.mesh);
-                    const idx = this.fallingGifts.indexOf(g);
-                    if (idx > -1) this.fallingGifts.splice(idx, 1);
-                }, 5000);
+                    // 计算火车的旋转矩阵
+                    const dir = STATE.trainDir > 0 ? 1 : -1;
+                    const lookTarget = new THREE.Vector3(
+                        trainPos.x + trainTan.x * dir,
+                        trainPos.y + trainTan.y * dir,
+                        trainPos.z + trainTan.z * dir
+                    );
+
+                    // 使用四元数计算旋转后的偏移
+                    const tempObj = new THREE.Object3D();
+                    tempObj.position.copy(trainPos);
+                    tempObj.lookAt(lookTarget);
+
+                    // 将局部偏移转换为世界坐标
+                    const worldOffset = g.attachedOffset.clone();
+                    worldOffset.applyQuaternion(tempObj.quaternion);
+
+                    g.mesh.position.copy(trainPos).add(worldOffset);
+                }
+            } else {
+                // 使用统一的物理更新，返回值表示是否刚刚落地
+                const justLanded = GiftFactory.updateGiftPhysics(g, dt, { gravity: 30 });
+
+                // 落地时记录相对于火车的偏移
+                if (justLanded && train) {
+                    const trainPos = trackCurve.getPointAt(train.prog);
+                    const trainTan = trackCurve.getTangentAt(train.prog);
+                    const dir = STATE.trainDir > 0 ? 1 : -1;
+
+                    // 计算火车的逆旋转
+                    const tempObj = new THREE.Object3D();
+                    tempObj.position.copy(trainPos);
+                    tempObj.lookAt(new THREE.Vector3(
+                        trainPos.x + trainTan.x * dir,
+                        trainPos.y + trainTan.y * dir,
+                        trainPos.z + trainTan.z * dir
+                    ));
+
+                    // 计算礼物相对于火车的局部偏移
+                    const worldOffset = g.mesh.position.clone().sub(trainPos);
+                    const invQuat = tempObj.quaternion.clone().invert();
+                    g.attachedOffset = worldOffset.applyQuaternion(invQuat);
+                    g.attachedProg = train.prog;
+
+                    // 落地后5秒移除礼盒
+                    setTimeout(() => {
+                        this.scene.remove(g.mesh);
+                        const idx = this.fallingGifts.indexOf(g);
+                        if (idx > -1) this.fallingGifts.splice(idx, 1);
+                    }, 5000);
+                }
             }
         }
     }
 
     updateTrail(currentPos) {
-        // 添加新位置到尾迹
-        this.trailPositions.unshift(currentPos.clone());
+        // 添加新位置到尾迹（带固定的随机偏移，只在添加时计算一次）
+        const trailPoint = currentPos.clone();
+        trailPoint.x += (Math.random() - 0.5) * 6;
+        trailPoint.y += (Math.random() - 0.5) * 3;
+        trailPoint.z += (Math.random() - 0.5) * 6;
+        this.trailPositions.unshift(trailPoint);
 
         // 限制尾迹长度
         if (this.trailPositions.length > 100) {
             this.trailPositions.pop();
         }
 
-        // 更新粒子位置
+        // 更新粒子位置（不再每帧随机，使用已存储的位置）
         const positions = this.trail.geometry.attributes.position.array;
         for (let i = 0; i < 100; i++) {
             if (i < this.trailPositions.length) {
                 const p = this.trailPositions[i];
-                // 添加随机偏移让尾迹更有魔法感
-                positions[i * 3] = p.x + (Math.random() - 0.5) * 10;
-                positions[i * 3 + 1] = p.y + (Math.random() - 0.5) * 5;
-                positions[i * 3 + 2] = p.z + (Math.random() - 0.5) * 10;
+                positions[i * 3] = p.x;
+                positions[i * 3 + 1] = p.y;
+                positions[i * 3 + 2] = p.z;
             } else {
                 // 未使用的粒子移到很远
                 positions[i * 3] = 0;
