@@ -720,7 +720,7 @@ function buildTrack() {
         const t = i / railSamp;
         const pt = trackCurve.getPointAt(t);
         const tan = trackCurve.getTangentAt(t);
-    
+
         // 复用 rightVec 计算右侧向量
         rightVec.crossVectors(tan, upVec).normalize();
 
