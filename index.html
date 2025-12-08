@@ -5,55 +5,101 @@
             content="width=device-width, initial-scale=1.0, user-scalable=no">
         <title>Christmas Express: Definitive Edition</title>
         <style>
-    body{margin:0;overflow:hidden;background:#000;font-family:'Segoe UI',sans-serif;user-select:none}
-    #canvas-container{width:100vw;height:100vh;display:block}
-    /* UI Overlay */
-    #start-screen{position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(circle at center,#1b2028 0%,#000 100%);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:100;transition:opacity 0.8s}
-    .card{background:rgba(255,255,255,0.06);padding:40px;border-radius:24px;border:1px solid rgba(255,255,255,0.1);text-align:center;backdrop-filter:blur(20px);box-shadow:0 40px 80px rgba(0,0,0,0.6);width:400px}
-    h1{color:#ffb300;margin:0 0 20px;letter-spacing:4px;text-shadow:0 0 30px rgba(255,165,0,0.5);text-transform:uppercase}
-    .tips{color:#ccc;font-size:14px;line-height:2.2;text-align:left;margin-left:30px;margin-bottom:30px}
-    .k{color:#4fc3f7;font-weight:bold;margin-right:8px;border-bottom:1px dashed #4fc3f7}
-    button{background:linear-gradient(135deg,#d32f2f,#b71c1c);color:#fff;border:none;padding:16px 60px;font-size:20px;border-radius:50px;cursor:pointer;box-shadow:0 10px 30px rgba(211,47,47,0.4);transition:0.2s;font-weight:bold;letter-spacing:1px}
-    button:hover{transform:scale(1.05);box-shadow:0 15px 40px rgba(211,47,47,0.6)}
-    #hud{opacity:0;transition:1s}
-    .tag{background:rgba(0,0,0,0.7);color:#fff;padding:8px 18px;border-radius:30px;font-size:14px;border:1px solid #ffffff22;backdrop-filter:blur(5px);display:flex;align-items:center;gap:10px}
-    .dot{width:8px;height:8px;background:#00ff00;border-radius:50%;box-shadow:0 0 8px #00ff00;transition:0.3s}
-    .dot.stop{background:#ff3300;box-shadow:0 0 8px #ff3300}
-    #settings-btn{width:44px;height:44px;background:rgba(255,255,255,0.1);border-radius:50%;border:1px solid #ffffff33;color:#fff;font-size:20px;display:flex;justify-content:center;align-items:center;cursor:pointer;opacity:0;backdrop-filter:blur(5px);transition:0.3s}
-    #settings-modal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;display:none;width:320px}
-    #modal-overlay{position:absolute;top:0;left:0;width:100%;height:100%;z-index:25;display:none;background:rgba(0,0,0,0.5)}
-    #loading{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:#666;font-size:12px;letter-spacing:2px}
-    /* 右下角烟花按钮 */
-    #firework-btn{position:absolute;bottom:30px;right:30px;z-index:20;width:60px;height:60px;background:radial-gradient(circle at 30% 30%,#ff6b6b,#d32f2f);border-radius:50%;border:2px solid #ff8a80;color:#fff;font-size:28px;display:flex;justify-content:center;align-items:center;cursor:pointer;opacity:0;transition:all 0.3s;box-shadow:0 4px 20px rgba(211,47,47,0.5)}
-    #firework-btn:hover{transform:scale(1.1);box-shadow:0 6px 30px rgba(211,47,47,0.7)}
-    #firework-btn:active{transform:scale(0.95)}
-    #firework-btn.burst{animation:burst 0.4s ease-out}
-    @keyframes burst{0%{transform:scale(1);box-shadow:0 4px 20px rgba(211,47,47,0.5)}50%{transform:scale(1.3);box-shadow:0 0 40px rgba(255,200,100,0.9),0 0 80px rgba(255,100,100,0.6)}100%{transform:scale(1);box-shadow:0 4px 20px rgba(211,47,47,0.5)}}
-    /* HUD启停按钮 */
-    #train-toggle{background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:4px 8px;margin-left:8px;border-radius:8px;transition:0.2s}
-    #train-toggle:hover{background:rgba(255,255,255,0.15)}
-    /* HUD状态可点击 */
-    #hud-status{cursor:pointer;transition:0.2s}
-    #hud-status:hover{color:#4fc3f7}
-    /* 顶部导航栏容器 */
-    #top-bar{position:absolute;top:0;left:0;right:0;z-index:15;display:flex;justify-content:space-between;align-items:flex-start;padding:20px;pointer-events:none}
-    #top-bar>*{pointer-events:auto}
-    /* 圣诞倒计时 */
-    #countdown-wrap{position:absolute;top:70px;right:20px;opacity:0;transition:opacity 0.5s}
-    #countdown-trigger{background:linear-gradient(135deg,rgba(183,28,28,0.85),rgba(139,0,0,0.85));color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;cursor:pointer;border:1px solid rgba(255,215,0,0.5);box-shadow:0 2px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:6px;transition:all 0.3s;backdrop-filter:blur(5px)}
-    #countdown-trigger:hover{transform:scale(1.05);box-shadow:0 4px 20px rgba(255,215,0,0.4)}
-    #countdown-trigger .arrow{font-size:10px;transition:transform 0.3s}
-    #countdown-trigger.expanded .arrow{transform:rotate(180deg)}
-    #countdown-panel{position:absolute;top:100%;right:0;margin-top:10px;background:linear-gradient(145deg,rgba(20,60,20,0.95),rgba(139,0,0,0.9));border-radius:16px;padding:16px 24px;text-align:center;opacity:0;visibility:hidden;transition:all 0.4s cubic-bezier(0.4,0,0.2,1);border:2px solid rgba(255,215,0,0.4);box-shadow:0 8px 32px rgba(0,0,0,0.5);pointer-events:none;min-width:200px}
-    #countdown-panel.show{opacity:1;visibility:visible;pointer-events:auto}
-    #countdown-panel .title{color:#ffd700;font-size:14px;margin-bottom:8px;text-shadow:0 0 10px rgba(255,215,0,0.5)}
-    #countdown-panel .time{color:#fff;font-size:28px;font-weight:bold;text-shadow:0 0 20px rgba(255,255,255,0.3);letter-spacing:2px}
-    #countdown-panel .time span{color:#4fc3f7}
-    #countdown-panel .hint{color:rgba(255,255,255,0.6);font-size:11px;margin-top:10px}
-    #countdown-panel .decorations{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:20px}
-    /* 响应式 */
-    @media(max-width:480px){#countdown-trigger{padding:5px 10px;font-size:12px}#countdown-trigger .text{display:none}#countdown-panel{min-width:160px;padding:12px 16px}#countdown-panel .time{font-size:22px}}
-</style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: "Microsoft YaHei", sans-serif; user-select: none; -webkit-tap-highlight-color: transparent; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+
+        /* UI Overlay */
+        #start-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle at center, #1b2028 0%, #000 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; transition: opacity 0.8s; }
+        .card { background: rgba(255, 255, 255, 0.06); padding: 40px; border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.1); text-align: center; backdrop-filter: blur(20px); box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6); width: 400px; max-width: 90%; }
+        h1 { color: #ffb300; margin: 0 0 20px; letter-spacing: 4px; text-shadow: 0 0 30px rgba(255, 165, 0, 0.5); text-transform: uppercase; font-size: 28px; }
+        .tips { color: #ccc; font-size: 14px; line-height: 2.2; text-align: left; margin-left: 10px; margin-bottom: 30px; }
+        .k { color: #4fc3f7; font-weight: bold; margin-right: 8px; border-bottom: 1px dashed #4fc3f7; }
+        button#start-btn { background: linear-gradient(135deg, #d32f2f, #b71c1c); color: #fff; border: none; padding: 16px 60px; font-size: 20px; border-radius: 50px; cursor: pointer; box-shadow: 0 10px 30px rgba(211, 47, 47, 0.4); transition: 0.2s; font-weight: bold; letter-spacing: 1px; }
+        button#start-btn:hover { transform: scale(1.05); box-shadow: 0 15px 40px rgba(211, 47, 47, 0.6); }
+
+        /* HUD & Top Bar */
+        #top-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 15; display: flex; justify-content: space-between; align-items: flex-start; padding: 20px; pointer-events: none; }
+        #top-bar > * { pointer-events: auto; }
+        #hud { opacity: 0; transition: 1s; }
+        .tag { background: rgba(0, 0, 0, 0.7); color: #fff; padding: 8px 18px; border-radius: 30px; font-size: 14px; border: 1px solid #ffffff22; backdrop-filter: blur(5px); display: flex; align-items: center; gap: 10px; }
+        .dot { width: 8px; height: 8px; background: #00ff00; border-radius: 50%; box-shadow: 0 0 8px #00ff00; transition: 0.3s; }
+        .dot.stop { background: #ff3300; box-shadow: 0 0 8px #ff3300; }
+        #train-toggle { background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; padding: 4px 8px; margin-left: 8px; border-radius: 8px; transition: 0.2s; }
+        #train-toggle:hover { background: rgba(255, 255, 255, 0.15); }
+        #hud-status { cursor: pointer; transition: 0.2s; }
+        #hud-status:hover { color: #4fc3f7; }
+
+        /* Settings Button */
+        #settings-btn { width: 44px; height: 44px; background: rgba(255, 255, 255, 0.1); border-radius: 50%; border: 1px solid #ffffff33; color: #fff; font-size: 20px; display: flex; justify-content: center; align-items: center; cursor: pointer; opacity: 0; backdrop-filter: blur(5px); transition: 0.3s; }
+        #settings-btn:hover { background: rgba(255, 255, 255, 0.2); transform: rotate(90deg); }
+
+        /* Settings Modal (Modern Tabbed UI) */
+        #modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; display: none; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
+        #settings-modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 30; display: none; width: 380px; max-width: 90%; background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); overflow: hidden; display: flex; flex-direction: column; }
+        
+        .settings-header { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); }
+        .settings-header h2 { margin: 0; font-size: 18px; color: #ffd700; letter-spacing: 1px; }
+        .close-btn { background: none; border: none; color: #999; font-size: 24px; cursor: pointer; padding: 0; line-height: 1; }
+        .close-btn:hover { color: #fff; }
+
+        .settings-tabs { display: flex; background: rgba(0,0,0,0.3); padding: 5px; gap: 5px; }
+        .tab-btn { flex: 1; background: none; border: none; color: #888; padding: 10px 0; font-size: 14px; cursor: pointer; border-radius: 8px; transition: 0.3s; }
+        .tab-btn.active { background: rgba(255,255,255,0.1); color: #fff; font-weight: bold; }
+        .tab-btn:hover:not(.active) { background: rgba(255,255,255,0.05); color: #ccc; }
+
+        .settings-body { padding: 20px; max-height: 60vh; overflow-y: auto; }
+        .tab-content { display: none; animation: fadeIn 0.3s; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .control-group { margin-bottom: 20px; }
+        .control-label { display: flex; justify-content: space-between; color: #ccc; font-size: 13px; margin-bottom: 8px; }
+        .control-val { color: #4fc3f7; font-family: monospace; }
+        
+        /* Custom Range Slider */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #ffd700; cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.2); border-radius: 2px; }
+        input[type=range]:focus { outline: none; }
+
+        /* Custom Select */
+        select { width: 100%; padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); color: #fff; border-radius: 6px; outline: none; }
+
+        /* Toggle Switch */
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .toggle-label { color: #ccc; font-size: 14px; }
+        .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #444; transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #d32f2f; }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        /* Firework Button */
+        #firework-btn { position: absolute; bottom: 30px; right: 30px; z-index: 20; width: 60px; height: 60px; background: radial-gradient(circle at 30% 30%, #ff6b6b, #d32f2f); border-radius: 50%; border: 2px solid #ff8a80; color: #fff; font-size: 28px; display: flex; justify-content: center; align-items: center; cursor: pointer; opacity: 0; transition: all 0.3s; box-shadow: 0 4px 20px rgba(211, 47, 47, 0.5); }
+        #firework-btn:hover { transform: scale(1.1); box-shadow: 0 6px 30px rgba(211, 47, 47, 0.7); }
+        #firework-btn:active { transform: scale(0.95); }
+        #firework-btn.burst { animation: burst 0.4s ease-out; }
+        @keyframes burst { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }
+
+        /* Countdown */
+        #countdown-wrap { position: absolute; top: 70px; right: 20px; opacity: 0; transition: opacity 0.5s; }
+        #countdown-trigger { background: linear-gradient(135deg, rgba(183, 28, 28, 0.85), rgba(139, 0, 0, 0.85)); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 13px; cursor: pointer; border: 1px solid rgba(255, 215, 0, 0.5); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3); display: flex; align-items: center; gap: 6px; transition: all 0.3s; backdrop-filter: blur(5px); }
+        #countdown-trigger:hover { transform: scale(1.05); box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4); }
+        #countdown-trigger .arrow { font-size: 10px; transition: transform 0.3s; }
+        #countdown-trigger.expanded .arrow { transform: rotate(180deg); }
+        #countdown-panel { position: absolute; top: 100%; right: 0; margin-top: 10px; background: linear-gradient(145deg, rgba(20, 60, 20, 0.95), rgba(139, 0, 0, 0.9)); border-radius: 16px; padding: 16px 24px; text-align: center; opacity: 0; visibility: hidden; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); border: 2px solid rgba(255, 215, 0, 0.4); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); pointer-events: none; min-width: 200px; }
+        #countdown-panel.show { opacity: 1; visibility: visible; pointer-events: auto; }
+        #countdown-panel .title { color: #ffd700; font-size: 14px; margin-bottom: 8px; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        #countdown-panel .time { color: #fff; font-size: 28px; font-weight: bold; text-shadow: 0 0 20px rgba(255, 255, 255, 0.3); letter-spacing: 2px; }
+        #loading { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); color: #666; font-size: 12px; letter-spacing: 2px; }
+
+        @media(max-width: 480px) {
+            .card { width: 90%; padding: 30px 20px; }
+            #countdown-trigger .text { display: none; }
+            #settings-modal { width: 95%; }
+        }
+    </style>
     </head>
     <body>
         <div id="start-screen"><div class="card">
@@ -98,7 +144,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 // 烟花音效预设
 const SOUND_STYLES = [
@@ -553,7 +598,7 @@ const droneState = {
     toTarget: new THREE.Vector3(),   // 切换目标看向点
 };
 
-let scene, camera, renderer, composer, controls, gui;
+let scene, camera, renderer, composer, controls;
 let train, fwMgr, snowMgr, santaSleigh, trackCurve;
 let lights={}, bloomPass;
 let ground, trackPoints=[];
@@ -3641,65 +3686,176 @@ function setupUI() {
         }, 16);
     };
 
-    const set = document.getElementById('settings-btn'), mod = document.getElementById('settings-modal'), over = document.getElementById('modal-overlay');
-    const tog = () => { STATE.settings = !STATE.settings; const d = STATE.settings ? 'block' : 'none'; mod.style.display = d; over.style.display = d; };
-    set.onclick = tog; over.onclick = tog;
+    // ===== 🛠️ 新版设置面板逻辑 (Custom Tabbed UI) =====
+    const setBtn = document.getElementById('settings-btn');
+    const modal = document.getElementById('settings-modal');
+    const overlay = document.getElementById('modal-overlay');
 
-    gui = new GUI({ container: mod, width: '100%' });
-    gui.title('🎄 控制中心');
+    // 初始化面板 HTML 结构
+    modal.innerHTML = `
+        <div class="settings-header">
+            <h2>🎄 控制中心</h2>
+            <button class="close-btn" id="close-settings">×</button>
+        </div>
+        <div class="settings-tabs">
+            <button class="tab-btn active" data-tab="tab-audio">🔊 音频</button>
+            <button class="tab-btn" data-tab="tab-graphics">🎨 画面</button>
+            <button class="tab-btn" data-tab="tab-controls">🎮 操控</button>
+        </div>
+        <div class="settings-body">
+            <!-- 音频设置 -->
+            <div id="tab-audio" class="tab-content active">
+                <div class="control-group">
+                    <div class="control-label"><span>总音量</span><span id="val-master" class="control-val">70%</span></div>
+                    <input type="range" id="inp-master" min="0" max="1" step="0.05" value="0.7">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>背景音乐</span><span id="val-bgm" class="control-val">60%</span></div>
+                    <input type="range" id="inp-bgm" min="0" max="1" step="0.05" value="0.6">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>火车音效</span><span id="val-train" class="control-val">80%</span></div>
+                    <input type="range" id="inp-train" min="0" max="1" step="0.05" value="0.8">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>烟花音效</span><span id="val-fw" class="control-val">100%</span></div>
+                    <input type="range" id="inp-fw" min="0" max="1" step="0.05" value="1.0">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>爆炸风格</span></div>
+                    <select id="sel-fw-style">
+                        <option value="-1">🎲 随机 (Random)</option>
+                        ${SOUND_STYLES.map((s,i) => `<option value="${i}">${i}. ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
 
-    const fSound = gui.addFolder('🔊 音频设置');
-    fSound.add(audio.vol, 'master', 0, 1).name('总音量').onChange(() => audio.updateVols());
-    fSound.add(audio.vol, 'bgm', 0, 1).name('背景音乐').onChange(() => audio.updateVols());
-    fSound.add(audio.vol, 'train', 0, 1).name('火车音效').onChange(() => audio.updateVols());
-    fSound.add(audio.vol, 'firework', 0, 1).name('烟花音效').onChange(() => audio.updateVols());
+            <!-- 画面设置 -->
+            <div id="tab-graphics" class="tab-content">
+                <div class="control-group">
+                    <div class="control-label"><span>辉光强度 (Bloom)</span><span id="val-bloom" class="control-val">0.7</span></div>
+                    <input type="range" id="inp-bloom" min="0" max="3" step="0.1" value="0.7">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>月光亮度</span><span id="val-moon" class="control-val">2.5</span></div>
+                    <input type="range" id="inp-moon" min="0" max="5" step="0.1" value="2.5">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>大雾浓度</span><span id="val-fog" class="control-val">0.0004</span></div>
+                    <input type="range" id="inp-fog" min="0" max="0.005" step="0.0001" value="0.0004">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>车灯亮度</span><span id="val-headlight" class="control-val">100</span></div>
+                    <input type="range" id="inp-headlight" min="0" max="200" step="10" value="100">
+                </div>
+            </div>
 
-    const fCam = gui.addFolder('🎥 镜头与物理');
-    fCam.add(DRONE, 'height', 10, 60).name('🚁 无人机高度');
-    fCam.add(DRONE, 'distance', 30, 120).name('🚁 跟拍距离');
-    fCam.add(DRONE, 'coverage', 0.08, 0.3).name('🚁 接力间隔');
-    fCam.add(DRONE, 'switchDur', 0.5, 3).name('🚁 切换时长');
-    fCam.add(CFG, 'camSmooth', 0.01, 0.1).name('跟随柔和度');
-    fCam.add(CFG, 'maxSpeed', 0.02, 0.4).name('火车极速');
+            <!-- 操控设置 -->
+            <div id="tab-controls" class="tab-content">
+                <div class="toggle-row">
+                    <span class="toggle-label">自动燃放烟花</span>
+                    <label class="switch">
+                        <input type="checkbox" id="tog-autofw" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>燃放间隔</span><span id="val-fwrate" class="control-val">4s</span></div>
+                    <input type="range" id="inp-fwrate" min="2" max="15" step="1" value="4">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>火车极速</span><span id="val-speed" class="control-val">0.10</span></div>
+                    <input type="range" id="inp-speed" min="0.02" max="0.4" step="0.01" value="0.1">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>无人机高度</span><span id="val-height" class="control-val">40</span></div>
+                    <input type="range" id="inp-height" min="10" max="80" step="1" value="40">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>跟拍距离</span><span id="val-dist" class="control-val">100</span></div>
+                    <input type="range" id="inp-dist" min="30" max="150" step="5" value="100">
+                </div>
+            </div>
+        </div>
+    `;
 
-    const fEnv = gui.addFolder('💡 灯光与环境');
-    fEnv.add(CFG, 'moonInt', 0, 5).name('月光亮度').onChange(v => lights.moon.intensity = v);
-    fEnv.add(CFG, 'fogDen', 0, 0.005).name('大雾浓度').onChange(v => scene.fog.density = v);
-    fEnv.add(CFG, 'bloomStr', 0, 3).name('辉光强度').onChange(v => bloomPass.strength = v);
-    fEnv.add(CFG, 'bloomThr', 0, 1).name('辉光阈值').onChange(v => bloomPass.threshold = v);
-    fEnv.add(CFG, 'lightPow', 0, 200).name('车灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'headlight_spot') o.intensity = v }));
-    fEnv.add(CFG, 'bulbBri', 0, 50).name('彩灯亮度').onChange(v => emissives.forEach(o => { if (o.userData.type === 'bulb') o.material.emissiveIntensity = v }));
+    // 绑定逻辑
+    const bindRange = (id, targetObj, key, displayId, callback) => {
+        const el = document.getElementById(id);
+        const disp = document.getElementById(displayId);
+        el.value = targetObj[key]; // init
+        if(disp) disp.innerText = targetObj[key];
+        
+        el.oninput = (e) => {
+            const v = parseFloat(e.target.value);
+            targetObj[key] = v;
+            if(disp) disp.innerText = v;
+            if(callback) callback(v);
+        };
+    };
 
-    const fFw = gui.addFolder('🎆 烟花控制');
-    // 调试对象：默认-1 表示随机
-    const debugObj = { soundStyle: -1 };
+    // 音频绑定
+    bindRange('inp-master', audio.vol, 'master', 'val-master', () => audio.updateVols());
+    bindRange('inp-bgm', audio.vol, 'bgm', 'val-bgm', () => audio.updateVols());
+    bindRange('inp-train', audio.vol, 'train', 'val-train', () => audio.updateVols());
+    bindRange('inp-fw', audio.vol, 'firework', 'val-fw', () => audio.updateVols());
+    
+    // 烟花风格选择
+    const selStyle = document.getElementById('sel-fw-style');
+    window.getFireworkSoundStyle = () => parseInt(selStyle.value);
 
-    // 自动生成音效风格选项（含“随机”）
-    const styleOptions = { '随机 (Random)': -1 };
-    SOUND_STYLES.forEach((style, i) => {
-        const label = `${i}. ${style.name} (${style.name})`;
-        styleOptions[label] = i;
-    });
+    // 画面绑定
+    bindRange('inp-bloom', CFG, 'bloomStr', 'val-bloom', v => bloomPass.strength = v);
+    bindRange('inp-moon', CFG, 'moonInt', 'val-moon', v => lights.moon.intensity = v);
+    bindRange('inp-fog', CFG, 'fogDen', 'val-fog', v => scene.fog.density = v);
+    bindRange('inp-headlight', CFG, 'lightPow', 'val-headlight', v => emissives.forEach(o => { if(o.userData.type==='headlight_spot') o.intensity=v }));
 
-    // 添加 GUI 控件
-    fFw.add(debugObj, 'soundStyle', styleOptions)
-       .name('💥 爆炸音效风格'); // 使用 .name() 来显示中文标签
-
-    window.getFireworkSoundStyle = () => debugObj.soundStyle;
-
-    fFw.add(CFG, 'autoFw').name('自动燃放').onChange(v => {
-        if (autoTimer) clearInterval(autoTimer);
-        if (v) { 
-            launchBatch(); 
-            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000); 
+    // 操控绑定
+    bindRange('inp-speed', CFG, 'maxSpeed', 'val-speed');
+    bindRange('inp-height', DRONE, 'height', 'val-height');
+    bindRange('inp-dist', DRONE, 'distance', 'val-dist');
+    
+    const togAuto = document.getElementById('tog-autofw');
+    togAuto.onchange = (e) => {
+        CFG.autoFw = e.target.checked;
+        if(autoTimer) clearInterval(autoTimer);
+        if(CFG.autoFw) {
+            launchBatch();
+            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
         }
-    });
-    fFw.add(CFG, 'fwRate', 3, 12).name('波次间隔(秒)').onChange(v => {
-        if (CFG.autoFw) {
+    };
+
+    bindRange('inp-fwrate', CFG, 'fwRate', 'val-fwrate', v => {
+        document.getElementById('val-fwrate').innerText = v + 's';
+        if(CFG.autoFw) {
             clearInterval(autoTimer);
             autoTimer = setInterval(launchBatch, v * 1000);
         }
     });
+
+    // 标签切换逻辑
+    const tabs = modal.querySelectorAll('.tab-btn');
+    const contents = modal.querySelectorAll('.tab-content');
+    tabs.forEach(btn => {
+        btn.onclick = () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.tab).classList.add('active');
+        };
+    });
+
+    // 打开/关闭面板
+    const closeBtn = document.getElementById('close-settings');
+    const toggleSettings = () => {
+        STATE.settings = !STATE.settings;
+        const disp = STATE.settings ? 'flex' : 'none'; // Flex needed for modal layout
+        modal.style.display = disp;
+        overlay.style.display = disp;
+    };
+    setBtn.onclick = toggleSettings;
+    overlay.onclick = toggleSettings;
+    closeBtn.onclick = toggleSettings;
 
     // ===== 🎆 烟花按钮 =====
     const fwBtn = document.getElementById('firework-btn');
