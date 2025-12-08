@@ -1783,38 +1783,51 @@ class Train {
         lightRim.position.z = 0.2;
         lightGroup.add(lightRim);
 
-        // 发光透镜
-        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), new THREE.MeshBasicMaterial({ color: 0xffffee }));
+        // [MODIFIED] 发光透镜 (自发光 MeshStandardMaterial)
+        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.5, 32), new THREE.MeshStandardMaterial({ 
+            color: 0xffffee, 
+            emissive: 0xffffee,
+            emissiveIntensity: 10.0, // 自身极亮，像灯丝
+            roughness: 0.1
+        }));
         lens.position.z = 0.25;
         lightGroup.add(lens);
 
-        // [BOOST] 强力聚光灯
-        const sl = new THREE.SpotLight(0xffffee, CFG.lightPow * 6.0, 600, 1.0, 0.3, 1.5);
+        // [MODIFIED] 强力聚光灯 (SpotLight)
+        // 强度进一步提升，射程加大
+        const sl = new THREE.SpotLight(0xffffee, CFG.lightPow * 12.0, 800, 0.9, 0.4, 1.0);
         sl.position.set(0, 0, 0.5);
-        sl.target.position.set(0, -3, 50); // 向前下方照射
+        sl.target.position.set(0, -3, 60); 
         sl.castShadow = true;
         sl.shadow.bias = -0.0001;
-        sl.shadow.mapSize.width = 1024; // 提升阴影质量
+        sl.shadow.mapSize.width = 1024;
         sl.shadow.mapSize.height = 1024;
         sl.userData = { type: 'headlight_spot' };
         
-        // [NEW] 补光点光源 (让灯头看起来真的在发光，不仅仅是射出光线)
-        const glowLight = new THREE.PointLight(0xffaa00, 5.0, 6);
-        glowLight.position.set(0, 0, 0.5);
-        lightGroup.add(glowLight);
+        // [FIXED] 移除之前的补光点光源 (PointLight)，因为它会照亮车身背面
+        // lightGroup.add(glowLight); // REMOVED
 
-        // 光晕 Sprite
-        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glare, color: 0xffddaa, blending: THREE.AdditiveBlending }));
-        sp.position.set(0, 0, 0.6);
-        sp.scale.set(8, 8, 1);
-        lightGroup.add(sp);
+        // [FIXED] 定向光晕 (Directional Glare)
+        // 使用面向前方的 PlaneMesh 替代 Sprite。
+        // 只有从正面看（或侧面一定角度）才能看到光晕，背面会被剔除。
+        const glareGeo = new THREE.PlaneGeometry(16, 16); // 更大
+        const glareMat = new THREE.MeshBasicMaterial({ 
+            map: this.glare, 
+            color: 0xffddaa, 
+            transparent: true, 
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.FrontSide // 只渲染正面
+        });
+        const glareMesh = new THREE.Mesh(glareGeo, glareMat);
+        glareMesh.position.z = 0.4;
+        lightGroup.add(glareMesh);
 
         lightGroup.add(sl);
-        lightGroup.add(sl.target); // 必须添加 target 到场景或组中
+        lightGroup.add(sl.target);
         
         g.add(lightGroup);
-        // 保存引用以便更新 target (如果有必要，虽然这里是相对坐标)
-        // 注意：SpotLight.target 默认必须在 scene 中，或者作为 child add 进去
 
         // 7. 轮子 (Wheels) - 增加連杆 (Side Rods)
         const rodGeo = new THREE.BoxGeometry(0.15, 0.3, 4.5);
