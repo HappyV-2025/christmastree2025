@@ -438,6 +438,28 @@ const STATE = {
     clickTime: 0
 };
 
+// 🚁 无人机接力跟拍系统配置
+const DRONE = {
+    count: 6,           // 无人机数量（均匀分布在轨道周围）
+    coverage: 0.18,     // 每个无人机覆盖的轨道比例
+    switchDur: 1.2,     // 切换过渡时间（秒）
+    height: 25,         // 飞行高度
+    distance: 70,       // 跟拍距离
+    leadOffset: 0.03,   // 提前量（无人机稍微领先于火车）
+    sideAngle: 0.4,     // 侧向角度偏移（弧度），让视角更有电影感
+};
+
+// 无人机状态
+const droneState = {
+    current: 0,         // 当前激活的无人机索引
+    switching: false,   // 是否正在切换中
+    switchT: 0,         // 切换进度 0-1
+    fromPos: new THREE.Vector3(),  // 切换起始位置
+    toPos: new THREE.Vector3(),    // 切换目标位置
+    fromTarget: new THREE.Vector3(), // 切换起始看向点
+    toTarget: new THREE.Vector3(),   // 切换目标看向点
+};
+
 let scene, camera, renderer, composer, controls, gui;
 let train, fwMgr, snowMgr, trackCurve;
 let lights={}, bloomPass;
@@ -497,13 +519,88 @@ function init() {
     animate();
 }
 
-
 // 在 animate 函数外，确保定义了这些辅助变量，用于复用
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _target = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _tempCol = new THREE.Color();
+const _dronePos = new THREE.Vector3();
+const _droneTarget = new THREE.Vector3();
+
+// 🚁 计算指定无人机的理想位置
+function getDronePosition(droneIndex, trainProg, outPos, outTarget) {
+    // 计算无人机负责的轨道起始点
+    const droneStart = droneIndex / DRONE.count;
+
+    // 计算火车在该无人机覆盖范围内的相对位置
+    let relProg = trainProg - droneStart;
+    if (relProg < 0) relProg += 1;
+    if (relProg > DRONE.coverage) relProg = DRONE.coverage;
+
+    // 无人机跟随点 = 火车位置 + 提前量
+    let followT = trainProg + DRONE.leadOffset;
+    if (followT >= 1) followT -= 1;
+
+    const trackPos = trackCurve.getPointAt(followT);
+    const trackTan = trackCurve.getTangentAt(followT);
+
+    // 计算侧向向量（垂直于切线和上向量）
+    _v1.crossVectors(trackTan, _up).normalize();
+
+    // 应用侧向角度偏移，让相机稍微偏向一侧
+    const sideOffset = Math.sin(DRONE.sideAngle);
+    const backOffset = Math.cos(DRONE.sideAngle);
+
+    // 相机位置 = 轨道点 + 侧向偏移 + 后向偏移 + 高度
+    outPos.copy(trackPos)
+        .addScaledVector(_v1, DRONE.distance * sideOffset)
+        .addScaledVector(trackTan, -DRONE.distance * backOffset * 0.5)
+        .y += DRONE.height;
+
+    // 向外侧偏移（让相机在轨道外圈）
+    _v2.copy(trackPos).y = 0;
+    _v2.normalize();
+    outPos.addScaledVector(_v2, DRONE.distance * 0.3);
+
+    // 看向点：火车前方一点
+    let lookT = trainProg + 0.01;
+    if (lookT >= 1) lookT -= 1;
+    outTarget.copy(trackCurve.getPointAt(lookT));
+    outTarget.y += 8; // 看车顶上方
+}
+
+// 🚁 检测是否需要切换到下一个无人机
+function checkDroneSwitch(trainProg) {
+    const droneStart = droneState.current / DRONE.count;
+    const droneEnd = droneStart + DRONE.coverage;
+
+    // 计算火车是否超出当前无人机的覆盖范围
+    let relProg = trainProg - droneStart;
+    if (relProg < 0) relProg += 1;
+
+    // 如果超出覆盖范围，触发切换
+    if (relProg > DRONE.coverage && !droneState.switching) {
+        // 记录当前位置作为起点
+        droneState.fromPos.copy(camera.position);
+        droneState.fromTarget.copy(controls.target);
+
+        // 切换到下一个无人机
+        droneState.current = (droneState.current + 1) % DRONE.count;
+
+        // 计算新无人机的位置
+        getDronePosition(droneState.current, trainProg, droneState.toPos, droneState.toTarget);
+
+        // 开始切换动画
+        droneState.switching = true;
+        droneState.switchT = 0;
+    }
+}
+
+// 🚁 平滑插值函数 (ease-in-out)
+function smoothStep(t) {
+    return t * t * (3 - 2 * t);
+}
 
 function animate() {
     requestAnimationFrame(animate);
@@ -557,31 +654,46 @@ function animate() {
         if(obj.userData.type === 'headlight_spot') obj.intensity = CFG.lightPow;
     });
 
-    // 🎥 相机逻辑 (高性能零GC版)
+    // 🚁 无人机接力跟拍系统
     if(STATE.started && train && train.loco) {
-        // 1. 获取火车位置
-        const t = train.prog;
-        const trackPos = trackCurve.getPointAt(t); // 这里Threejs内部会产生一个新Vector，无法避免，但开销可控
-        
-        // 2. 计算径向向量 (使用全局变量 _v1，避免 new)
-        _v1.copy(trackPos).y = 0;
-        _v1.normalize();
-        
-        // 3. 计算相机目标位置 (复用 _v2)
-        // 逻辑：火车位置 + 向外偏移 * 距离 + 高度
-        _v2.copy(trackPos)
-           .addScaledVector(_v1, CFG.camDist)
-           .addScaledVector(_up, CFG.camHeight);
+        const trainProg = train.prog;
 
-        if (STATE.viewMode === 'FOLLOW') {
-            // 计算看哪里 (看车顶上方一点点)
-            _target.copy(trackPos).y += 5;
-            controls.target.copy(_target);
+        if (STATE.viewMode === 'FOLLOW' && !STATE.interacting) {
+            // 检测是否需要切换无人机
+            checkDroneSwitch(trainProg);
 
-            if (!STATE.interacting) {
+            if (droneState.switching) {
+                // 正在切换中：执行平滑过渡动画
+                droneState.switchT += deltaTime / DRONE.switchDur;
+
+                if (droneState.switchT >= 1) {
+                    // 切换完成
+                    droneState.switchT = 1;
+                    droneState.switching = false;
+                }
+
+                // 使用平滑插值
+                const k = smoothStep(droneState.switchT);
+
+                // 更新目标位置（因为火车还在移动）
+                getDronePosition(droneState.current, trainProg, droneState.toPos, droneState.toTarget);
+
+                // 插值相机位置和看向点
+                camera.position.lerpVectors(droneState.fromPos, droneState.toPos, k);
+                _target.lerpVectors(droneState.fromTarget, droneState.toTarget, k);
+                controls.target.copy(_target);
+            } else {
+                // 正常跟拍：无人机平滑跟随火车
+                getDronePosition(droneState.current, trainProg, _dronePos, _droneTarget);
+
                 // 平滑跟随
-                camera.position.lerp(_v2, CFG.camSmooth);
+                camera.position.lerp(_dronePos, CFG.camSmooth * 1.5);
+                controls.target.lerp(_droneTarget, CFG.camSmooth * 2);
             }
+        } else if (STATE.viewMode === 'FOLLOW') {
+            // 用户正在交互，只更新目标点
+            getDronePosition(droneState.current, trainProg, _dronePos, _droneTarget);
+            controls.target.lerp(_droneTarget, CFG.camSmooth);
         }
     }
 
@@ -1663,18 +1775,54 @@ function setupUI() {
         document.getElementById('hud').style.opacity = 1;
         document.getElementById('settings-btn').style.opacity = 1;
 
-        // 启动运镜
-        const start = camera.position.clone();
-        const back = new THREE.Vector3(0, 0, -1).applyQuaternion(train.loco.quaternion).normalize();
-        const end = train.loco.position.clone().add(back.multiplyScalar(40)).add(new THREE.Vector3(0, CFG.camHeight, 0));
+        // 🚁 启动运镜：无人机从侧面高空降落
+        // 初始化当前无人机为第一个（或根据火车位置选择最近的）
+        droneState.current = Math.floor(train.prog * DRONE.count) % DRONE.count;
+
+        // 计算目标跟拍位置
+        const endPos = new THREE.Vector3();
+        const endTarget = new THREE.Vector3();
+        getDronePosition(droneState.current, train.prog, endPos, endTarget);
+
+        // 起始位置：目标位置的正上方 + 侧向偏移（模拟无人机从侧面高空飞来）
+        const startPos = endPos.clone();
+        startPos.y += 120; // 从高空开始
+        startPos.x += 60;  // 侧向偏移
+        startPos.z += 40;
+
+        // 起始看向点：场景中心（俯瞰全景）
+        const startTarget = new THREE.Vector3(0, 0, 0);
+
+        // 设置初始相机位置
+        camera.position.copy(startPos);
+        camera.lookAt(startTarget);
+        controls.target.copy(startTarget);
+
         let t = 0;
         const iv = setInterval(() => {
-            t += 0.015;
-            if (t >= 1) { clearInterval(iv); STATE.viewMode = 'FOLLOW'; }
-            else {
+            t += 0.012; // 稍慢一点，更有电影感
+
+            if (t >= 1) {
+                clearInterval(iv);
+                STATE.viewMode = 'FOLLOW';
+                // 确保最终位置精确
+                camera.position.copy(endPos);
+                controls.target.copy(endTarget);
+            } else {
+                // 使用 ease-out 曲线，开始快结束慢（像无人机减速降落）
                 const k = 1 - Math.pow(1 - t, 3);
-                camera.position.lerpVectors(start, end, k);
-                camera.lookAt(train.loco.position);
+
+                // 更新目标位置（火车在移动）
+                getDronePosition(droneState.current, train.prog, endPos, endTarget);
+
+                // 插值相机位置
+                camera.position.lerpVectors(startPos, endPos, k);
+
+                // 插值看向点（从全景过渡到跟踪火车）
+                const lookTarget = new THREE.Vector3();
+                lookTarget.lerpVectors(startTarget, endTarget, k);
+                camera.lookAt(lookTarget);
+                controls.target.copy(lookTarget);
             }
         }, 16);
     };
@@ -1693,8 +1841,11 @@ function setupUI() {
     fSound.add(audio.vol, 'firework', 0, 1).name('烟花音效').onChange(() => audio.updateVols());
 
     const fCam = gui.addFolder('🎥 镜头与物理');
-    fCam.add(CFG, 'camHeight', 5, 40).name('视角高度');
-    fCam.add(CFG, 'camSmooth', 0.01, 1).name('跟随柔和度');
+    fCam.add(DRONE, 'height', 10, 60).name('🚁 无人机高度');
+    fCam.add(DRONE, 'distance', 30, 120).name('🚁 跟拍距离');
+    fCam.add(DRONE, 'coverage', 0.08, 0.3).name('🚁 接力间隔');
+    fCam.add(DRONE, 'switchDur', 0.5, 3).name('🚁 切换时长');
+    fCam.add(CFG, 'camSmooth', 0.01, 0.1).name('跟随柔和度');
     fCam.add(CFG, 'maxSpeed', 0.02, 0.4).name('火车极速');
 
     const fEnv = gui.addFolder('💡 灯光与环境');
