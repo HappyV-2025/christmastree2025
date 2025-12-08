@@ -39,7 +39,7 @@
     #top-bar{position:absolute;top:0;left:0;right:0;z-index:15;display:flex;justify-content:space-between;align-items:flex-start;padding:20px;pointer-events:none}
     #top-bar>*{pointer-events:auto}
     /* 圣诞倒计时 */
-    #countdown-wrap{opacity:0;transition:opacity 0.5s}
+    #countdown-wrap{position:absolute;top:70px;right:20px;opacity:0;transition:opacity 0.5s}
     #countdown-trigger{background:linear-gradient(135deg,rgba(183,28,28,0.85),rgba(139,0,0,0.85));color:#fff;padding:6px 14px;border-radius:20px;font-size:13px;cursor:pointer;border:1px solid rgba(255,215,0,0.5);box-shadow:0 2px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:6px;transition:all 0.3s;backdrop-filter:blur(5px)}
     #countdown-trigger:hover{transform:scale(1.05);box-shadow:0 4px 20px rgba(255,215,0,0.4)}
     #countdown-trigger .arrow{font-size:10px;transition:transform 0.3s}
