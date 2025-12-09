@@ -277,7 +277,7 @@ const CameraDirector = {
         this.controls = ctrl;
         this.train = tr;
         this.trackCurve = curve;
-        console.log("CameraDirector initialized. Controls received:", this.controls);
+        
         if (!this.controls || !this.controls.target) {
             console.error("CameraDirector: Controls or controls.target is undefined after init.");
         }
@@ -2399,29 +2399,46 @@ class Train {
         g.add(chimGroup);
         this.chim = chimGroup;
 
-        // 6. [IMPROVED] 前大灯 (Headlight) - 美化与增强
+        // 6. [IMPROVED] 前大灯 (Headlight) - 真实内凹结构
         const lightGroup = new THREE.Group();
         lightGroup.position.set(0, 3.2, 4.2);
 
-        // 灯座 (圆柱形复古款)
-        const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.8, 16).rotateX(Math.PI/2), matBlack);
-        housing.position.z = -0.2;
+        // A. 灯座外壳 (Housing) - 加长以容纳内构
+        const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 1.0, 16).rotateX(Math.PI/2), matBlack);
+        housing.position.z = -0.3; // 向后延伸
         lightGroup.add(housing);
 
-        // 金色灯圈
-        const lightRim = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.08, 4, 24), matGold);
+        // B. 反光碗 (Reflector) - 银色内锥
+        const matSilver = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.2, metalness: 1.0 });
+        const reflector = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.6, 0.5, 16, 1, true).rotateX(Math.PI/2), matSilver);
+        reflector.position.z = -0.05; // 嵌在壳内
+        lightGroup.add(reflector);
+
+        // C. 金色灯圈 (Rim)
+        const lightRim = new THREE.Mesh(new THREE.TorusGeometry(0.65, 0.08, 4, 24), matGold);
         lightRim.position.z = 0.2;
         lightGroup.add(lightRim);
 
-        // [MODIFIED] 发光透镜 (自发光 MeshStandardMaterial)
-        const lens = new THREE.Mesh(new THREE.CircleGeometry(0.5, 32), new THREE.MeshStandardMaterial({ 
+        // D. 灯泡 (Bulb) - 内部的小发光球
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), new THREE.MeshStandardMaterial({ 
             color: 0xffffee, 
             emissive: 0xffffee,
-            emissiveIntensity: 10.0, // 自身极亮，像灯丝
+            emissiveIntensity: 20.0, // 核心极亮
             roughness: 0.1
         }));
-        lens.position.z = 0.25;
-        lightGroup.add(lens);
+        bulb.position.z = -0.1; // 藏在深处
+        lightGroup.add(bulb);
+
+        // E. 玻璃灯罩 (Glass Lens) - 前端的透明盖
+        const glassCover = new THREE.Mesh(new THREE.CircleGeometry(0.6, 32), new THREE.MeshStandardMaterial({ 
+            color: 0xffffff, 
+            opacity: 0.3, 
+            transparent: true, 
+            roughness: 0.0, 
+            metalness: 0.9 
+        }));
+        glassCover.position.z = 0.2; // 与灯圈齐平
+        lightGroup.add(glassCover);
 
         // [MODIFIED] 强力聚光灯 (SpotLight)
         // 强度进一步提升，射程加大
@@ -2434,9 +2451,6 @@ class Train {
         sl.shadow.mapSize.height = 1024;
         sl.userData = { type: 'headlight_spot' };
         
-        // [FIXED] 移除之前的补光点光源 (PointLight)，因为它会照亮车身背面
-        // lightGroup.add(glowLight); // REMOVED
-
         // [FIXED] 定向光晕 (Directional Glare)
         // 使用面向前方的 PlaneMesh 替代 Sprite。
         // 只有从正面看（或侧面一定角度）才能看到光晕，背面会被剔除。
