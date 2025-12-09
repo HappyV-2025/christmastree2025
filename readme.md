@@ -1,6 +1,5 @@
 这是一个基于 **Three.js** 和 **Web Audio API** 开发的、高度程序化生成的 **3D 圣诞火车互动场景**。
 
-通过对代码的深度逆向分析，以下是该项目的详细**规格需求说明书 (Specification Requirements)**。
 
 ---
 
