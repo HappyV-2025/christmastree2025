@@ -1,5 +1,7 @@
 以下是《Christmas Express: Definitive Edition》的**深度技术规格说明书**
 
+---
+
 ### 1. 核心数学模型与物理引擎规格 (Mathematical & Physics Specifications)
 
 #### 1.1 轨道生成算法 (Procedural Track Generation)
