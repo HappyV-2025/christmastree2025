@@ -4180,8 +4180,8 @@ class SantaSleigh {
                 Math.random() - 0.5
             ).multiplyScalar(2.0),     // 缓慢优雅地自旋
             trail: trail, // 关联尾迹对象
-            trailLife: 0.5, // 尾迹淡出时长
-            trailFadeDuration: 0.5
+            fadeStartTime: 0, // 初始化
+            fadeDuration: 0.2 // 尾迹淡出时长 (变快)
         });
     }
 
@@ -4215,6 +4215,23 @@ class SantaSleigh {
                     
                     this.fallingGifts.splice(i, 1);
                 }
+
+                // 尾迹逐渐消失 (并跟随车厢移动)
+                if (g.trail) {
+                    const fadeProgress = (this.elapsed - g.fadeStartTime) / g.fadeDuration;
+                    const currentOpacity = Math.max(0, 1.0 - fadeProgress);
+                    
+                    // 获取礼物当前的世界坐标 (它会随着车厢移动)
+                    const giftCurrentWorldPos = new THREE.Vector3();
+                    g.mesh.getWorldPosition(giftCurrentWorldPos);
+                    
+                    g.trail.update(giftCurrentWorldPos, currentOpacity); // 使用当前世界坐标更新尾迹
+                    if (fadeProgress >= 1.0) {
+                        g.trail.dispose();
+                        g.trail = null;
+                    }
+                }
+
                 continue; 
             }
 
@@ -4237,56 +4254,16 @@ class SantaSleigh {
 
             // 更新尾迹
             if (g.trail) {
-                // 落地后尾迹逐渐消失
-                if (g.landed) {
-                    g.trailLife -= dt;
-                    g.trail.update(g.mesh.position, Math.max(0, g.trailLife / g.trailFadeDuration));
-                } else {
-                    // 飞行中尾迹保持可见
-                    g.trail.update(g.mesh.position);
-                }
+                // 飞行中尾迹保持可见
+                g.trail.update(g.mesh.position);
             }
 
             // 4. 旋转动画
             g.mesh.rotation.x += g.rotVel.x * dt;
             g.mesh.rotation.y += g.rotVel.y * dt;
             g.mesh.rotation.z += g.rotVel.z * dt;
-
-            // --- 判定落地 ---
-            if (t >= 1.0) {
-                // 强制吸附
-                const car = g.targetCar;
-                this.scene.remove(g.mesh);
-                car.add(g.mesh);
-
-                // 设定在车顶的局部坐标
-                // 限制在车顶较平坦的区域 (-1.0 ~ 1.0)，避免滑落
-                const localX = (Math.random() - 0.5) * 2.0; 
-                const localZ = (Math.random() - 0.5) * 6.5; // 车长范围
-
-                // 计算精确的车顶表面高度
-                const roofRadius = 2.05;
-                const roofCenterY = 5.1;
-                const safeX = Math.max(-roofRadius * 0.9, Math.min(roofRadius * 0.9, localX));
-                const surfaceY = roofCenterY + Math.sqrt(roofRadius * roofRadius - safeX * safeX);
-                
-                // 礼物中心高度 = 表面高度 + 半高(0.4) - 嵌入量(0.05)
-                const giftY = surfaceY + 0.35;
-
-                g.mesh.position.set(localX, giftY, localZ); 
-                
-                // 计算斜率，让礼物贴合圆弧
-                const slope = Math.atan2(safeX, Math.sqrt(roofRadius * roofRadius - safeX * safeX));
-                
-                // 设置旋转：水平随机转 + 垂直贴合斜率
-                g.mesh.rotation.set(0, Math.random() * Math.PI * 2, -slope);
-                g.mesh.scale.set(0.8, 0.8, 0.8);
-
-                g.landed = true;
-                g.life = 15.0; // 存活时间
-            }
-        }
-    }
+        } // Close for loop
+    } // Close updateFallingGifts method
 
     updateTrail(currentPos) {
         // 添加新位置到尾迹（带固定的随机偏移，只在添加时计算一次）
