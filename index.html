@@ -241,6 +241,195 @@ const SOUND_STYLES = [
     { name: "极致震撼", noise: {f:500, q:2, vol:6, dur:2.0}, kick: {f:45, vol:5.0, dur:0.6} },
 ];
 
+// 🎥 摄像机导演系统 (Camera Director)
+const CameraDirector = {
+    camera: null,
+    controls: null,
+    train: null,
+    trackCurve: null,
+    
+    // 配置
+    config: {
+        droneCount: 6,
+        droneCoverage: 0.18,
+        switchDur: 1.0,
+        height: 40,
+        distance: 100,
+        smoothSpeed: 0.08
+    },
+
+    // 状态
+    state: {
+        currentDrone: 0,
+        switching: false,
+        switchT: 0,
+        fromPos: new THREE.Vector3(),
+        toPos: new THREE.Vector3(),
+        fromTarget: new THREE.Vector3(),
+        toTarget: new THREE.Vector3(),
+        // 临时变量
+        _tempPos: new THREE.Vector3(),
+        _tempTarget: new THREE.Vector3()
+    },
+
+    init(cam, ctrl, tr, curve) {
+        this.camera = cam;
+        this.controls = ctrl;
+        this.train = tr;
+        this.trackCurve = curve;
+        console.log("CameraDirector initialized. Controls received:", this.controls);
+        if (!this.controls || !this.controls.target) {
+            console.error("CameraDirector: Controls or controls.target is undefined after init.");
+        }
+    },
+
+    // 计算指定无人机的理想位置
+    getDronePosition(droneIndex, trainProg, outPos, outTarget) {
+        if (!this.trackCurve) return;
+        const trainPos = this.trackCurve.getPointAt(trainProg);
+        const vec = new THREE.Vector3(trainPos.x, 0, trainPos.z).normalize();
+        
+        outPos.copy(trainPos);
+        outPos.addScaledVector(vec, this.config.distance);
+        outPos.y = this.config.height;
+        outTarget.set(0, 15, 0); // 看向中心
+    },
+
+    // 平滑插值
+    smoothStep(t) { return t * t * (3 - 2 * t); },
+
+    // 核心更新循环
+    update(dt) {
+        if (!this.train || !STATE.started) return;
+
+        // 1. 聚焦礼盒模式
+        if (STATE.viewMode === 'FOCUS_GIFT') {
+            const giftCamPos = new THREE.Vector3(0, 15, 60); 
+            const giftTarget = new THREE.Vector3(0, 8, 20); // 聚焦 LED 文字区域
+            this.camera.position.lerp(giftCamPos, 0.05);
+            this.controls.target.lerp(giftTarget, 0.05);
+            return;
+        }
+
+        // 2. 智能跟拍模式 (Drone Follow)
+        if (STATE.viewMode === 'FOLLOW' && !STATE.interacting) {
+            this.updateDroneFollow(dt);
+        } 
+        
+        // 3. 交互中 (只平滑 Target)
+        else if (STATE.viewMode === 'FOLLOW' && STATE.interacting) {
+            this.getDronePosition(this.state.currentDrone, this.train.prog, this.state._tempPos, this.state._tempTarget);
+            this.controls.target.lerp(this.state._tempTarget, this.config.smoothSpeed * 1.2);
+        }
+    },
+
+    updateDroneFollow(dt) {
+        const trainProg = this.train.prog;
+        const st = this.state;
+
+        // 简化且健壮的切换逻辑：基于扇区索引
+        // 将轨道分为 droneCount 个扇区，计算火车当前处于哪个扇区
+        let idealDrone = Math.floor(trainProg * this.config.droneCount) % this.config.droneCount;
+        
+        // 如果当前无人机不是理想无人机，且不在切换中，则触发切换
+        if (idealDrone !== st.currentDrone && !st.switching) {
+            st.fromPos.copy(this.camera.position);
+            st.fromTarget.copy(this.controls.target);
+            st.currentDrone = idealDrone;
+            
+            // 立即计算新无人机的位置作为终点
+            this.getDronePosition(st.currentDrone, trainProg, st.toPos, st.toTarget);
+            
+            st.switching = true;
+            st.switchT = 0;
+        }
+
+        if (st.switching) {
+            st.switchT += dt / this.config.switchDur;
+            if (st.switchT >= 1) {
+                st.switchT = 1;
+                st.switching = false;
+            }
+            const k = this.smoothStep(st.switchT);
+            this.getDronePosition(st.currentDrone, trainProg, st.toPos, st.toTarget);
+            this.camera.position.lerpVectors(st.fromPos, st.toPos, k);
+            this.controls.target.lerpVectors(st.fromTarget, st.toTarget, k);
+        } else {
+            this.getDronePosition(st.currentDrone, trainProg, st._tempPos, st._tempTarget);
+            const speedFactor = 1 + STATE.curSpeed * 3;
+            const posSmooth = Math.min(this.config.smoothSpeed * speedFactor, 0.25);
+            const targetSmooth = Math.min(this.config.smoothSpeed * speedFactor * 1.5, 0.35);
+            
+            this.camera.position.lerp(st._tempPos, posSmooth);
+            if (this.controls && this.controls.target) {
+                this.controls.target.lerp(st._tempTarget, targetSmooth);
+            } else {
+                console.error("CameraDirector.updateDroneFollow: this.controls or this.controls.target is null/undefined during lerp.", this.controls);
+            }
+        }
+    },
+
+    // 强制开始巡航 (用于从其他模式切回)
+    startCruise() {
+        if (!this.train) return;
+        if (!this.controls || !this.controls.target) {
+            console.error("CameraDirector.startCruise: this.controls or this.controls.target is null/undefined. Cannot start cruise.");
+            return;
+        }
+        STATE.viewMode = 'FOLLOW';
+        
+        const st = this.state;
+        st.currentDrone = Math.floor(this.train.prog * this.config.droneCount) % this.config.droneCount;
+        st.fromPos.copy(this.camera.position);
+        st.fromTarget.copy(this.controls.target);
+        this.getDronePosition(st.currentDrone, this.train.prog, st.toPos, st.toTarget);
+        st.switching = true;
+        st.switchT = 0;
+    },
+    
+    // 聚焦礼盒 (简便调用)
+    focusGift() {
+        STATE.viewMode = 'FOCUS_GIFT';
+    }
+};
+
+// 🎵 BGM 旋律数据 (Jingle Bells)
+const BGM_MELODY = (() => {
+    // 标准音高 (C大调)
+    const N = { 
+        G3:196, A3:220, B3:247, 
+        C4:262, D4:294, E4:330, F4:349, G4:392, A4:440, B4:494, 
+        C5:523, D5:587, E5:659 
+    };
+    // 基础拍速
+    const Q = 360, H = 720, W = 1080;
+    
+    return [
+        // === 主歌 Verse ===
+        {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.G3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+        {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.A3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+        {n:N.A3,d:Q}, {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.B3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+        {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.E4,d:H}, {n:0,d:Q}, {n:0,d:Q},
+        {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.G3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+        {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.A3,d:H}, {n:0,d:Q}, {n:0,d:Q},
+        {n:N.A3,d:Q}, {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q},
+        {n:N.A4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:H}, {n:N.G4,d:H},
+        // === 副歌 Chorus ===
+        {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+        {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+        {n:N.E4,d:Q}, {n:N.G4,d:Q}, {n:N.C4,d:Q*1.5}, {n:N.D4,d:Q/2}, {n:N.E4,d:W},
+        {n:N.F4,d:Q}, {n:N.F4,d:Q}, {n:N.F4,d:Q*1.5}, {n:N.F4,d:Q/2},
+        {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, 
+        {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.D4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:H}, {n:N.G4,d:H},
+        {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+        {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
+        {n:N.E4,d:Q}, {n:N.G4,d:Q}, {n:N.C4,d:Q*1.5}, {n:N.D4,d:Q/2}, {n:N.E4,d:W},
+        {n:N.F4,d:Q}, {n:N.F4,d:Q}, {n:N.F4,d:Q*1.5}, {n:N.F4,d:Q/2},
+        {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, 
+        {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:W}, {n:0,d:W}
+    ];
+})();
+
 class AudioEngine {
     constructor() {
         this.ctx = null;
@@ -257,6 +446,7 @@ class AudioEngine {
             train: 0.8,     // 火车声清晰
             firework: 1.0   // 烟花震撼
         };
+        this.bgmSpeed = 1.0; // BGM 播放速度倍率
     }
 
     init() {
@@ -300,73 +490,26 @@ class AudioEngine {
         this.nodes.fw.gain.setTargetAtTime(this.vol.firework, t, 0.1);
     }
 
+    setBgmSpeed(speed) {
+        this.bgmSpeed = speed;
+    }
+
     // 🎵 BGM: 绝对标准版《Jingle Bells》 (主歌+副歌完整循环)
     playBGM() {
         if(!this.ctx || this.isBgmPlaying) return;
         this.isBgmPlaying = true;
         
-        // 标准音高 (C大调)
-        const N = { 
-            G3:196, A3:220, B3:247, 
-            C4:262, D4:294, E4:330, F4:349, G4:392, A4:440, B4:494, 
-            C5:523, D5:587, E5:659 
-        };
-        
-        // 基础拍速 (BPM 约 100)
-        const Q = 360;  // 四分音符 (1拍)
-        const H = 720; // 二分音符 (2拍)
-        const W = 1080; // 全音符 (4拍)
-        
-        const melody = [
-            // === 主歌 Verse (Dashing through the snow) ===
-            // 1. Dashing through the snow
-            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.G3,d:H}, {n:0,d:Q}, {n:0,d:Q},
-            // 2. In a one horse open sleigh
-            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.A3,d:H}, {n:0,d:Q}, {n:0,d:Q},
-            // 3. O'er the fields we go
-            {n:N.A3,d:Q}, {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.B3,d:H}, {n:0,d:Q}, {n:0,d:Q},
-            // 4. Laughing all the way
-            {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.E4,d:H}, {n:0,d:Q}, {n:0,d:Q},
-            
-            // 5. Bells on bobtail ring
-            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.G3,d:H}, {n:0,d:Q}, {n:0,d:Q},
-            // 6. Making spirits bright
-            {n:N.G3,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:Q}, {n:N.A3,d:H}, {n:0,d:Q}, {n:0,d:Q},
-            // 7. What fun it is to ride and sing
-            {n:N.A3,d:Q}, {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.G4,d:Q},
-            // 8. A sleighing song tonight
-            {n:N.A4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:H}, {n:N.G4,d:H}, // 最后G4是过渡
-
-            // === 副歌 Chorus (Jingle Bells) ===
-            // 9. Jingle bells, jingle bells
-            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
-            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
-            // 10. Jingle all the way
-            {n:N.E4,d:Q}, {n:N.G4,d:Q}, {n:N.C4,d:Q*1.5}, {n:N.D4,d:Q/2}, {n:N.E4,d:W},
-            // 11. Oh what fun it is to ride
-            {n:N.F4,d:Q}, {n:N.F4,d:Q}, {n:N.F4,d:Q*1.5}, {n:N.F4,d:Q/2},
-            {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, 
-            // 12. In a one horse open sleigh
-            {n:N.E4,d:Q}, {n:N.D4,d:Q}, {n:N.D4,d:Q}, {n:N.E4,d:Q}, {n:N.D4,d:H}, {n:N.G4,d:H},
-
-            // 13. Jingle bells, jingle bells (Repeat)
-            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
-            {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:H}, 
-            // 14. Jingle all the way
-            {n:N.E4,d:Q}, {n:N.G4,d:Q}, {n:N.C4,d:Q*1.5}, {n:N.D4,d:Q/2}, {n:N.E4,d:W},
-            // 15. Oh what fun it is to ride
-            {n:N.F4,d:Q}, {n:N.F4,d:Q}, {n:N.F4,d:Q*1.5}, {n:N.F4,d:Q/2},
-            {n:N.F4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, {n:N.E4,d:Q}, 
-            // 16. In a one horse open sleigh! (Ending)
-            {n:N.G4,d:Q}, {n:N.G4,d:Q}, {n:N.F4,d:Q}, {n:N.D4,d:Q}, {n:N.C4,d:W}, {n:0,d:W}
-        ];
-
         let idx = 0;
         const playNext = () => {
             if(!this.isBgmPlaying) return;
-            const note = melody[idx];
+            const note = BGM_MELODY[idx];
+            
+            // 计算变速后的时长
+            const realDurationMs = note.d / this.bgmSpeed;
+            const realDurationSec = realDurationMs / 1000;
+
             if(note.n > 0) {
-                const t = this.ctx.currentTime, dur = note.d/1000;
+                const t = this.ctx.currentTime;
                 
                 // 🎹 音色核心：高频泛音叠加
                 const playLayer = (freq, type, vol, decay) => {
@@ -378,21 +521,24 @@ class AudioEngine {
                     osc.connect(gain);
                     gain.gain.setValueAtTime(0, t);
                     gain.gain.linearRampToValueAtTime(vol, t + 0.01); // 极快起音
-                    gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
-                    osc.start(t); osc.stop(t + decay + 0.1);
+                    
+                    // decay 也要随速度缩放，保持听感一致
+                    const realDecay = decay / this.bgmSpeed;
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + realDecay);
+                    osc.start(t); osc.stop(t + realDecay + 0.1);
                 };
 
                 // 1. 基音 (Sine) - 温暖的主体
-                playLayer(note.n, 'sine', 0.6, dur * 1.5);
+                playLayer(note.n, 'sine', 0.6, realDurationSec * 1.5);
                 // 2. 二次谐波 (Sine) - 增加厚度
-                playLayer(note.n * 2, 'sine', 0.3, dur * 1.2);
-                // 3. 敲击声 (Triangle) - 瞬间的高频，模拟敲击金属片
+                playLayer(note.n * 2, 'sine', 0.3, realDurationSec * 1.2);
+                // 3. 敲击声 (Triangle) - 瞬间的高频，模拟敲击金属片 (瞬态不随速度变)
                 playLayer(note.n * 4, 'triangle', 0.06, 0.1); 
                 // 4. 空灵感 (Detuned Sine)
-                playLayer(note.n + 5, 'sine', 0.6, dur);
+                playLayer(note.n + 5, 'sine', 0.6, realDurationSec);
             }
-            this.bgmTimer = setTimeout(playNext, note.d);
-            idx = (idx + 1) % melody.length;
+            this.bgmTimer = setTimeout(playNext, realDurationMs);
+            idx = (idx + 1) % BGM_MELODY.length;
         };
         playNext();
     }
@@ -647,7 +793,428 @@ const STATE = {
     curSpeed: 0,   // 当前实际物理速度
     clickTime: 0,
     trainDir: Math.random() > 0.5 ? 1 : -1,  // 🚂 随机方向：1=顺时针，-1=逆时针
-    forceChristmas : false    // 测试圣诞节当日效果
+    forceChristmas : true,    // 测试圣诞节当日效果
+    giftPhase: 'NONE', // NONE | FALLING | WAITING | OPENED
+    christmasParty: false,
+    spawnedGiftsGroup: new THREE.Group() // 用于统一管理散落的礼盒，方便一键清除
+};
+
+// 💡 LED 文字生成器 (粒子爆炸版)
+const LedTextManager = {
+    mesh: null,
+    dummy: new THREE.Object3D(),
+    color: new THREE.Color(),
+    active: false,
+    particles: [], // 存储粒子物理状态
+
+    init(scene) {
+        this.scene = scene;
+        // 使用球体模拟 LED 灯珠 - 进一步缩小半径，降低发光强度
+        this.geo = new THREE.SphereGeometry(0.2, 8, 8); // 半径 0.2
+        this.mat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0xffffff,
+            emissiveIntensity: 1.2, // 发光强度降到 1.2
+            roughness: 0.4
+        });
+    },
+
+    // 将文字转换为点阵坐标 (逐字处理，支持独立颜色和间距)
+    generatePoints() {
+        const cv = document.createElement('canvas');
+        cv.width = 128; cv.height = 128; // 缩小画布尺寸以优化性能
+        const ctx = cv.getContext('2d');
+        ctx.font = `900 50px "Arial Black", sans-serif`; // 字号减半
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const points = [];
+        const lines = ["Merry", "Christmas"];
+        const step = 3; // 保持采样步长，但在小画布上意味着点更少，性能更好
+        
+        let lineYOffset = -40; // 第一行 Y 偏移
+
+        lines.forEach((text, lineIdx) => {
+            let currentLineCanvasWidth = 0;
+            const letterWidths = [];
+            for (let i = 0; i < text.length; i++) {
+                ctx.clearRect(0, 0, 128, 128);
+                ctx.fillText(text[i], 64, 64);
+                const metrics = ctx.measureText(text[i]);
+                letterWidths.push(metrics.width);
+                currentLineCanvasWidth += metrics.width * 0.7; // 调整估算系数 (因字体变小，系数需变大以保持世界空间尺寸)
+            }
+            // 初始光标 X，实现居中
+            let cursorX = -currentLineCanvasWidth / 2;
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                
+                // 1. 清空画布并绘制单个字符
+                ctx.clearRect(0, 0, 128, 128);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(char, 64, 64);
+
+                // 2. 为该字母分配独特颜色
+                const hue = (i * 0.13 + lineIdx * 0.5) % 1.0;
+                const charColor = new THREE.Color().setHSL(hue, 1.0, 0.6);
+
+                // 3. 采样像素
+                const imgData = ctx.getImageData(0, 0, 128, 128);
+                const data = imgData.data;
+                
+                for (let y = 0; y < 128; y += step) {
+                    for (let x = 0; x < 128; x += step) {
+                        const alpha = data[(y * 128 + x) * 4 + 3];
+                        if (alpha > 128) {
+                            // 映射坐标：
+                            // 画布减半，系数翻倍，保持最终世界坐标一致
+                            const px = (x - 64) * 0.3 + cursorX; 
+                            const pz = (y - 64) * 0.4 + lineYOffset; 
+                            
+                            points.push({
+                                x: px,
+                                z: pz,
+                                color: charColor
+                            });
+                        }
+                    }
+                }
+                
+                // 4. 移动光标
+                cursorX += letterWidths[i] * 0.7; 
+            }
+            
+            lineYOffset += 40; 
+        });
+
+        return points;
+    },
+
+
+    spawn() {
+        this.clear();
+        this.active = true;
+        this.particles = [];
+
+        const targets = this.generatePoints(); // 新版生成器
+        const count = targets.length;
+
+        this.mesh = new THREE.InstancedMesh(this.geo, this.mat, count);
+        this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.mesh.frustumCulled = false; 
+        
+        console.log(`💡 LED Text exploding: ${count} particles`);
+
+        const startPos = new THREE.Vector3(0, 10, 0);
+
+        for (let i = 0; i < count; i++) {
+            const t = targets[i];
+            
+            // 目标位置 (地面)
+            const targetX = t.x;
+            // 调整 Z 轴偏移，使其更靠近原点中心，现在放到礼盒前方 (Z=0) 的 +20 位置
+            const targetZ = t.z + 20; 
+
+            // 物理初始化
+            const speedH = 0.5 + Math.random() * 1.5; 
+            const speedV = 15 + Math.random() * 20;   
+            
+            const dirX = targetX + (Math.random()-0.5)*10;
+            const dirZ = targetZ + (Math.random()-0.5)*10;
+            const len = Math.sqrt(dirX*dirX + dirZ*dirZ) || 1;
+            
+            // 存储基础颜色
+            const baseColor = t.color; // THREE.Color
+
+            this.particles.push({
+                pos: startPos.clone(),
+                vel: new THREE.Vector3((dirX/len)*speedH, speedV, (dirZ/len)*speedH),
+                target: new THREE.Vector3(targetX, 0.5, targetZ),
+                landed: false,
+                delay: Math.random() * 0.5,
+                baseColor: baseColor // 保存该粒子的固有色
+            });
+
+            // 初始矩阵
+            this.dummy.position.copy(startPos);
+            this.dummy.scale.set(0, 0, 0); 
+            this.dummy.updateMatrix();
+            this.mesh.setMatrixAt(i, this.dummy.matrix);
+            
+            // 设置初始颜色
+            this.mesh.setColorAt(i, baseColor);
+        }
+        
+        if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+        this.scene.add(this.mesh);
+    },
+
+    update(dt) {
+        if (!this.active || !this.mesh) return;
+
+        let needsUpdate = false;
+        let colorUpdate = false;
+        const time = performance.now() / 1000;
+
+        // 移除旧的全局变色逻辑，改用基于实例颜色的闪烁
+        // const hue = (time * 0.5) % 1; ...
+
+        if (!this._tempCol) this._tempCol = new THREE.Color();
+
+        for (let i = 0; i < this.particles.length; i++) {
+            const p = this.particles[i];
+
+            if (p.landed) {
+                // 已落地：保持在目标位置，独立颜色闪烁
+                // 闪烁逻辑：基础亮度 + 随机相位正弦波
+                // 这样能保持原本的色相，同时有 blingbling 的效果
+                const flash = 0.5 + Math.sin(time * 8 + i * 0.1) * 0.5; // 0.0 ~ 1.0
+                
+                // 将基础色稍微提亮或变暗
+                this._tempCol.copy(p.baseColor);
+                // 这里的逻辑：越亮越接近白色，越暗越接近原色变暗
+                // 模拟 LED 亮度变化
+                this._tempCol.multiplyScalar(0.8 + flash * 1.2); 
+                
+                this.mesh.setColorAt(i, this._tempCol);
+                
+                // 也要设置 matrix 确保 scale 正确 (可能之前有动画残留)
+                this.dummy.position.copy(p.target);
+                this.dummy.scale.setScalar(1.0);
+                this.dummy.updateMatrix();
+                this.mesh.setMatrixAt(i, this.dummy.matrix);
+                
+                needsUpdate = true;
+                colorUpdate = true;
+                continue;
+            }
+
+            // 处理发射延迟
+            if (p.delay > 0) {
+                p.delay -= dt;
+                continue;
+            }
+
+            // 物理模拟
+            p.vel.y -= 50 * dt; // 重力
+            p.pos.addScaledVector(p.vel, dt);
+
+            // 落地归位逻辑
+            if (p.pos.y <= 0.5) {
+                p.landed = true;
+                p.pos.copy(p.target);
+            } else {
+                p.pos.x += (p.target.x - p.pos.x) * 2.0 * dt;
+                p.pos.z += (p.target.z - p.pos.z) * 2.0 * dt;
+            }
+
+            this.dummy.position.copy(p.pos);
+            this.dummy.scale.setScalar(1.0); 
+            this.dummy.updateMatrix();
+            this.mesh.setMatrixAt(i, this.dummy.matrix);
+            
+            // 飞行中保持原色
+            this.mesh.setColorAt(i, p.baseColor);
+            
+            needsUpdate = true;
+            colorUpdate = true; // 飞行中也需要更新颜色 buffer 吗？如果是静态的其实不用，但为了安全起见
+        }
+        
+        if (needsUpdate) this.mesh.instanceMatrix.needsUpdate = true;
+        if (colorUpdate && this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    },
+
+    clear() {
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            this.mesh.dispose();
+            this.mesh = null;
+        }
+        this.active = false;
+        this.particles = [];
+    }
+};
+
+// 🎁 巨型礼盒管理器
+const MegaGiftManager = {
+    mesh: null,
+    glowMesh: null,
+    scale: 0,
+    targetScale: 15,
+    y: 200,
+    velY: 0,
+    physicsItems: [], // 内部管理物理对象，不再污染全局
+    
+    init(scene) {
+        this.scene = scene;
+        scene.add(STATE.spawnedGiftsGroup);
+    },
+
+    spawn() {
+        if (STATE.giftPhase !== 'NONE') return;
+        STATE.giftPhase = 'FALLING';
+        
+        // 重置物理状态
+        this.velY = 0;
+        
+        // 1. 创建更华丽的礼盒模型
+        const grp = new THREE.Group();
+        
+        // 核心盒子
+        const size = this.targetScale;
+        const matBody = new THREE.MeshStandardMaterial({ 
+            color: 0xd32f2f, 
+            roughness: 0.2, 
+            metalness: 0.4 
+        });
+        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), matBody);
+        box.castShadow = true;
+        
+        // 金色丝带 (十字)
+        const matGold = new THREE.MeshStandardMaterial({ 
+            color: 0xffd700, 
+            roughness: 0.1, 
+            metalness: 0.8,
+            emissive: 0xaa6600,
+            emissiveIntensity: 0.2
+        });
+        const ribbon1 = new THREE.Mesh(new THREE.BoxGeometry(size*1.02, size, size*0.2), matGold);
+        const ribbon2 = new THREE.Mesh(new THREE.BoxGeometry(size*0.2, size, size*1.02), matGold);
+        
+        // 巨大的蝴蝶结
+        const bow = new THREE.Group();
+        bow.position.y = size * 0.5;
+        const bowGeo = new THREE.TorusGeometry(size*0.25, size*0.08, 16, 32);
+        const b1 = new THREE.Mesh(bowGeo, matGold); b1.position.set(size*0.2, size*0.2, 0); b1.rotation.z = -Math.PI/4;
+        const b2 = new THREE.Mesh(bowGeo, matGold); b2.position.set(-size*0.2, size*0.2, 0); b2.rotation.z = Math.PI/4;
+        const knot = new THREE.Mesh(new THREE.SphereGeometry(size*0.15), matGold);
+        bow.add(b1, b2, knot);
+
+        grp.add(box, ribbon1, ribbon2, bow);
+        
+        // 内部发光体 (用于呼吸灯效果)
+        const glowGeo = new THREE.BoxGeometry(size*0.9, size*0.9, size*0.9);
+        const glowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0 });
+        this.glowMesh = new THREE.Mesh(glowGeo, glowMat);
+        grp.add(this.glowMesh);
+
+        this.mesh = grp;
+        this.mesh.position.set(0, this.y, 0); // 从天而降
+        this.scene.add(this.mesh);
+
+        // 切换视角
+        CameraDirector.focusGift();
+    },
+
+    update(dt, time) {
+        // 1. 更新大礼盒自身
+        if (this.mesh) {
+            if (STATE.giftPhase === 'FALLING') {
+                this.velY -= 80 * dt; 
+                this.mesh.position.y += this.velY * dt;
+                this.mesh.rotation.x += dt;
+                this.mesh.rotation.z += dt * 0.5;
+
+                if (this.mesh.position.y <= this.targetScale/2) {
+                    this.mesh.position.y = this.targetScale/2;
+                    this.velY = 0;
+                    STATE.giftPhase = 'WAITING';
+                    this.mesh.rotation.set(0, 0, 0);
+                    if(camera) camera.position.y -= 2; 
+                    audio.explode(1); 
+                }
+            } else if (STATE.giftPhase === 'WAITING') {
+                const s = 1.0 + Math.sin(time * 3) * 0.03;
+                this.mesh.scale.set(s, s, s);
+                if (this.glowMesh) this.glowMesh.material.opacity = 0.2 + Math.sin(time * 5) * 0.2;
+            }
+        }
+
+        // 2. 更新小礼物物理
+        if (this.physicsItems.length > 0) {
+            for (let i = this.physicsItems.length - 1; i >= 0; i--) {
+                const gift = this.physicsItems[i];
+                const landed = GiftFactory.updateGiftPhysics(gift, dt, { gravity: 20, groundY: 0.5 });
+                if (landed) {
+                    this.physicsItems.splice(i, 1);
+                }
+            }
+        }
+    },
+
+    open() {
+        if (STATE.giftPhase !== 'WAITING') return;
+        STATE.giftPhase = 'OPENED';
+
+        audio.explode(6);
+        this.scene.remove(this.mesh);
+        this.mesh = null;
+
+        const template = GiftFactory.createTemplate({ size: 1.5 });
+        const count = 60; 
+        
+        for(let i=0; i<count; i++) {
+             const gift = GiftFactory.cloneWithUniqueMaterials(template);
+             gift.position.set(0, 5, 0);
+             
+             const theta = Math.random() * Math.PI * 2;
+             const phi = Math.random() * Math.PI * 0.4; 
+             const speed = 20 + Math.random() * 30;
+             
+             const vx = Math.cos(theta) * Math.sin(phi) * speed;
+             const vy = Math.cos(phi) * speed;
+             const vz = Math.sin(theta) * Math.sin(phi) * speed;
+
+             gift.traverse(c => {
+                 if (c.isMesh && c.material.name !== 'gold') {
+                      c.material.color.setHSL(Math.random(), 0.9, 0.4);
+                 }
+             });
+
+             STATE.spawnedGiftsGroup.add(gift);
+             
+             this.physicsItems.push({
+                 mesh: gift,
+                 vel: new THREE.Vector3(vx, vy, vz),
+                 rotVel: new THREE.Vector3(Math.random(), Math.random(), Math.random()),
+                 landed: false,
+                 targetY: 0.5 
+             });
+        }
+
+        // 3. 激活狂欢模式
+        if (typeof activateChristmasMode === 'function') activateChristmasMode();
+        
+        // 4. 生成地面 LED 文字特效 (替代旧版贺卡)
+        LedTextManager.spawn();
+
+        // 5. 自动流程：狂欢 8秒后，自动回到无人机跟拍
+        setTimeout(() => {
+            // 只有当前还在狂欢状态才执行，防止用户已经手动退出了
+            if (STATE.christmasParty) {
+                const trig = document.getElementById('countdown-trigger');
+                if(trig) trig.style.display = 'flex';
+                
+                // 恢复视角
+                CameraDirector.startCruise();
+                
+                // 渐隐或清除文字 (可以选择让它留着做背景，这里我们选择保留它作为场景装饰，
+                // 直到用户手动关闭测试模式。如果想清除，取消下面注释)
+                // LedTextManager.clear(); 
+            }
+        }, 8000);
+    },
+
+    clear() {
+        // 移除大礼盒
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            this.mesh = null;
+        }
+        // 清空物理列表
+        this.physicsItems = [];
+    }
 };
 
 // 🚁 无人机接力跟拍系统配置
@@ -676,6 +1243,7 @@ let train, fwMgr, snowMgr, santaSleigh, trackCurve;
 let lights={}, bloomPass;
 let ground, trackPoints=[];
 let autoTimer=null;
+let isChristmasUIActive = false; // 全局 UI 状态锁
 const clock = new THREE.Clock();
 const ray = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -1064,6 +1632,9 @@ function init() {
     // 完成装饰物初始化
     DecorManager.finalize();
 
+    MegaGiftManager.init(scene);
+    LedTextManager.init(scene);
+
     const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, stencilBuffer: false });
 
     const rp = new RenderPass(scene, camera);
@@ -1082,6 +1653,8 @@ function init() {
     santaSleigh = new SantaSleigh(scene);
 
     setupControls();
+
+    CameraDirector.init(camera, controls, train, trackCurve);
     setupUI();
     
     document.getElementById('loading').style.display='none';
@@ -1089,65 +1662,7 @@ function init() {
 }
 
 // 在 animate 函数外，确保定义了这些辅助变量，用于复用
-const _v2 = new THREE.Vector3();
-const _target = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0);
 const _tempCol = new THREE.Color();
-const _dronePos = new THREE.Vector3();
-const _droneTarget = new THREE.Vector3();
-
-// 🚁 计算指定无人机的理想位置（修正版：使用径向向量确保在轨道外侧）
-function getDronePosition(droneIndex, trainProg, outPos, outTarget) {
-    // 获取火车当前位置
-    const trainPos = trackCurve.getPointAt(trainProg);
-
-    // 🔑 核心修正：使用径向向量（从中心指向火车），这个方向永远指向外侧
-    _v2.set(trainPos.x, 0, trainPos.z).normalize();
-
-    // 无人机位置 = 火车位置 + 径向外偏移 + 高度
-    outPos.copy(trainPos);
-    outPos.addScaledVector(_v2, DRONE.distance); // 向外偏移
-    outPos.y = DRONE.height;
-
-    // 看向点：地图中心（稍微抬高，能看到圣诞树）
-    outTarget.set(0, 15, 0);
-}
-
-// 🚁 检测是否需要切换到下一个无人机（支持双向行驶）
-function checkDroneSwitch(trainProg) {
-    const droneStart = droneState.current / DRONE.count;
-
-    // 计算火车相对于当前无人机起点的位置
-    let relProg = trainProg - droneStart;
-    if (relProg < -0.5) relProg += 1;
-    if (relProg > 0.5) relProg -= 1;
-
-    // 根据火车方向判断是否超出覆盖范围
-    const needSwitch = STATE.trainDir > 0
-        ? relProg > DRONE.coverage   // 顺时针：超出正向范围
-        : relProg < 0;                // 逆时针：超出负向范围
-
-    if (needSwitch && !droneState.switching) {
-        // 记录当前位置作为起点
-        droneState.fromPos.copy(camera.position);
-        droneState.fromTarget.copy(controls.target);
-
-        // 根据方向切换到下一个或上一个无人机
-        droneState.current = (droneState.current + STATE.trainDir + DRONE.count) % DRONE.count;
-
-        // 计算新无人机的位置
-        getDronePosition(droneState.current, trainProg, droneState.toPos, droneState.toTarget);
-
-        // 开始切换动画
-        droneState.switching = true;
-        droneState.switchT = 0;
-    }
-}
-
-// 🚁 平滑插值函数 (ease-in-out)
-function smoothStep(t) {
-    return t * t * (3 - 2 * t);
-}
 
 function animate() {
     requestAnimationFrame(animate);
@@ -1160,13 +1675,16 @@ function animate() {
 
     // 1. 物理惯性
     if(STATE.running) {
+        // 狂欢模式极速加成 (1.5倍)
+        const targetMax = STATE.christmasParty ? CFG.maxSpeed * 1.5 : CFG.maxSpeed;
+        
         // 加速逻辑
-        if(STATE.curSpeed < CFG.maxSpeed) {
+        if(STATE.curSpeed < targetMax) {
             STATE.curSpeed += CFG.accel;
-            if(STATE.curSpeed > CFG.maxSpeed) STATE.curSpeed = CFG.maxSpeed;
+            if(STATE.curSpeed > targetMax) STATE.curSpeed = targetMax;
         }
-        // 减速逻辑 (当你在设置里把极速调低时，火车会慢慢减速适应新设置)
-        else if(STATE.curSpeed > CFG.maxSpeed) {
+        // 减速逻辑
+        else if(STATE.curSpeed > targetMax) {
             STATE.curSpeed *= 0.98; // 摩擦力减速
         }
     } else {
@@ -1178,10 +1696,40 @@ function animate() {
         }
     }
 
-    if(train) train.update(deltaTime, STATE.curSpeed);
+    if(train) {
+        train.update(deltaTime, STATE.curSpeed);
+        // 🎄 圣诞狂欢特效：彩虹烟雾 + 撒礼物
+        if (STATE.christmasParty) {
+            const hue = (time * 100) % 360; 
+            if (train.smokeMesh && train.smokeMesh.material) {
+                train.smokeMesh.material.color.setHSL(hue/360, 1.0, 0.6);
+                train.smokeMesh.material.emissive.setHSL(hue/360, 1.0, 0.2);
+            }
+            if (Math.random() < 0.03) {
+                const c = train.cars[Math.floor(Math.random()*train.cars.length)];
+                if(train.throwGift(c)) train.flashWindows(c);
+            }
+        } else if (train.smokeMesh && train.smokeMesh.material && train.smokeMesh.material.color.getHex() !== 0xdddddd) {
+             // 恢复默认颜色
+             train.smokeMesh.material.color.setHex(0xdddddd);
+             train.smokeMesh.material.emissive.setHex(0x000000);
+        }
+    }
+
     if(fwMgr) fwMgr.update();
     if(snowMgr) snowMgr.update(deltaTime);
-    if(santaSleigh) santaSleigh.update(deltaTime);
+    
+    if(santaSleigh) {
+        santaSleigh.update(deltaTime);
+        // 🎄 圣诞狂欢特效：圣诞老人疯狂加班
+        if (STATE.christmasParty && !santaSleigh.active && santaSleigh.nextTrigger > santaSleigh.elapsed + 15) {
+             santaSleigh.nextTrigger = santaSleigh.elapsed + 10 + Math.random() * 5;
+        }
+    }
+
+    // 🎁 巨型礼盒更新 (含小礼物物理)
+    MegaGiftManager.update(deltaTime, time);
+    LedTextManager.update(deltaTime);
 
     // 灯光动画
     emissives.forEach(obj => {
@@ -1205,52 +1753,8 @@ function animate() {
         if(obj.userData.type === 'headlight_spot') obj.intensity = CFG.lightPow;
     });
 
-    // 🚁 无人机接力跟拍系统
-    if(STATE.started && train && train.loco) {
-        const trainProg = train.prog;
-
-        if (STATE.viewMode === 'FOLLOW' && !STATE.interacting) {
-            // 检测是否需要切换无人机
-            checkDroneSwitch(trainProg);
-
-            if (droneState.switching) {
-                // 正在切换中：执行平滑过渡动画
-                droneState.switchT += deltaTime / DRONE.switchDur;
-
-                if (droneState.switchT >= 1) {
-                    // 切换完成
-                    droneState.switchT = 1;
-                    droneState.switching = false;
-                }
-
-                // 使用平滑插值
-                const k = smoothStep(droneState.switchT);
-
-                // 更新目标位置（因为火车还在移动）
-                getDronePosition(droneState.current, trainProg, droneState.toPos, droneState.toTarget);
-
-                // 插值相机位置和看向点
-                camera.position.lerpVectors(droneState.fromPos, droneState.toPos, k);
-                _target.lerpVectors(droneState.fromTarget, droneState.toTarget, k);
-                controls.target.copy(_target);
-            } else {
-                // 正常跟拍：无人机平滑跟随火车
-                getDronePosition(droneState.current, trainProg, _dronePos, _droneTarget);
-
-                // 速度自适应跟随：高速时跟得更紧
-                const speedFactor = 1 + STATE.curSpeed * 3;  // 速度越快，跟随越紧
-                const posSmooth = Math.min(DRONE.smoothSpeed * speedFactor, 0.25);
-                const targetSmooth = Math.min(DRONE.smoothSpeed * speedFactor * 1.5, 0.35);
-
-                camera.position.lerp(_dronePos, posSmooth);
-                controls.target.lerp(_droneTarget, targetSmooth);
-            }
-        } else if (STATE.viewMode === 'FOLLOW') {
-            // 用户正在交互，只更新目标点
-            getDronePosition(droneState.current, trainProg, _dronePos, _droneTarget);
-            controls.target.lerp(_droneTarget, DRONE.smoothSpeed * 1.2);
-        }
-    }
+    // 🎥 相机更新委托给导演系统
+    CameraDirector.update(deltaTime);
 
     controls.update();
     composer.render();
@@ -1749,8 +2253,9 @@ class Train {
             wheelGeo: new THREE.CylinderGeometry(0.65, 0.65, 0.4, 12).rotateZ(Math.PI / 2),
             // [MODIFIED] 使用 StandardMaterial 以支持发光闪烁 (emissive flash)
             winMat: new THREE.MeshStandardMaterial({ 
-                color: 0xffccaa, 
-                emissive: 0x000000,
+                color: 0xffcc00, // 更明亮的暖黄
+                emissive: 0xffaa00, 
+                emissiveIntensity: 1.0, // 提升亮度
                 roughness: 0.2, 
                 metalness: 0.8 
             })
@@ -1796,6 +2301,13 @@ class Train {
         const matBlack = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
         const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
         const matGrey = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.5 });
+        // 驾驶室窗户材质 (暖光)
+        const matWin = new THREE.MeshStandardMaterial({ 
+            color: 0xffcc00, 
+            emissive: 0xffaa00, 
+            emissiveIntensity: 1.0, 
+            roughness: 0.2 
+        });
 
         // 1. 底盘 (Chassis)
         const chassis = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.8, 8.5), matBlack);
@@ -1846,8 +2358,8 @@ class Train {
         cabTop.position.y = 3.5;
         cabGroup.add(cabTop);
         
-        // 窗户区域 (黑色内凹感)
-        const winSide = new THREE.Mesh(new THREE.BoxGeometry(3.7, 1.4, 1.8), matBlack);
+        // 窗户区域 (发光)
+        const winSide = new THREE.Mesh(new THREE.BoxGeometry(3.7, 1.4, 1.8), matWin);
         winSide.position.y = 3.5;
         cabGroup.add(winSide);
 
@@ -2174,6 +2686,17 @@ class Train {
         // 轮子旋转方向也要随火车方向
         this.wheels.forEach(w => w.rotation.x -= dist * 150 * CFG.wheelMult);
 
+        // 🎄 狂欢模式：车厢摇摆 (Party Rocking)
+        if (STATE.christmasParty) {
+            const t = clock.getElapsedTime();
+            [this.loco, ...this.cars].forEach((obj, i) => {
+                // 左右摇摆 (Roll) - 增加 Z 轴旋转
+                obj.rotation.z += Math.sin(t * 18 + i) * 0.08;
+                // 欢快跳动 (Bounce) - 增加 Y 轴位移
+                obj.position.y += Math.abs(Math.sin(t * 25 + i)) * 0.15;
+            });
+        }
+
         // 🚂 烟雾生成逻辑优化
         // 确保矩阵更新，以获取准确的烟囱位置
         this.loco.updateMatrixWorld(true);
@@ -2300,13 +2823,13 @@ class Train {
         this.giftCooldown = Date.now();
 
         // 创建礼盒
-        const gift = this.giftTemplate.clone();
-        gift.traverse(c => { if (c.isMesh) c.material = c.material.clone(); });
+        const gift = GiftFactory.cloneWithUniqueMaterials(this.giftTemplate);
 
         // 随机颜色
         const colors = [0xcc0000, 0x00aa00, 0x0066cc, 0xffaa00];
         const col = colors[Math.floor(Math.random() * colors.length)];
-        gift.children[0].material.color.setHex(col);
+        // children[0] 是 box mesh (在 createTemplate 中定义的顺序)
+        if(gift.children[0]) gift.children[0].material.color.setHex(col);
 
         // 从车厢世界位置扔出
         const worldPos = new THREE.Vector3();
@@ -2367,8 +2890,10 @@ class Train {
             GiftFactory.updateGiftPhysics(g, dt, { gravity: 25, groundY: 1 });
         }
 
-        // 限制地面礼盒数量 (最多20个)
-        while (this.droppedGifts.length > 20) {
+        // 限制地面礼盒数量 (最多20个)，每帧最多清理 2 个以防卡顿
+        let removeCount = 0;
+        while (this.droppedGifts.length > 20 && removeCount < 2) {
+            removeCount++;
             const oldest = this.droppedGifts.shift();
             scene.remove(oldest.mesh);
 
@@ -2403,25 +2928,25 @@ class Train {
             const bright = flashCount % 2 === 0;
             windows.forEach(w => {
                 if (bright) {
-                    // 亮状态：高强度发光
+                    // 亮状态：高强度爆闪
                     w.material.color.setHex(0xffffff);
                     w.material.emissive.setHex(0xffffff);
-                    w.material.emissiveIntensity = 2.0; 
+                    w.material.emissiveIntensity = 3.0; 
                 } else {
-                    // 暗状态：普通颜色
+                    // 暗状态：恢复默认暖光 (而不是全黑)
                     w.material.color.setHex(0xffccaa);
-                    w.material.emissive.setHex(0x000000);
-                    w.material.emissiveIntensity = 0;
+                    w.material.emissive.setHex(0xffaa00);
+                    w.material.emissiveIntensity = 0.8;
                 }
             });
             flashCount++;
             if (flashCount >= maxFlash) {
                 clearInterval(flashInterval);
-                // 恢复原色
+                // 恢复原色 (默认暖光)
                 windows.forEach((w, i) => {
                     w.material.color.setHex(originalColors[i]);
-                    w.material.emissive.setHex(0x000000);
-                    w.material.emissiveIntensity = 0;
+                    w.material.emissive.setHex(0xffaa00);
+                    w.material.emissiveIntensity = 0.8;
                 });
             }
         }, 80);
@@ -3423,31 +3948,50 @@ class SantaSleigh {
     dropGift(fromPos) {
         if (!train || train.cars.length === 0) return;
 
-        // 1. 随机锁定一节目标车厢
-        const targetIndex = Math.floor(Math.random() * train.cars.length);
-        const targetCar = train.cars[targetIndex];
+        // 1. 决定扔几个 (狂欢模式扔 3-5 个，普通模式扔 1 个)
+        const dropCount = STATE.christmasParty ? 3 + Math.floor(Math.random() * 3) : 1;
+        
+        // 复制数组以确保从不同车厢选择 (洗牌算法简化版)
+        const candidates = [...train.cars];
+        const startPosFixed = fromPos.clone(); // 锁定起始位置，防止因延时导致位置漂移
 
+        for (let i = 0; i < dropCount; i++) {
+            if (candidates.length === 0) break;
+            
+            const idx = Math.floor(Math.random() * candidates.length);
+            const targetCar = candidates.splice(idx, 1)[0];
+
+            // 错峰发射，形成连珠炮效果
+            setTimeout(() => {
+                this.spawnSingleGift(startPosFixed, targetCar);
+            }, i * 200); 
+        }
+    }
+
+    spawnSingleGift(startPos, targetCar) {
         const gift = this.createGift();
-        gift.position.copy(fromPos);
+        gift.position.copy(startPos);
         gift.scale.set(0.8, 0.8, 0.8);
         this.scene.add(gift);
 
         if (audio && audio.bell) audio.bell();
 
-        // 2. 启用“制导模式”
+        // 2. 启用“魔法制导模式”
+        // 调整：飞行时间延长至 2.5s (魔法传送感)
+        // 调整：高度降低，曲线更平滑
         this.fallingGifts.push({
             mesh: gift,
-            startPos: fromPos.clone(), // 记录起点
-            targetCar: targetCar,      // 锁定目标
-            time: 0,                   // 已飞时间
-            duration: 1.2,             // 总飞行时间 (秒) - 稍微快一点
-            arcHeight: 25,             // 抛物线高度
+            startPos: startPos, 
+            targetCar: targetCar,      
+            time: 0,                   
+            duration: 2.5,             // 减速：2.5秒送达
+            arcHeight: 12,             // 降低弧度：更像传送而非抛射
             landed: false,
-            rotVel: new THREE.Vector3( // 随机自旋
+            rotVel: new THREE.Vector3( 
                 Math.random() - 0.5,
                 Math.random() - 0.5,
                 Math.random() - 0.5
-            ).multiplyScalar(5.0)
+            ).multiplyScalar(2.0)      // 缓慢优雅地自旋
         });
     }
 
@@ -3667,21 +4211,155 @@ function setupControls() {
     controls.addEventListener('end', () => STATE.interacting = false);
 }
 
+// ===== 🎆 烟花批量发射 (Global) =====
+const launchBatch = () => {
+    if(!STATE.started || document.visibilityState === 'hidden') return;
+    const count = 2 + Math.floor(Math.random() * 4);
+    for(let i=0; i<count; i++) {
+        const delay = i * 300 + Math.random() * 200;
+        setTimeout(() => fwMgr.launch(), delay);
+    }
+};
+
+// ===== 🎄 圣诞模式状态管理 (Global) =====
+let isXmasMode = false;
+let backupCFG = {}; 
+
+const activateChristmasMode = () => {
+    if (isXmasMode) return;
+    isXmasMode = true;
+    STATE.christmasParty = true;
+    console.log("🎅 圣诞狂欢模式已启动！");
+    
+    // 备份配置
+    backupCFG = { autoFw: CFG.autoFw, fwRate: CFG.fwRate };
+
+    // A. 疯狂烟花
+    CFG.autoFw = true; CFG.fwRate = 1.5;
+    const tog = document.getElementById('tog-autofw'); if(tog) tog.checked = true;
+    const rateVal = document.getElementById('val-fwrate'); if(rateVal) rateVal.innerText = '1.5s';
+    if(autoTimer) clearInterval(autoTimer);
+    autoTimer = setInterval(launchBatch, 1500);
+    
+    // B. 加速 BGM
+    if (audio) audio.setBgmSpeed(1.3); // 提速 30%
+};
+
+const deactivateChristmasMode = () => {
+    console.log("🎅 正在执行全流程状态复位...");
+    
+    // 1. 清理 3D 场景对象
+    MegaGiftManager.clear(); // 使用新的清理方法
+    LedTextManager.clear();  // 清理 LED 文字
+    
+    if (STATE.spawnedGiftsGroup) {
+        while(STATE.spawnedGiftsGroup.children.length > 0){ 
+            STATE.spawnedGiftsGroup.remove(STATE.spawnedGiftsGroup.children[0]); 
+        }
+    }
+
+        // C. 清理圣诞老人投递的礼物
+        if (santaSleigh && santaSleigh.fallingGifts) {
+            santaSleigh.fallingGifts.forEach(g => {
+                if (g.mesh) {
+                    if (g.mesh.parent) g.mesh.parent.remove(g.mesh);
+                    else scene.remove(g.mesh);
+                    // 简单销毁
+                    g.mesh.traverse(c => {
+                        if(c.geometry) c.geometry.dispose();
+                        if(c.material) {
+                            if(Array.isArray(c.material)) c.material.forEach(m=>m.dispose());
+                            else c.material.dispose();
+                        }
+                    });
+                }
+            });
+            santaSleigh.fallingGifts = [];
+        }
+
+        // D. 清理火车扔出的礼物
+        if (train && train.droppedGifts) {
+            train.droppedGifts.forEach(g => {
+                if (g.mesh) {
+                    scene.remove(g.mesh);
+                    g.mesh.traverse(c => {
+                        if(c.geometry) c.geometry.dispose();
+                        if(c.material) {
+                            if(Array.isArray(c.material)) c.material.forEach(m=>m.dispose());
+                            else c.material.dispose();
+                        }
+                    });
+                }
+            });
+            train.droppedGifts = [];
+        }
+
+        // ============================================
+        // 2. 重置游戏状态 (Reset Game State)
+    STATE.giftPhase = 'NONE';
+    STATE.christmasParty = false;
+    STATE.viewMode = 'FOLLOW';
+    
+    if (santaSleigh) {
+        santaSleigh.nextTrigger = santaSleigh.elapsed + 20; 
+    }
+
+    // 3. 还原配置与环境
+    if (isXmasMode) {
+        isXmasMode = false;
+        
+        CFG.autoFw = backupCFG.autoFw;
+        CFG.fwRate = backupCFG.fwRate;
+
+        const tog = document.getElementById('tog-autofw'); if(tog) tog.checked = CFG.autoFw;
+        const rateVal = document.getElementById('val-fwrate'); if(rateVal) rateVal.innerText = CFG.fwRate + 's';
+        
+        if(autoTimer) clearInterval(autoTimer);
+        if (CFG.autoFw) {
+            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
+        }
+        
+            // 还原火车烟雾颜色
+            if (train && train.smokeMesh && train.smokeMesh.material) {
+                train.smokeMesh.material.color.setHex(0xdddddd);
+                train.smokeMesh.material.emissive.setHex(0x000000);
+            }
+            
+            // 还原 BGM 速度
+            if (audio) audio.setBgmSpeed(1.0);
+        }
+
+        // ============================================
+        // 4. 强制修复 UI 状态 (Reset UI)
+    const countdownTrigger = document.getElementById('countdown-trigger');
+    if(countdownTrigger) countdownTrigger.style.display = 'flex';
+    
+    isChristmasUIActive = false; // 重置 UI 锁
+    
+    const countdownPanel = document.getElementById('countdown-panel');
+    if (countdownPanel) {
+        countdownPanel.classList.remove('christmas-card');
+    }
+};
+
+// 仅仅收起贺卡，不退出狂欢模式
+const dismissChristmasCard = () => {
+    // 1. 隐藏贺卡
+    const cp = document.getElementById('countdown-panel');
+    if(cp) cp.classList.remove('show');
+    
+    // 2. 恢复右上角按钮
+    const trig = document.getElementById('countdown-trigger');
+    if(trig) trig.style.display = 'flex';
+
+    // 3. 镜头回到火车
+    CameraDirector.startCruise();
+};
+
 function setupUI() {
     const btn = document.getElementById('start-btn');
 
     // 批量发射烟花（提前定义，供下方回调使用）
-    const launchBatch = () => {
-        if(!STATE.started || document.visibilityState === 'hidden') return;
-        const count = 2 + Math.floor(Math.random() * 4);
-        for(let i=0; i<count; i++) {
-            const delay = i * 300 + Math.random() * 200;
-            setTimeout(() => fwMgr.launch(), delay);
-        }
-    };
-
-    
-
     btn.onclick = () => {
         STATE.started = true;
         STATE.running = true;
@@ -3711,12 +4389,12 @@ function setupUI() {
 
         // 🚁 启动运镜：无人机从侧面高空降落
         // 初始化当前无人机为第一个（或根据火车位置选择最近的）
-        droneState.current = Math.floor(train.prog * DRONE.count) % DRONE.count;
+        CameraDirector.state.currentDrone = Math.floor(train.prog * CameraDirector.config.droneCount) % CameraDirector.config.droneCount;
 
         // 计算目标跟拍位置
         const endPos = new THREE.Vector3();
         const endTarget = new THREE.Vector3();
-        getDronePosition(droneState.current, train.prog, endPos, endTarget);
+        CameraDirector.getDronePosition(CameraDirector.state.currentDrone, train.prog, endPos, endTarget);
 
         // 起始位置：目标位置的正上方 + 侧向偏移（模拟无人机从侧面高空飞来）
         const startPos = endPos.clone();
@@ -3747,7 +4425,7 @@ function setupUI() {
                 const k = 1 - Math.pow(1 - t, 3);
 
                 // 更新目标位置（火车在移动）
-                getDronePosition(droneState.current, train.prog, endPos, endTarget);
+                CameraDirector.getDronePosition(CameraDirector.state.currentDrone, train.prog, endPos, endTarget);
 
                 // 插值相机位置
                 camera.position.lerpVectors(startPos, endPos, k);
@@ -3878,9 +4556,16 @@ function setupUI() {
 
     // 绑定强制圣诞开关
     const togXmas = document.getElementById('tog-force-xmas');
+    togXmas.checked = STATE.forceChristmas; // 关键修复：初始化时同步状态
     togXmas.onchange = (e) => {
         STATE.forceChristmas = e.target.checked;
-        // 立即触发一次更新，以便看到效果
+        testTargetTime = null; 
+        
+        // 如果关闭了，需要显式调用还原逻辑
+        if(!STATE.forceChristmas) {
+            deactivateChristmasMode();
+        }
+
         updateCountdown();
     };
 
@@ -3902,8 +4587,8 @@ function setupUI() {
 
     // 操控绑定
     bindRange('inp-speed', CFG, 'maxSpeed', 'val-speed');
-    bindRange('inp-height', DRONE, 'height', 'val-height');
-    bindRange('inp-dist', DRONE, 'distance', 'val-dist');
+    bindRange('inp-height', CameraDirector.config, 'height', 'val-height');
+    bindRange('inp-dist', CameraDirector.config, 'distance', 'val-dist');
     
     const togAuto = document.getElementById('tog-autofw');
     togAuto.onchange = (e) => {
@@ -3989,20 +4674,11 @@ function setupUI() {
             dot.style.boxShadow = '0 0 8px #4fc3f7';
         } else {
             // 切换回智能驾驶：平滑过渡到正确的无人机位置
-            STATE.viewMode = 'FOLLOW';
             hudStatus.textContent = '智能驾驶模式';
             dot.style.background = STATE.running ? '#00ff00' : '#ff3300';
             dot.style.boxShadow = STATE.running ? '0 0 8px #00ff00' : '0 0 8px #ff3300';
 
-            // 计算最近的无人机
-            droneState.current = Math.floor(train.prog * DRONE.count) % DRONE.count;
-
-            // 启动平滑过渡
-            droneState.fromPos.copy(camera.position);
-            droneState.fromTarget.copy(controls.target);
-            getDronePosition(droneState.current, train.prog, droneState.toPos, droneState.toTarget);
-            droneState.switching = true;
-            droneState.switchT = 0;
+            CameraDirector.startCruise();
         }
     };
 
@@ -4050,6 +4726,16 @@ function setupUI() {
                 }
                 return;
             }
+
+            // 🎁 检查是否点击了大礼盒
+            if (STATE.giftPhase === 'WAITING' && MegaGiftManager.mesh) {
+                const hitGift = ray.intersectObject(MegaGiftManager.mesh, true);
+                if (hitGift.length > 0) {
+                    MegaGiftManager.open();
+                    return;
+                }
+            }
+
             // 点击空地：无反应（已移除手动烟花）
         }
     });
@@ -4062,9 +4748,40 @@ function setupUI() {
     let countdownExpanded = false;
     let countdownFirstShow = false;
 
+    // 0. 测试模式倒计时目标 (Test Mode Target Time)
+    let testTargetTime = null;
+
     // 1. 定义倒计时计算函数
     const getChristmasCountdown = () => {
         const now = new Date();
+        
+        // 🎄 逻辑修改：如果是强制圣诞模式，我们不直接返回“今天是圣诞”，
+        // 而是制造一个“未来5秒”的假目标，让用户能看到倒计时过程。
+        if (STATE.forceChristmas) {
+            if (!testTargetTime) {
+                // 第一次检测到强制模式，设定目标为 10 秒后
+                testTargetTime = new Date(now.getTime() + 10000); 
+            }
+            
+            const diff = testTargetTime - now;
+            if (diff <= 0) {
+                // 时间到了，返回圣诞节已到的状态
+                return { days: 0, hours: 0, minutes: 0, seconds: 0, isToday: true };
+            } else {
+                // 还在倒数
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                return { days, hours, minutes, seconds, isToday: false };
+            }
+        }
+        // 如果取消了强制模式，重置测试目标
+        else {
+            testTargetTime = null;
+        }
+
+        // 正常逻辑
         const year = now.getFullYear();
         let christmas = new Date(year, 11, 25, 0, 0, 0); // 12月25日
         if (now > christmas) christmas = new Date(year + 1, 11, 25, 0, 0, 0);
@@ -4076,121 +4793,65 @@ function setupUI() {
         return { days, hours, minutes, seconds, isToday: days === 0 && hours === 0 && minutes === 0 };
     };
     
-    // 2. 🎄 圣诞狂欢模式逻辑
-    let isXmasMode = false;
-    const activateChristmasMode = () => {
-        if (isXmasMode) return;
-        isXmasMode = true;
-        console.log("🎅 圣诞狂欢模式已启动！");
-        
-        // A. 疯狂烟花 (1.5秒一发)
-        CFG.autoFw = true; CFG.fwRate = 1.5;
-        const tog = document.getElementById('tog-autofw'); if(tog) tog.checked = true;
-        const rateVal = document.getElementById('val-fwrate'); if(rateVal) rateVal.innerText = '1.5s';
-        if(autoTimer) clearInterval(autoTimer);
-        autoTimer = setInterval(launchBatch, 1500);
-
-        // B. 圣诞老人疯狂加班 (5-15秒出现一次)
-        if (santaSleigh) {
-            santaSleigh.nextTrigger = 5; 
-            const _santaUpdate = santaSleigh.update.bind(santaSleigh);
-            santaSleigh.update = (dt) => {
-                _santaUpdate(dt);
-                if (!santaSleigh.active && santaSleigh.nextTrigger > santaSleigh.elapsed + 15) {
-                    santaSleigh.nextTrigger = santaSleigh.elapsed + 10 + Math.random() * 5;
-                }
-            };
-        }
-
-        // C. 火车彩虹烟雾 + 自动撒礼物
-        if (train) {
-            const _trainUpdate = train.update.bind(train);
-            let hue = 0;
-            train.update = (dt, speed) => {
-                _trainUpdate(dt, speed);
-                // 彩虹烟
-                hue = (hue + 2) % 360;
-                if (train.smokeMesh && train.smokeMesh.material) {
-                    train.smokeMesh.material.color.setHSL(hue/360, 1.0, 0.6);
-                    train.smokeMesh.material.emissive.setHSL(hue/360, 1.0, 0.2);
-                }
-                // 撒礼物
-                if (Math.random() < 0.03) {
-                    const c = train.cars[Math.floor(Math.random()*train.cars.length)];
-                    if(train.throwGift(c)) train.flashWindows(c);
-                }
-            };
-        }
-    };
-
-    // 记录当前 UI 是否已经是圣诞模式，防止每秒重复渲染导致闪烁
-    let isChristmasUIActive = false;
-
     // 3. 核心倒计时更新函数
     const updateCountdown = () => {
         const data = getChristmasCountdown();
-
-        // 判断条件：真的是圣诞节 OR 设置里开启了强制模式
-        const isXmasNow = data.isToday || STATE.forceChristmas;
+        
+        // 关键逻辑：如果倒计时还没结束，即使是测试模式，也应该显示倒计时 UI，而不是圣诞 UI
+        // getChristmasCountdown 已经处理了测试模式下的时间欺骗逻辑
+        const isXmasNow = data.isToday;
 
         if (isXmasNow) {
-            // --- 🎄 进入圣诞模式 ---
+            // --- 🎄 倒计时结束：进入特殊流程 ---
             
-            // 1. 激活狂欢逻辑 (只需调用一次，函数内部有状态锁)
-            activateChristmasMode();
+            // 阶段 1: 如果还没生成大礼盒，且还没开启狂欢，说明刚到点
+            if (STATE.giftPhase === 'NONE' && !STATE.christmasParty) {
+                
+                // 隐藏 UI，聚焦大礼盒
+                toggleCountdown(false); 
+                countdownTrigger.style.display = 'none'; // 彻底隐藏入口
 
-            // 2. 只有当 UI 还没变身时，才执行 DOM 操作 (解决闪烁问题)
-            if (!isChristmasUIActive) {
-                isChristmasUIActive = true;
-
-                // A. 隐藏右上角小触发器
-                countdownTrigger.style.display = 'none';
-
-                // B. 面板变身：添加居中样式类
-                countdownPanel.classList.add('christmas-card', 'show');
-
-                // C. 注入精美的贺卡 HTML
-                countdownPanel.innerHTML = `
-                    <div class="xmas-main-title">MERRY CHRISTMAS</div>
-                    <div class="xmas-sub-title">✨ May your days be merry and bright ✨</div>
-                    <div class="xmas-close-hint" onclick="document.getElementById('countdown-panel').classList.remove('show')">
-                        (点击此处收起贺卡，欣赏风景)
-                    </div>
-                `;
+                // 召唤大礼盒！
+                MegaGiftManager.spawn();
+                
+                // 播放一声提示音 (汽笛)
+                audio.whistle();
             }
+            
+            // 阶段 2: 礼盒已打开 (狂欢模式中) -> 这里的 UI 逻辑已移除，由 LedTextManager 接管
 
         } else {
-            // --- 📅 平时模式 (恢复) ---
+            // --- 📅 倒计时进行中 ---
             
-            // 如果之前是圣诞模式，现在关了，需要恢复 UI
             if (isChristmasUIActive) {
+                // 恢复普通 UI
                 isChristmasUIActive = false;
-                
-                // 恢复右上角按钮
                 countdownTrigger.style.display = 'flex';
-                
-                // 移除贺卡样式
                 countdownPanel.classList.remove('christmas-card');
-                // 恢复原本的 DOM 结构 (这就需要重绘了)
                 countdownPanel.innerHTML = `
                     <div class="decorations">🎅</div>
                     <div class="title">✨ 距离圣诞节还有 ✨</div>
                     <div class="time" id="countdown-detail">--天 --:--:--</div>
                     <div class="hint">点击任意处收起</div>
                 `;
-                // 重新获取一下引用，因为 innerHTML 重置了
-                // 注意：这里是个简单的处理，实际上因为下面的逻辑会每秒更新 innerHTML，
-                // 所以只要结构对上就行。我们主要需要恢复 detail 的引用逻辑。
             }
 
-            // 正常倒计时更新逻辑
-            // 重新获取引用 (因为上面可能重置了 innerHTML)
             const detailEl = document.getElementById('countdown-detail');
             if (detailEl) {
                 const pad = n => n.toString().padStart(2, '0');
+                
+                // 特殊处理：如果是在测试模式且剩余时间小于 10秒，字体变红变大
+                if (STATE.forceChristmas && data.days === 0 && data.hours === 0 && data.minutes === 0 && data.seconds <= 10) {
+                    detailEl.style.color = '#ff3300';
+                    detailEl.style.transform = 'scale(1.2)';
+                } else {
+                    detailEl.style.color = '#fff';
+                    detailEl.style.transform = 'scale(1)';
+                }
+
                 detailEl.innerHTML = `${data.days}<span>天</span> ${pad(data.hours)}:${pad(data.minutes)}:${pad(data.seconds)}`;
             } else {
-                // 容错：如果刚切回来，DOM还没完全恢复，这里强制恢复一次标准结构
+                // 容错
                 countdownPanel.innerHTML = `
                     <div class="decorations">🎅</div>
                     <div class="title">✨ 距离圣诞节还有 ✨</div>
@@ -4199,7 +4860,6 @@ function setupUI() {
                 `;
             }
             
-            // 确保文字显示天数
             if(countdownDays) countdownDays.textContent = data.days;
         }
     };
@@ -4211,39 +4871,40 @@ function setupUI() {
         countdownPanel.classList.toggle('show', countdownExpanded);
     };
 
-    // 点击触发器
+    // 绑定事件
     countdownTrigger.onclick = (e) => {
         e.stopPropagation();
         toggleCountdown();
     };
 
-    // 点击面板外部收起
     document.addEventListener('click', (e) => {
         if (countdownExpanded && !countdownPanel.contains(e.target) && !countdownTrigger.contains(e.target)) {
             toggleCountdown(false);
         }
     });
 
-    // 点击面板内部也收起
     countdownPanel.onclick = () => toggleCountdown(false);
 
-    // 初始化并启动定时器
-    updateCountdown();
-    setInterval(updateCountdown, 1000);
-
-    // 首次展示 (修复版：圣诞节当天不自动收起)
+    // 首次展示
     window.showCountdownFirstTime = () => {
         if (countdownFirstShow) return;
         countdownFirstShow = true;
         
+        // 延迟一点显示，让用户先看一眼火车
         setTimeout(() => {
-            // 如果是圣诞模式，就不受这个自动收起的逻辑控制了，交给 updateCountdown 自己处理
-            if (STATE.forceChristmas || getChristmasCountdown().isToday) return;
-
-            toggleCountdown(true);
-            setTimeout(() => toggleCountdown(false), 3000);
-        }, 2000);
+            // 如果已经在圣诞模式（或者测试模式快到了），就强制展开，让用户看到变化瞬间
+            if (isChristmasUIActive || STATE.forceChristmas) {
+                toggleCountdown(true);
+            } else {
+                toggleCountdown(true);
+                setTimeout(() => toggleCountdown(false), 3000);
+            }
+        }, 1500);
     };
+
+    // 初始化并启动定时器
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
 }
 
 window.onresize = () => {
