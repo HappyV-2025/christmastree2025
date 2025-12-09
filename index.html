@@ -4928,6 +4928,13 @@ function setupUI() {
         if (isXmasNow) {
             // --- 🎄 倒计时结束：进入特殊流程 ---
             
+            // 确保最后5秒的倒计时数字消失
+            const finalEl = document.getElementById('final-countdown');
+            if (finalEl) {
+                finalEl.style.display = 'none';
+            }
+            lastCountdownSec = -1; // 重置，以防下次再进入倒计时模式
+
             // 阶段 1: 如果还没生成大礼盒，且还没开启狂欢，说明刚到点
             if (STATE.giftPhase === 'NONE' && !STATE.christmasParty) {
                 
