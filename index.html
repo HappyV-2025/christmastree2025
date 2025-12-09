@@ -36,7 +36,8 @@
         /* Settings Modal (Modern Tabbed UI) */
         #modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; display: none; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
         #settings-modal { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 30; display: none; width: 380px; max-width: 90%; background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); overflow: hidden; flex-direction: column; }
-        
+        .xmas-txt{font-size:22px!important;font-weight:900;background:linear-gradient(90deg,#f00,#fa0,#ff0,#0f0,#0ff,#00f,#f0f);background-size:200%;-webkit-background-clip:text;color:transparent;animation:xmas-s 3s linear infinite;text-shadow:0 0 20px rgba(255,215,0,.6);margin:10px 0}@keyframes xmas-s{to{background-position:200%}}
+
         .settings-header { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); }
         .settings-header h2 { margin: 0; font-size: 18px; color: #ffd700; letter-spacing: 1px; }
         .close-btn { background: none; border: none; color: #999; font-size: 24px; cursor: pointer; padding: 0; line-height: 1; }
@@ -3607,6 +3608,8 @@ function setupUI() {
         }
     };
 
+    
+
     btn.onclick = () => {
         STATE.started = true;
         STATE.running = true;
@@ -3972,16 +3975,12 @@ function setupUI() {
     let countdownExpanded = false;
     let countdownFirstShow = false;
 
-    // 计算到圣诞节的时间
+    // 1. 定义倒计时计算函数
     const getChristmasCountdown = () => {
         const now = new Date();
         const year = now.getFullYear();
-        // 今年的圣诞节
-        let christmas = new Date(year, 11, 25, 0, 0, 0);
-        // 如果圣诞节已过，计算到明年
-        if (now > christmas) {
-            christmas = new Date(year + 1, 11, 25, 0, 0, 0);
-        }
+        let christmas = new Date(year, 11, 25, 0, 0, 0); // 12月25日
+        if (now > christmas) christmas = new Date(year + 1, 11, 25, 0, 0, 0);
         const diff = christmas - now;
         const days = Math.floor(diff / (1000 * 60 * 60 * 24));
         const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -3989,18 +3988,84 @@ function setupUI() {
         const seconds = Math.floor((diff % (1000 * 60)) / 1000);
         return { days, hours, minutes, seconds, isToday: days === 0 && hours === 0 && minutes === 0 };
     };
+    
+    // 2. 🎄 圣诞狂欢模式逻辑
+    let isXmasMode = false;
+    const activateChristmasMode = () => {
+        if (isXmasMode) return;
+        isXmasMode = true;
+        console.log("🎅 圣诞狂欢模式已启动！");
+        
+        // A. 疯狂烟花 (1.5秒一发)
+        CFG.autoFw = true; CFG.fwRate = 1.5;
+        const tog = document.getElementById('tog-autofw'); if(tog) tog.checked = true;
+        const rateVal = document.getElementById('val-fwrate'); if(rateVal) rateVal.innerText = '1.5s';
+        if(autoTimer) clearInterval(autoTimer);
+        autoTimer = setInterval(launchBatch, 1500);
 
-    // 更新倒计时显示
+        // B. 圣诞老人疯狂加班 (5-15秒出现一次)
+        if (santaSleigh) {
+            santaSleigh.nextTrigger = 5; 
+            const _santaUpdate = santaSleigh.update.bind(santaSleigh);
+            santaSleigh.update = (dt) => {
+                _santaUpdate(dt);
+                if (!santaSleigh.active && santaSleigh.nextTrigger > santaSleigh.elapsed + 15) {
+                    santaSleigh.nextTrigger = santaSleigh.elapsed + 10 + Math.random() * 5;
+                }
+            };
+        }
+
+        // C. 火车彩虹烟雾 + 自动撒礼物
+        if (train) {
+            const _trainUpdate = train.update.bind(train);
+            let hue = 0;
+            train.update = (dt, speed) => {
+                _trainUpdate(dt, speed);
+                // 彩虹烟
+                hue = (hue + 2) % 360;
+                if (train.smokeMesh && train.smokeMesh.material) {
+                    train.smokeMesh.material.color.setHSL(hue/360, 1.0, 0.6);
+                    train.smokeMesh.material.emissive.setHSL(hue/360, 1.0, 0.2);
+                }
+                // 撒礼物
+                if (Math.random() < 0.03) {
+                    const c = train.cars[Math.floor(Math.random()*train.cars.length)];
+                    if(train.throwGift(c)) train.flashWindows(c);
+                }
+            };
+        }
+    };
+
+    // 3. 核心倒计时更新函数
     const updateCountdown = () => {
-        const { days, hours, minutes, seconds, isToday } = getChristmasCountdown();
-        countdownDays.textContent = days;
+        const data = getChristmasCountdown();
+        
+        // 👇👇👇 🔴 测试开关：把下面的 false 改成 true，保存刷新，立刻看到圣诞效果！ 👇👇👇
+        const FORCE_XMAS_TEST = true; 
+        
+        if (data.isToday || FORCE_XMAS_TEST) {
+            // --- 今天是圣诞节 (或强制测试) ---
+            activateChristmasMode();
+            
+            // 隐藏数字
+            if(countdownDays.parentElement) countdownDays.parentElement.style.display = 'none';
+            const panelTitle = document.querySelector('#countdown-panel .title');
+            if(panelTitle) panelTitle.style.display='none';
 
-        if (isToday) {
-            countdownDetail.innerHTML = '🎉 <span>圣诞快乐!</span> 🎉';
-            document.querySelector('#countdown-panel .title').textContent = '✨ Merry Christmas! ✨';
+            // 显示特效字
+            countdownDetail.innerHTML = `
+                <div class="xmas-txt">🎄 MERRY CHRISTMAS!</div>
+                <div style="font-size:13px;color:#ffd700;margin-top:5px;letter-spacing:1px">愿你的世界充满奇迹 ✨</div>
+            `;
         } else {
+            // --- 平时 ---
+            if(countdownDays.parentElement) countdownDays.parentElement.style.display = 'flex';
+            const panelTitle = document.querySelector('#countdown-panel .title');
+            if(panelTitle) panelTitle.style.display='block';
+            
+            countdownDays.textContent = data.days;
             const pad = n => n.toString().padStart(2, '0');
-            countdownDetail.innerHTML = `${days}<span>天</span> ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+            countdownDetail.innerHTML = `${data.days}<span>天</span> ${pad(data.hours)}:${pad(data.minutes)}:${pad(data.seconds)}`;
         }
     };
 
