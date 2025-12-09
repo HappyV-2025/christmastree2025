@@ -793,7 +793,7 @@ const STATE = {
     curSpeed: 0,   // 当前实际物理速度
     clickTime: 0,
     trainDir: Math.random() > 0.5 ? 1 : -1,  // 🚂 随机方向：1=顺时针，-1=逆时针
-    forceChristmas : true,    // 测试圣诞节当日效果
+    forceChristmas : false,    // 测试圣诞节当日效果
     giftPhase: 'NONE', // NONE | FALLING | WAITING | OPENED
     christmasParty: false,
     spawnedGiftsGroup: new THREE.Group() // 用于统一管理散落的礼盒，方便一键清除
@@ -4512,13 +4512,6 @@ function setupUI() {
                 </label>
             </div>
             <div id="tab-controls" class="tab-content">
-                <div class="toggle-row">
-                    <span class="toggle-label">自动燃放烟花</span>
-                    <label class="switch">
-                        <input type="checkbox" id="tog-autofw" checked>
-                        <span class="slider"></span>
-                    </label>
-                </div>
                 <div class="control-group">
                     <div class="control-label"><span>燃放间隔</span><span id="val-fwrate" class="control-val">4s</span></div>
                     <input type="range" id="inp-fwrate" min="2" max="15" step="1" value="4">
@@ -4590,16 +4583,6 @@ function setupUI() {
     bindRange('inp-height', CameraDirector.config, 'height', 'val-height');
     bindRange('inp-dist', CameraDirector.config, 'distance', 'val-dist');
     
-    const togAuto = document.getElementById('tog-autofw');
-    togAuto.onchange = (e) => {
-        CFG.autoFw = e.target.checked;
-        if(autoTimer) clearInterval(autoTimer);
-        if(CFG.autoFw) {
-            launchBatch();
-            autoTimer = setInterval(launchBatch, CFG.fwRate * 1000);
-        }
-    };
-
     bindRange('inp-fwrate', CFG, 'fwRate', 'val-fwrate', v => {
         document.getElementById('val-fwrate').innerText = v + 's';
         if(CFG.autoFw) {
