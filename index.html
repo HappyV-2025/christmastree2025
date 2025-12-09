@@ -100,49 +100,77 @@
             #settings-modal { width: 95%; }
         }
 
-        /* 🎄 圣诞节专属样式升级版 🎄 */
-        .xmas-box {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 10px 5px;
-            animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        /* 🎄 圣诞贺卡专属样式 (居中、优雅、不鬼畜) 🎄 */
+        #countdown-panel.christmas-card {
+            /* 核心定位：全屏居中 */
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            right: auto !important;
+            margin-top: 0 !important;
+            transform: translate(-50%, -50%) scale(1);
+            
+            /* 视觉样式：红金配色贺卡 */
+            background: linear-gradient(145deg, #4a0000 0%, #1a0000 100%);
+            border: 2px solid #ffd700;
+            box-shadow: 0 0 60px rgba(255, 0, 0, 0.4), inset 0 0 30px rgba(255, 215, 0, 0.1);
+            padding: 40px 60px;
+            min-width: 400px;
+            z-index: 200; /* 保证在最上层 */
+            
+            /* 动画：优雅弹入 */
+            animation: cardPop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
 
-        .xmas-txt {
-            font-family: "Arial Black", sans-serif; /* 更粗的字体 */
-            font-size: 26px !important;
-            font-weight: 900;
-            /* 经典的圣诞红金绿渐变 */
-            background: linear-gradient(to right, #ff0000, #ffd700, #32CD32, #ff0000);
-            background-size: 200% auto;
-            -webkit-background-clip: text;
-            color: transparent;
-            animation: stream 3s linear infinite; /* 流光动画 */
+        /* 隐藏原本的小三角 */
+        #countdown-panel.christmas-card::before { display: none; }
+
+        /* 优雅的金色主标题 */
+        .xmas-main-title {
+            font-family: "Georgia", "Times New Roman", serif;
+            font-size: 36px;
+            font-weight: bold;
+            color: #ffd700;
+            text-align: center;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            text-shadow: 0 0 25px rgba(255, 215, 0, 0.5);
-            margin-bottom: 8px;
-            white-space: nowrap;
-            text-align: center;
+            letter-spacing: 4px;
+            margin-bottom: 15px;
+            text-shadow: 0 2px 10px rgba(255, 215, 0, 0.3);
+            /* 简单的呼吸动效，不鬼畜 */
+            animation: gentleBreath 3s ease-in-out infinite;
         }
 
-        .xmas-sub {
-            font-size: 13px;
-            color: #ffd700; /* 金色副标题 */
+        /* 副标题 */
+        .xmas-sub-title {
+            font-size: 14px;
+            color: #ffb7b7;
+            text-align: center;
             letter-spacing: 2px;
-            animation: pulse 2s ease-in-out infinite; /* 呼吸动画 */
-            text-align: center;
-            border-top: 1px solid rgba(255,215,0,0.3);
-            padding-top: 8px;
-            width: 100%;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            padding-top: 15px;
+            font-style: italic;
         }
 
-        /* 动画关键帧 */
-        @keyframes stream { to { background-position: 200% center; } }
-        @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.05); opacity: 1; text-shadow: 0 0 10px #ffd700; } }
-        @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        /* 关闭按钮 (可选，防止用户想看风景关不掉) */
+        .xmas-close-hint {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .xmas-close-hint:hover { color: #fff; }
+
+        @keyframes cardPop {
+            from { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+
+        @keyframes gentleBreath {
+            0%, 100% { text-shadow: 0 0 10px rgba(255, 215, 0, 0.3); transform: scale(1); }
+            50% { text-shadow: 0 0 25px rgba(255, 215, 0, 0.6); transform: scale(1.02); }
+        }
     </style>
     </head>
     <body>
@@ -618,7 +646,8 @@ const STATE = {
     running: true, // 目标状态：是否应该跑
     curSpeed: 0,   // 当前实际物理速度
     clickTime: 0,
-    trainDir: Math.random() > 0.5 ? 1 : -1  // 🚂 随机方向：1=顺时针，-1=逆时针
+    trainDir: Math.random() > 0.5 ? 1 : -1,  // 🚂 随机方向：1=顺时针，-1=逆时针
+    forceChristmas : false    // 测试圣诞节当日效果
 };
 
 // 🚁 无人机接力跟拍系统配置
@@ -3797,6 +3826,13 @@ function setupUI() {
             </div>
 
             <!-- 操控设置 -->
+            <div class="toggle-row">
+                <span class="toggle-label" style="color:#ffd700">🎄 强制圣诞模式 (测试)</span>
+                <label class="switch">
+                    <input type="checkbox" id="tog-force-xmas">
+                    <span class="slider"></span>
+                </label>
+            </div>
             <div id="tab-controls" class="tab-content">
                 <div class="toggle-row">
                     <span class="toggle-label">自动燃放烟花</span>
@@ -3838,6 +3874,14 @@ function setupUI() {
             if(disp) disp.innerText = v;
             if(callback) callback(v);
         };
+    };
+
+    // 绑定强制圣诞开关
+    const togXmas = document.getElementById('tog-force-xmas');
+    togXmas.onchange = (e) => {
+        STATE.forceChristmas = e.target.checked;
+        // 立即触发一次更新，以便看到效果
+        updateCountdown();
     };
 
     // 音频绑定
@@ -4079,56 +4123,84 @@ function setupUI() {
         }
     };
 
-    // 👇👇👇 🔴 测试开关：把下面的 false 改成 true，保存刷新，立刻看到圣诞效果！ 👇👇👇
-    const FORCE_XMAS_TEST = true; 
+    // 记录当前 UI 是否已经是圣诞模式，防止每秒重复渲染导致闪烁
+    let isChristmasUIActive = false;
 
     // 3. 核心倒计时更新函数
     const updateCountdown = () => {
         const data = getChristmasCountdown();
 
-        if (data.isToday || FORCE_XMAS_TEST) {
-            // --- 🎄 圣诞狂欢状态 ---
-            activateChristmasMode(); 
+        // 判断条件：真的是圣诞节 OR 设置里开启了强制模式
+        const isXmasNow = data.isToday || STATE.forceChristmas;
+
+        if (isXmasNow) {
+            // --- 🎄 进入圣诞模式 ---
             
-            // 1. 按钮状态：只留一个图标，或者显示简短祝福
-            if(countdownDays.parentElement) {
-                countdownDays.parentElement.style.display = 'flex';
-                // 隐藏原本的文字结构，保持干净
-                const txtSpan = countdownDays.parentElement.querySelector('.text');
-                if(txtSpan) txtSpan.style.display = 'none'; 
-                const arrow = countdownDays.parentElement.querySelector('.arrow');
-                if(arrow) arrow.style.display = 'none';
-                // 按钮上只显示一个圣诞树
-                countdownDays.innerHTML = '<span style="font-size:16px">🎅</span>'; 
+            // 1. 激活狂欢逻辑 (只需调用一次，函数内部有状态锁)
+            activateChristmasMode();
+
+            // 2. 只有当 UI 还没变身时，才执行 DOM 操作 (解决闪烁问题)
+            if (!isChristmasUIActive) {
+                isChristmasUIActive = true;
+
+                // A. 隐藏右上角小触发器
+                countdownTrigger.style.display = 'none';
+
+                // B. 面板变身：添加居中样式类
+                countdownPanel.classList.add('christmas-card', 'show');
+
+                // C. 注入精美的贺卡 HTML
+                countdownPanel.innerHTML = `
+                    <div class="xmas-main-title">MERRY CHRISTMAS</div>
+                    <div class="xmas-sub-title">✨ May your days be merry and bright ✨</div>
+                    <div class="xmas-close-hint" onclick="document.getElementById('countdown-panel').classList.remove('show')">
+                        (点击此处收起贺卡，欣赏风景)
+                    </div>
+                `;
             }
-
-            // 2. 隐藏面板原本的小标题
-            const panelTitle = document.querySelector('#countdown-panel .title');
-            if(panelTitle) panelTitle.style.display='none';
-
-            // 3. 【重点】注入新的居中、好看的 HTML 结构
-            countdownDetail.innerHTML = `
-                <div class="xmas-box">
-                    <div class="xmas-txt">MERRY CHRISTMAS</div>
-                    <div class="xmas-sub">✨ 愿你的世界充满奇迹 ✨</div>
-                </div>
-            `;
 
         } else {
-            // --- 📅 平时状态 (保持不变) ---
-            if(countdownDays.parentElement) {
-                countdownDays.parentElement.style.display = 'flex';
-                const txtSpan = countdownDays.parentElement.querySelector('.text');
-                if(txtSpan) { txtSpan.style.display = 'inline'; txtSpan.textContent = '圣诞'; }
-                const arrow = countdownDays.parentElement.querySelector('.arrow');
-                if(arrow) arrow.style.display = 'block';
-            }
-            const panelTitle = document.querySelector('#countdown-panel .title');
-            if(panelTitle) panelTitle.style.display='block';
+            // --- 📅 平时模式 (恢复) ---
             
-            countdownDays.textContent = data.days;
-            const pad = n => n.toString().padStart(2, '0');
-            countdownDetail.innerHTML = `${data.days}<span>天</span> ${pad(data.hours)}:${pad(data.minutes)}:${pad(data.seconds)}`;
+            // 如果之前是圣诞模式，现在关了，需要恢复 UI
+            if (isChristmasUIActive) {
+                isChristmasUIActive = false;
+                
+                // 恢复右上角按钮
+                countdownTrigger.style.display = 'flex';
+                
+                // 移除贺卡样式
+                countdownPanel.classList.remove('christmas-card');
+                // 恢复原本的 DOM 结构 (这就需要重绘了)
+                countdownPanel.innerHTML = `
+                    <div class="decorations">🎅</div>
+                    <div class="title">✨ 距离圣诞节还有 ✨</div>
+                    <div class="time" id="countdown-detail">--天 --:--:--</div>
+                    <div class="hint">点击任意处收起</div>
+                `;
+                // 重新获取一下引用，因为 innerHTML 重置了
+                // 注意：这里是个简单的处理，实际上因为下面的逻辑会每秒更新 innerHTML，
+                // 所以只要结构对上就行。我们主要需要恢复 detail 的引用逻辑。
+            }
+
+            // 正常倒计时更新逻辑
+            // 重新获取引用 (因为上面可能重置了 innerHTML)
+            const detailEl = document.getElementById('countdown-detail');
+            if (detailEl) {
+                const pad = n => n.toString().padStart(2, '0');
+                detailEl.innerHTML = `${data.days}<span>天</span> ${pad(data.hours)}:${pad(data.minutes)}:${pad(data.seconds)}`;
+            } else {
+                // 容错：如果刚切回来，DOM还没完全恢复，这里强制恢复一次标准结构
+                countdownPanel.innerHTML = `
+                    <div class="decorations">🎅</div>
+                    <div class="title">✨ 距离圣诞节还有 ✨</div>
+                    <div class="time" id="countdown-detail">${data.days}<span>天</span> ...</div>
+                    <div class="hint">点击任意处收起</div>
+                `;
+            }
+            
+            // 确保文字显示天数
+            if(countdownDays) countdownDays.textContent = data.days;
         }
     };
 
@@ -4164,20 +4236,12 @@ function setupUI() {
         if (countdownFirstShow) return;
         countdownFirstShow = true;
         
-        // 延迟2秒后展开面板
         setTimeout(() => {
+            // 如果是圣诞模式，就不受这个自动收起的逻辑控制了，交给 updateCountdown 自己处理
+            if (STATE.forceChristmas || getChristmasCountdown().isToday) return;
+
             toggleCountdown(true);
-            
-            // 关键判断：如果是圣诞节(或测试模式)，则【不】执行自动关闭
-            // 注意：这里需要重新获取一下状态
-            const isXmasNow = getChristmasCountdown().isToday; 
-            // 如果你在测试，请确保这里逻辑包含测试开关，或者简单粗暴地：
-            // 只要面板里是 Merry Christmas，就不收起。
-            
-            // 简单的逻辑：只有【不是】圣诞节的时候，才自动收起
-            if (!isXmasNow && !FORCE_XMAS_TEST) {
-                setTimeout(() => toggleCountdown(false), 3000);
-            }
+            setTimeout(() => toggleCountdown(false), 3000);
         }, 2000);
     };
 }
