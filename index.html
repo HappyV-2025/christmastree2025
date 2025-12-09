@@ -246,6 +246,68 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
+// 🚀 礼物飞行尾迹 (SimpleTrail Class)
+class SimpleTrail {
+    constructor(scene, baseColor, maxPoints = 20) {
+        this.scene = scene;
+        this.maxPoints = maxPoints;
+        this.points = []; // 存储 THREE.Vector3
+        this.positions = new Float32Array(maxPoints * 3); // BufferGeometry 的 position attribute
+        this.line = null;
+        this.baseColor = baseColor;
+        this.material = new THREE.LineBasicMaterial({
+            color: baseColor,
+            transparent: true,
+            opacity: 0.6, // 默认半透明
+            blending: THREE.AdditiveBlending // 微弱发光感
+        });
+
+        this.geometry = new THREE.BufferGeometry();
+        this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
+        this.line = new THREE.Line(this.geometry, this.material);
+        this.scene.add(this.line);
+    }
+
+    update(position, opacity = 1.0) {
+        // 添加新点到头部
+        this.points.unshift(position.clone());
+        
+        // 保持最大点数
+        if (this.points.length > this.maxPoints) {
+            this.points.pop();
+        }
+
+        // 更新 BufferGeometry
+        for (let i = 0; i < this.points.length; i++) {
+            this.positions[i * 3] = this.points[i].x;
+            this.positions[i * 3 + 1] = this.points[i].y;
+            this.positions[i * 3 + 2] = this.points[i].z;
+        }
+
+        // 填充剩余部分 (保持线段连续)
+        for (let i = this.points.length; i < this.maxPoints; i++) {
+            this.positions[i * 3] = this.points[this.points.length - 1].x;
+            this.positions[i * 3 + 1] = this.points[this.points.length - 1].y;
+            this.positions[i * 3 + 2] = this.points[this.points.length - 1].z;
+        }
+
+        this.geometry.attributes.position.needsUpdate = true;
+        this.geometry.setDrawRange(0, this.points.length); // 只绘制实际存在的点
+
+        // 尾迹淡出效果 (整体透明度)
+        this.material.opacity = opacity * 0.6; // 整体更淡
+    }
+
+    dispose() {
+        if (this.line) {
+            this.scene.remove(this.line);
+            this.geometry.dispose();
+            this.material.dispose();
+            this.line = null;
+        }
+    }
+}
+
 // 烟花音效预设
 const SOUND_STYLES = [
     // 0. 标准平衡 (Standard)
@@ -4098,9 +4160,12 @@ class SantaSleigh {
 
         if (audio && audio.bell) audio.bell();
 
+        // 为礼物创建飞行尾迹
+        const trailColor = gift.children[0].material.color.getHex(); // 获取礼盒主体颜色
+        const trail = new SimpleTrail(this.scene, trailColor);
+        trail.update(startPos, 1.0); // 初始化尾迹位置
+
         // 2. 启用“魔法制导模式”
-        // 调整：飞行时间延长至 2.5s (魔法传送感)
-        // 调整：高度降低，曲线更平滑
         this.fallingGifts.push({
             mesh: gift,
             startPos: startPos, 
@@ -4113,7 +4178,10 @@ class SantaSleigh {
                 Math.random() - 0.5,
                 Math.random() - 0.5,
                 Math.random() - 0.5
-            ).multiplyScalar(2.0)      // 缓慢优雅地自旋
+            ).multiplyScalar(2.0),     // 缓慢优雅地自旋
+            trail: trail, // 关联尾迹对象
+            trailLife: 0.5, // 尾迹淡出时长
+            trailFadeDuration: 0.5
         });
     }
 
@@ -4166,6 +4234,18 @@ class SantaSleigh {
             _currentPos.y += heightOffset;
 
             g.mesh.position.copy(_currentPos);
+
+            // 更新尾迹
+            if (g.trail) {
+                // 落地后尾迹逐渐消失
+                if (g.landed) {
+                    g.trailLife -= dt;
+                    g.trail.update(g.mesh.position, Math.max(0, g.trailLife / g.trailFadeDuration));
+                } else {
+                    // 飞行中尾迹保持可见
+                    g.trail.update(g.mesh.position);
+                }
+            }
 
             // 4. 旋转动画
             g.mesh.rotation.x += g.rotVel.x * dt;
@@ -4399,18 +4479,21 @@ const deactivateChristmasMode = () => {
         // C. 清理圣诞老人投递的礼物
         if (santaSleigh && santaSleigh.fallingGifts) {
             santaSleigh.fallingGifts.forEach(g => {
-                if (g.mesh) {
-                    if (g.mesh.parent) g.mesh.parent.remove(g.mesh);
-                    else scene.remove(g.mesh);
-                    // 简单销毁
-                    g.mesh.traverse(c => {
-                        if(c.geometry) c.geometry.dispose();
-                        if(c.material) {
-                            if(Array.isArray(c.material)) c.material.forEach(m=>m.dispose());
-                            else c.material.dispose();
-                        }
-                    });
-                }
+                                if (g.mesh) {
+                                    if (g.mesh.parent) g.mesh.parent.remove(g.mesh);
+                                    else scene.remove(g.mesh);
+                                    // 移除尾迹
+                                    if(g.trail) g.trail.dispose();
+                                    
+                                    // 简单销毁
+                                    g.mesh.traverse(c => {
+                                        if(c.geometry) c.geometry.dispose();
+                                        if(c.material) {
+                                            if(Array.isArray(c.material)) c.material.forEach(m=>m.dispose());
+                                            else c.material.dispose();
+                                        }
+                                    });
+                                }
             });
             santaSleigh.fallingGifts = [];
         }
