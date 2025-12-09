@@ -776,8 +776,8 @@ const CFG = {
     camSmooth: 0.02,   // 增大阻尼系数，让跟随更紧凑，减少“拖拽感”带来的抖动
     
     // 💡 视觉修正
-    moonInt: 2.5, 
-    fogDen: 0.0004, 
+    moonInt: 1.0, // 月光调暗
+    fogDen: 0.0016, // 雾浓度调大
     bloomStr: 0.7,  
     bloomThr: 0.02, 
     lightPow: 100, bulbBri: 30,
@@ -1103,6 +1103,30 @@ const MegaGiftManager = {
         this.mesh.position.set(0, this.y, 0); // 从天而降
         this.scene.add(this.mesh);
 
+        // --- 👼 神圣之光 (God Ray) ---
+        // 1. 聚光灯：照亮礼盒
+        this.spotLight = new THREE.SpotLight(0xffeeb1, 0, 200, 0.6, 0.5, 1);
+        this.spotLight.position.set(0, 100, 0);
+        this.spotLight.target.position.set(0, 0, 0);
+        this.spotLight.castShadow = true;
+        this.scene.add(this.spotLight);
+        this.scene.add(this.spotLight.target);
+
+        // 2. 体积光柱模拟 (透明圆锥)
+        const beamGeo = new THREE.ConeGeometry(8, 120, 32, 1, true);
+        beamGeo.translate(0, -60, 0); // 顶点在 (0,0,0)
+        const beamMat = new THREE.MeshBasicMaterial({
+            color: 0xffeeb1,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending
+        });
+        this.beam = new THREE.Mesh(beamGeo, beamMat);
+        this.beam.position.set(0, 100, 0);
+        this.scene.add(this.beam);
+
         // 切换视角
         CameraDirector.focusGift();
     },
@@ -1110,6 +1134,14 @@ const MegaGiftManager = {
     update(dt, time) {
         // 1. 更新大礼盒自身
         if (this.mesh) {
+            // 灯光淡入动画
+            if (this.spotLight && this.spotLight.intensity < 300) {
+                this.spotLight.intensity += 300 * dt * 0.5; // 2秒淡入
+            }
+            if (this.beam && this.beam.material.opacity < 0.15) {
+                this.beam.material.opacity += 0.15 * dt * 0.5;
+            }
+
             if (STATE.giftPhase === 'FALLING') {
                 this.velY -= 80 * dt; 
                 this.mesh.position.y += this.velY * dt;
@@ -1211,6 +1243,18 @@ const MegaGiftManager = {
         if (this.mesh) {
             this.scene.remove(this.mesh);
             this.mesh = null;
+        }
+        // 移除神圣之光
+        if (this.spotLight) {
+            this.scene.remove(this.spotLight);
+            this.scene.remove(this.spotLight.target);
+            this.spotLight = null;
+        }
+        if (this.beam) {
+            this.scene.remove(this.beam);
+            if(this.beam.geometry) this.beam.geometry.dispose();
+            if(this.beam.material) this.beam.material.dispose();
+            this.beam = null;
         }
         // 清空物理列表
         this.physicsItems = [];
@@ -1762,16 +1806,17 @@ function animate() {
 
 function buildLights() {
     const moon = new THREE.DirectionalLight(0xaaccff, CFG.moonInt);
-    moon.position.set(-80, 150, -80);
+    // 调整月光位置：更低、更侧向，制造长阴影
+    moon.position.set(-150, 80, -150);
     moon.castShadow=true; 
     moon.shadow.mapSize.set(1024,1024);
     moon.shadow.camera.left=-400; moon.shadow.camera.right=400;
     moon.shadow.camera.top=400; moon.shadow.camera.bottom=-400;
     scene.add(moon); lights.moon = moon;
 
-    // 月亮实体
-    const mMesh = new THREE.Mesh(new THREE.SphereGeometry(15,32,32), new THREE.MeshBasicMaterial({color:0xffffee, fog:false}));
-    mMesh.position.copy(moon.position).normalize().multiplyScalar(900);
+    // 月亮实体：超级月亮效果，挂在天边 (推远以消除视差，防止自由模式穿帮)
+    const mMesh = new THREE.Mesh(new THREE.SphereGeometry(120,32,32), new THREE.MeshBasicMaterial({color:0xffffee, fog:false}));
+    mMesh.position.set(-2000, 600, -2000); 
     scene.add(mMesh);
 
     // 星空
@@ -4518,14 +4563,14 @@ function setupUI() {
             </div>
 
             <!-- 操控设置 -->
-            <div class="toggle-row">
-                <span class="toggle-label" style="color:#ffd700">🎄 强制圣诞模式 (测试)</span>
-                <label class="switch">
-                    <input type="checkbox" id="tog-force-xmas">
-                    <span class="slider"></span>
-                </label>
-            </div>
             <div id="tab-controls" class="tab-content">
+                <div class="toggle-row">
+                    <span class="toggle-label" style="color:#ffd700">🎄 强制圣诞模式 (测试)</span>
+                    <label class="switch">
+                        <input type="checkbox" id="tog-force-xmas">
+                        <span class="slider"></span>
+                    </label>
+                </div>
                 <div class="control-group">
                     <div class="control-label"><span>燃放间隔</span><span id="val-fwrate" class="control-val">4s</span></div>
                     <input type="range" id="inp-fwrate" min="2" max="15" step="1" value="4">
