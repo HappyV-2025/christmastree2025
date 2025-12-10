@@ -2392,18 +2392,29 @@ function buildEnv() {
     // 树木颜色库 (各种深浅不一的绿色)
     const treeGreens = [0x0f3315, 0x1a4a22, 0x0a2910, 0x2d5a36];
 
+    // ⚡ 性能优化: 预计算轨道点的空间索引或直接遍历 (3000个点 x 1000个轨道点 = 3M次计算，JS能抗住，但可以优化)
+    // 为了稳妥，我们使用步进遍历，只检查每隔几个点
+    const trackCheckStep = 5; 
+    const safeDistSq = 18 * 18; // 安全距离平方 (18 = 轨道宽 + 树冠宽 + 缓冲)
+
     for(let i=0; i<5000; i++) {
         if(idx >= count) break;
         const r = 160 + Math.random()*800; // 扩大范围到山丘上
         const a = Math.random()*6.28;
         const x = Math.cos(a)*r, z = Math.sin(a)*r;
         
-        // 避开轨道 (轨道半径 ~120，保留缓冲)
-        const distSq = 25*25; 
         let safe = true;
         
-        // 简单的距离检查
-        if (r < 150) safe = false; // 轨道区
+        // 🛡️ 严谨的碰撞检测: 遍历轨道点
+        for (let k = 0; k < trackPoints.length; k += trackCheckStep) {
+            const tp = trackPoints[k];
+            const dx = x - tp.x;
+            const dz = z - tp.z;
+            if (dx*dx + dz*dz < safeDistSq) {
+                safe = false;
+                break;
+            }
+        }
 
         if(safe) {
             // 获取地形高度
@@ -3068,27 +3079,22 @@ class Train {
         const roofBaseY = 5.2;
         roof.position.set(0, roofBaseY, 0);
 
-        // 3.5 车顶积雪 - 升级版 (Improved Snow Blanket)
+        // 3.5 车顶积雪 - 升级版 (Improved Snow Blanket - High Fidelity Restored)
         // 1. 创建高细分的基础几何体
-        // [FIX] openEnded: true -> 移除两端盖子
-        // ⚡ 性能优化: 降低细分 (64,40 -> 24,5)，因为上面有噪声置换，过高细分在远处看不出区别，但极大消耗性能
-        const snowGeo = new THREE.CylinderGeometry(2.05, 2.05, 13, 24, 5, true, 0, Math.PI);
+        // 恢复高细分 (64,40) 以支持精细的噪声变形，正如分析报告所述
+        const snowGeo = new THREE.CylinderGeometry(2.05, 2.05, 13, 64, 40, true, 0, Math.PI);
         
         const posAttr = snowGeo.attributes.position;
         const vertex = new THREE.Vector3();
         
-        // --- 随机性增强 (Enhanced Randomness) ---
-        // 为每节车厢生成完全不同的噪声特征 (Unique noise signature per car)
-        // 1. 基础频率差异
-        const freqBase = 1.5 + Math.random() * 2.5; // 主波浪频率变化范围大
-        const freqDetail = 5.0 + Math.random() * 5.0; // 细节频率
-        // 2. 振幅差异
+        // --- A. 随机噪声签名 (Noise Signature) ---
+        // 为每节车厢生成完全不同的噪声特征
+        const freqBase = 1.5 + Math.random() * 2.5; 
+        const freqDetail = 5.0 + Math.random() * 5.0; 
         const ampBase = 0.12 + Math.random() * 0.08; 
         const ampDetail = 0.04 + Math.random() * 0.04;
-        // 3. 相位偏移 (左右两侧独立)
         const phaseL = Math.random() * 100;
         const phaseR = Math.random() * 100;
-        // 4. 基础厚度差异
         const snowThickBase = 0.2 + Math.random() * 0.08;
 
         for (let k = 0; k < posAttr.count; k++) {
@@ -3098,47 +3104,43 @@ class Train {
             let theta = Math.atan2(vertex.x, vertex.z);
             if (theta < 0) theta += Math.PI * 2;
             
-            // --- 2. 计算边缘噪声 (Complex Edge Noise) ---
-            // 使用多层正弦波叠加 + 顶点位置哈希，彻底打破重复感
-            
-            // 局部微小噪点 (Micro noise based on position)
+            // --- B. 边缘融化与垂落 (Edge Dripping) ---
             const microNoise = Math.sin(vertex.y * 20 + vertex.x * 10 + k) * 0.02;
 
             // 左侧边缘噪声
             const noiseL = Math.sin(vertex.y * freqBase + phaseL) * ampBase + 
                            Math.sin(vertex.y * freqDetail + phaseL * 1.5) * ampDetail + 
-                           Math.sin(vertex.y * 0.5 + phaseL) * 0.05 + // 超低频大起伏
+                           Math.sin(vertex.y * 0.5 + phaseL) * 0.05 + 
                            microNoise;
 
-            // 右侧边缘噪声 (参数略微不同，避免左右对称)
+            // 右侧边缘噪声
             const noiseR = Math.sin(vertex.y * (freqBase * 1.1) + phaseR) * ampBase + 
                            Math.sin(vertex.y * (freqDetail * 0.9) + phaseR * 1.2) * ampDetail +
                            Math.sin(vertex.y * 0.6 + phaseR) * 0.05 +
                            microNoise;
 
-            // 动态调整覆盖范围
-            // [Modified] 提高边缘：基准 0.3
-            const startTheta = 0.3 + Math.abs(noiseL) * 0.6; // 增加噪声影响权重
+            // 动态调整覆盖范围 (theta 起止点)
+            const startTheta = 0.3 + Math.abs(noiseL) * 0.6; 
             const endTheta = Math.PI - (0.3 + Math.abs(noiseR) * 0.6);
             
-            // 3. 映射 Theta
+            // 映射 Theta
             const newTheta = startTheta + (theta / Math.PI) * (endTheta - startTheta);
             
-            // 4. 重建位置
+            // 重建位置 (基于新 Theta)
             const r = 2.05;
             vertex.x = r * Math.sin(newTheta);
             vertex.z = r * Math.cos(newTheta);
             
-            // 5. 应用厚度
+            // --- C. 表面起伏与堆积 (Surface Lumpiness) ---
             const nx = Math.sin(newTheta);
             const nz = Math.cos(newTheta);
             
             let thick = snowThickBase;
-            // 表面起伏 (Surface Noise) - 同样增强随机性
             thick += Math.sin(vertex.x * 3 + vertex.y * 1.5 + phaseL) * 0.04; 
             thick += Math.sin(vertex.z * 4 + phaseR) * 0.02;
-            thick += microNoise * 0.5; // 表面也增加一点微噪
+            thick += microNoise * 0.5;
             
+            // --- D. 体积堆积逻辑 (Volumetric Piling) ---
             // 顶部加厚
             const distFromTop = Math.abs(newTheta - Math.PI/2);
             thick += 0.12 * Math.max(0, 1.0 - distFromTop / (Math.PI/2)); 
@@ -3152,12 +3154,12 @@ class Train {
             vertex.x += nx * thick;
             vertex.z += nz * thick;
 
-            // 6. 边缘垂落
+            // --- E. 重力垂落 (Gravity Droop) ---
             const edgeFactor = Math.pow(Math.max(0, distFromTop / (Math.PI/2)), 6);
             const droop = 0.05 * edgeFactor * (1 + Math.random()*0.2); 
             vertex.x -= droop;
 
-            // 7. 前后两端圆润化
+            // --- F. 前后圆润化 (End Rounding) ---
             const distFromEnd = 6.5 - Math.abs(vertex.y);
             if (distFromEnd < 0.8) {
                 const t = (0.8 - distFromEnd) / 0.8;
@@ -4471,7 +4473,25 @@ class SantaSleigh {
             case 'sync': {
                 const t = this.phaseTime / this.syncDur;
 
+                // 目标基础位置：火车上方
                 this._targetPos.copy(hoverPos);
+                
+                // 🎅 侧向偏移逻辑 (Side Offset)
+                // 计算火车当前方向的"右"向量
+                // trainTan 是前向向量，(0,1,0) 是上向量 -> Cross = 右向量
+                const trainRight = new THREE.Vector3().crossVectors(trainTan, new THREE.Vector3(0,1,0)).normalize();
+                
+                // 向右偏移 18 单位 (根据 trainDir 翻转，确保始终在弯道外侧或内侧固定一侧)
+                // 这里我们固定向"右"偏移，这样如果是顺时针(Dir=1)，他在外圈；逆时针(Dir=-1)，他在内圈? 
+                // 不，切线本身随路径变化。我们简单地 * 1.0 即可。
+                // 为了视觉不遮挡，我们让他飞在"外侧"或者"内侧"？
+                // 之前的体验是飞在头顶。现在我们让他飞在右侧。
+                this._targetPos.addScaledVector(trainRight, 18.0);
+
+                // 稍微靠前一点 (Forward Offset)
+                this._targetPos.addScaledVector(trainTan, 15.0 * STATE.trainDir);
+
+                // 上下浮动
                 this._targetPos.y += Math.sin(this.elapsed * 2) * 1.5;
 
                 const tDir = trainTan.clone().multiplyScalar(STATE.trainDir);
@@ -4480,7 +4500,9 @@ class SantaSleigh {
 
                 if (t >= 0.5 && !this.giftDropped) {
                     if (!this._sleighWorldPos) this._sleighWorldPos = new THREE.Vector3();
-                    this._sleighWorldPos.set(0, 2, 5); 
+                    // 修正礼物生成点：从雪橇本体位置 (0, 2, 5) -> (0, 2, 0)
+                    // 雪橇模型原点在中心
+                    this._sleighWorldPos.set(0, 1, 0); 
                     this._sleighWorldPos.applyMatrix4(this.group.matrixWorld);
 
                     this.dropGift(this._sleighWorldPos);
