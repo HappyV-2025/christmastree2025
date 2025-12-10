@@ -2118,7 +2118,15 @@ function animate() {
             obj.material.color.copy(obj.userData.baseCol).multiplyScalar(intensity);
         }
         if(obj.userData.type === 'star') obj.material.color.setHSL(0.14, 1.0, 0.6 + 0.3 * Math.sin(time));
-        if(obj.userData.type === 'headlight_spot') obj.intensity = CFG.lightPow;
+        if(obj.userData.type === 'headlight_spot') {
+            obj.intensity = CFG.lightPow;
+        }
+        if(obj.userData.type === 'headlight_glare') {
+            // 将光照强度 (0~200) 映射到 透明度 (0~0.6)
+            // 避免完全不透明导致看起来像贴图 bug
+            obj.material.opacity = Math.min(0.6, (CFG.lightPow / 100) * 0.3);
+            obj.visible = CFG.lightPow > 1; // 关灯时隐藏
+        }
     });
 
     // 🎥 相机更新委托给导演系统
@@ -2159,30 +2167,21 @@ function buildLights() {
     scene.add(new THREE.AmbientLight(0x303050, 0.4));
     
     // ⛰️ 地面地形 (Terrain)
-    // 使用高细分平面模拟起伏雪地
-    const groundGeo = new THREE.PlaneGeometry(2000, 2000, 128, 128);
-    const pos = groundGeo.attributes.position;
-    
-    // 简单的伪随机噪声生成山丘
-    for(let i=0; i<pos.count; i++){
-        const x = pos.getX(i);
-        const y = pos.getY(i); // Plane平放前是XY平面，所以这里Y对应世界Z
-        
-        // 计算距离中心的距离
-        const dist = Math.sqrt(x*x + y*y);
+    // 提取为独立函数，供其他对象（如轨道、树木）对齐高度
+    window.getTerrainHeight = (x, z) => {
+        const dist = Math.sqrt(x*x + z*z);
+        let height = 0;
         
         // 核心逻辑：轨道附近 (R=120) 保持平坦，远处起伏
         // 平坦区：R < 150
         // 过渡区：150 < R < 250
         // 山丘区：R > 250
         
-        let height = 0;
-        
         if (dist > 150) {
             // 基础波浪 (大山丘)
-            const h1 = Math.sin(x * 0.005) * Math.cos(y * 0.005) * 30;
+            const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30;
             // 细节波浪 (小起伏)
-            const h2 = Math.sin(x * 0.02 + y * 0.01) * 5;
+            const h2 = Math.sin(x * 0.02 + z * 0.01) * 5;
             
             height = h1 + h2;
             
@@ -2193,8 +2192,26 @@ function buildLights() {
             }
         }
         
-        // 设置 Z (对应 Plane 的法向，即世界 Y)
-        pos.setZ(i, height - 2.0); // 整体稍微下沉一点，避免遮挡铁轨
+        // 关键修复：让中心区域的高度正好等于轨道高度 (y=0.56)
+        // 这样铁轨就像铺在地面上，而不是悬空
+        // 原来地面整体下沉了 2.0，所以这里也做相应调整
+        return height; 
+    };
+
+    const groundGeo = new THREE.PlaneGeometry(2000, 2000, 128, 128);
+    const pos = groundGeo.attributes.position;
+    
+    for(let i=0; i<pos.count; i++){
+        const x = pos.getX(i);
+        const y = pos.getY(i); // Plane Y is World Z
+        
+        // 使用统一的高度函数
+        // 注意：Ground Mesh 本身没有 Y 偏移，所以顶点 Z (World Y) 直接设为地形高度
+        // 为了让铁轨 (y=0.56) 不被埋住，地面中心高度设为 0，铁轨会有 0.56 的枕木高度，完美。
+        // 但之前地面下沉了 -2.0，导致悬空。
+        // 现在我们将地面中心设为 0。
+        const h = window.getTerrainHeight(x, y);
+        pos.setZ(i, h); 
     }
     
     groundGeo.computeVertexNormals();
@@ -2244,6 +2261,8 @@ function buildTrack() {
     trackPoints = trackCurve.getPoints(1000);
 
     const divs = 600;
+    // 枕木 (Sleeper) - 需要跟随地形起伏，但我们假设轨道区域是平的 (getTerrainHeight在 R<150 返回0)
+    // 所以这里保持 y=0.1 是正确的 (地面是 0)
     const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
     bed.position.y = 0.1; bed.scale.y = 0.1; scene.add(bed);
     
@@ -2251,9 +2270,20 @@ function buildTrack() {
     const pm = new THREE.MeshStandardMaterial({color:0x3e2723});
     const pi = new THREE.InstancedMesh(pg, pm, divs);
     const dum = new THREE.Object3D();
+    
     for(let i=0; i<divs; i++){
-        const t = i/divs; const p = trackCurve.getPointAt(t); const tan = trackCurve.getTangentAt(t);
-        dum.position.set(p.x, 0.3, p.z); dum.lookAt(p.x + tan.x, 0.3, p.z + tan.z); dum.updateMatrix();
+        const t = i/divs; 
+        const p = trackCurve.getPointAt(t); 
+        const tan = trackCurve.getTangentAt(t);
+        
+        // 关键：获取该位置的地形高度
+        // 虽然目前设计是平的，但为了健壮性，我们加上这个高度
+        // 枕木高度 = 地形高度 + 0.3
+        const terrainH = window.getTerrainHeight ? window.getTerrainHeight(p.x, p.z) : 0;
+        
+        dum.position.set(p.x, terrainH + 0.3, p.z); 
+        dum.lookAt(p.x + tan.x, terrainH + 0.3, p.z + tan.z); 
+        dum.updateMatrix();
         pi.setMatrixAt(i, dum.matrix);
     }
     pi.receiveShadow = true; scene.add(pi);
@@ -2280,6 +2310,10 @@ function buildTrack() {
 
         // 复用 rightVec 计算右侧向量
         rightVec.crossVectors(tan, upVec).normalize();
+        
+        // 获取高度 (虽然中心区域是0，但加上比较稳妥)
+        const terrainH = window.getTerrainHeight ? window.getTerrainHeight(pt.x, pt.z) : 0;
+        pt.y = terrainH; // 确保基准点在地形上
 
         // 生成左右坐标点
         tempL.copy(pt).addScaledVector(rightVec, -dist);
@@ -2304,9 +2338,17 @@ function buildTrack() {
     const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, railSamp, 0.12, 8, true), railMat);
     
     // 6. 调整高度
-    // 枕木顶面约 0.5，铁轨设为 0.56，刚好压在枕木上
-    railMeshL.position.y = 0.56;
-    railMeshR.position.y = 0.56;
+    // 枕木顶面约 0.5 (terrain+0.3 + thickness/2)，铁轨设为 terrain + 0.56
+    // TubeGeometry 是以 path 为中心的，所以我们不需要额外加 offset，
+    // 因为我们在生成 path 点的时候已经把 y 设为了 terrainH ?? 
+    // 等等，上面 pt.y = terrainH。
+    // Tube 半径 0.12。如果 path 在 terrainH，那么底部在 terrainH - 0.12。
+    // 我们需要铁轨压在枕木上。枕木面在 terrainH + 0.5 (0.3 pos + 0.2 halfHeight)。
+    // 所以铁轨中心应该在 terrainH + 0.5 + 0.12 = terrainH + 0.62。
+    // 我们简单地整体抬高 mesh。
+    
+    railMeshL.position.y = 0.62; 
+    railMeshR.position.y = 0.62;
 
     scene.add(railMeshL);
     scene.add(railMeshR);
@@ -2931,6 +2973,7 @@ class Train {
         sl.shadow.mapSize.width = 1024;
         sl.shadow.mapSize.height = 1024;
         sl.userData = { type: 'headlight_spot' };
+        emissives.push(sl); // 关键修复：加入更新列表
         
         // [FIXED] 定向光晕 (Directional Glare)
         // 使用面向前方的 PlaneMesh 替代 Sprite。
@@ -2947,6 +2990,8 @@ class Train {
         });
         const glareMesh = new THREE.Mesh(glareGeo, glareMat);
         glareMesh.position.z = 0.4;
+        glareMesh.userData = { type: 'headlight_glare' }; // Tag for animation control
+        emissives.push(glareMesh); // 关键修复：加入更新列表
         lightGroup.add(glareMesh);
 
         lightGroup.add(sl);
@@ -5156,23 +5201,23 @@ function setupUI() {
             <!-- 音频设置 -->
             <div id="tab-audio" class="tab-content active">
                 <div class="control-group">
-                    <div class="control-label"><span>总音量</span><span id="val-master" class="control-val">70%</span></div>
+                    <div class="control-label"><span>总音量 (Master)</span><span id="val-master" class="control-val">70%</span></div>
                     <input type="range" id="inp-master" min="0" max="1" step="0.05" value="0.7">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>背景音乐</span><span id="val-bgm" class="control-val">60%</span></div>
+                    <div class="control-label"><span>背景音乐 (BGM)</span><span id="val-bgm" class="control-val">60%</span></div>
                     <input type="range" id="inp-bgm" min="0" max="1" step="0.05" value="0.6">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>火车音效</span><span id="val-train" class="control-val">80%</span></div>
+                    <div class="control-label"><span>火车音效 (SFX)</span><span id="val-train" class="control-val">80%</span></div>
                     <input type="range" id="inp-train" min="0" max="1" step="0.05" value="0.8">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>烟花音效</span><span id="val-fw" class="control-val">100%</span></div>
+                    <div class="control-label"><span>烟花音效 (Boom)</span><span id="val-fw" class="control-val">100%</span></div>
                     <input type="range" id="inp-fw" min="0" max="1" step="0.05" value="1.0">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>爆炸风格</span></div>
+                    <div class="control-label"><span>爆炸风格 (Style)</span></div>
                     <select id="sel-fw-style">
                         <option value="-1">🎲 随机 (Random)</option>
                         ${SOUND_STYLES.map((s,i) => `<option value="${i}">${i}. ${s.name}</option>`).join('')}
@@ -5183,40 +5228,44 @@ function setupUI() {
             <!-- 画面设置 -->
             <div id="tab-graphics" class="tab-content">
                 <div class="control-group">
-                    <div class="control-label"><span>辉光强度 (Bloom)</span><span id="val-bloom" class="control-val">0.7</span></div>
-                    <input type="range" id="inp-bloom" min="0" max="3" step="0.1" value="0.7">
+                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.7</span></div>
+                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.7">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>月光亮度</span><span id="val-moon" class="control-val">2.5</span></div>
-                    <input type="range" id="inp-moon" min="0" max="5" step="0.1" value="2.5">
+                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.02</span></div>
+                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.02">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>大雾浓度</span><span id="val-fog" class="control-val">0.0004</span></div>
-                    <input type="range" id="inp-fog" min="0" max="0.005" step="0.0001" value="0.0004">
+                    <div class="control-label"><span>月光亮度 (Moon Light)</span><span id="val-moon" class="control-val">1.0</span></div>
+                    <input type="range" id="inp-moon" min="0" max="3" step="0.1" value="1.0">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>车灯亮度</span><span id="val-headlight" class="control-val">100</span></div>
-                    <input type="range" id="inp-headlight" min="0" max="200" step="10" value="100">
+                    <div class="control-label"><span>大雾浓度 (Fog Density)</span><span id="val-fog" class="control-val">0.0016</span></div>
+                    <input type="range" id="inp-fog" min="0" max="0.005" step="0.0001" value="0.0016">
+                </div>
+                <div class="control-group">
+                    <div class="control-label"><span>车灯亮度 (Headlight)</span><span id="val-headlight" class="control-val">100</span></div>
+                    <input type="range" id="inp-headlight" min="0" max="300" step="10" value="100">
                 </div>
             </div>
 
             <!-- 操控设置 -->
             <div id="tab-controls" class="tab-content">
                 <div class="control-group">
-                    <div class="control-label"><span>燃放间隔</span><span id="val-fwrate" class="control-val">4s</span></div>
-                    <input type="range" id="inp-fwrate" min="2" max="15" step="1" value="4">
+                    <div class="control-label"><span>自动燃放间隔 (Auto Firework)</span><span id="val-fwrate" class="control-val">4s</span></div>
+                    <input type="range" id="inp-fwrate" min="1" max="10" step="0.5" value="4">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>火车极速</span><span id="val-speed" class="control-val">0.10</span></div>
+                    <div class="control-label"><span>火车极速 (Max Speed)</span><span id="val-speed" class="control-val">0.10</span></div>
                     <input type="range" id="inp-speed" min="0.02" max="0.4" step="0.01" value="0.1">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>无人机高度</span><span id="val-height" class="control-val">40</span></div>
-                    <input type="range" id="inp-height" min="10" max="80" step="1" value="40">
+                    <div class="control-label"><span>无人机高度 (Camera Height)</span><span id="val-height" class="control-val">22</span></div>
+                    <input type="range" id="inp-height" min="10" max="150" step="5" value="22">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>跟拍距离</span><span id="val-dist" class="control-val">100</span></div>
-                    <input type="range" id="inp-dist" min="30" max="150" step="5" value="100">
+                    <div class="control-label"><span>跟拍距离 (Camera Distance)</span><span id="val-dist" class="control-val">85</span></div>
+                    <input type="range" id="inp-dist" min="30" max="250" step="10" value="85">
                 </div>
             </div>
         </div>
@@ -5244,19 +5293,14 @@ function setupUI() {
 
     // 画面绑定
     bindRange('inp-bloom', CFG, 'bloomStr', 'val-bloom', v => bloomPass.strength = v);
+    bindRange('inp-bloom-thr', CFG, 'bloomThr', 'val-bloom-thr', v => bloomPass.threshold = v);
     bindRange('inp-moon', CFG, 'moonInt', 'val-moon', v => lights.moon.intensity = v);
     bindRange('inp-fog', CFG, 'fogDen', 'val-fog', v => scene.fog.density = v);
-    bindRange('inp-headlight', CFG, 'lightPow', 'val-headlight', v => emissives.forEach(o => { if(o.userData.type==='headlight_spot') o.intensity=v }));
+    // 车灯绑定：这里只更新 CFG，具体应用在 animate 循环中处理 (spot + glare)
+    bindRange('inp-headlight', CFG, 'lightPow', 'val-headlight');
 
     // 操控绑定
     bindRange('inp-speed', CFG, 'maxSpeed', 'val-speed');
-    
-    // 音频绑定
-    bindRange('inp-master', audio.vol, 'master', 'val-master', () => audio.updateVols());
-    bindRange('inp-bgm', audio.vol, 'bgm', 'val-bgm', () => audio.updateVols());
-    bindRange('inp-train', audio.vol, 'train', 'val-train', () => audio.updateVols());
-    bindRange('inp-fw', audio.vol, 'firework', 'val-fw', () => audio.updateVols());
-
     bindRange('inp-height', CameraDirector.config, 'height', 'val-height');
     bindRange('inp-dist', CameraDirector.config, 'distance', 'val-dist');
     
@@ -5267,6 +5311,12 @@ function setupUI() {
             autoTimer = setInterval(launchBatch, v * 1000);
         }
     });
+
+    // 音频绑定
+    bindRange('inp-master', audio.vol, 'master', 'val-master', () => audio.updateVols());
+    bindRange('inp-bgm', audio.vol, 'bgm', 'val-bgm', () => audio.updateVols());
+    bindRange('inp-train', audio.vol, 'train', 'val-train', () => audio.updateVols());
+    bindRange('inp-fw', audio.vol, 'firework', 'val-fw', () => audio.updateVols());
 
     // 标签切换逻辑
     const tabs = modal.querySelectorAll('.tab-btn');
