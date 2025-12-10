@@ -5769,8 +5769,14 @@ function setupUI() {
                 
             case 'countdown':
             default:
-                console.log("🛠️ Debug: Normal Countdown (Full duration)");
-                targetTime = now + TEST_OFFSET; // 30s
+                console.log("🛠️ Debug: Reset to Real Christmas Countdown");
+                // 恢复真实倒计时逻辑
+                const date = new Date();
+                let year = date.getFullYear();
+                let xmas = new Date(year, 11, 25, 0, 0, 0);
+                if (date > xmas) xmas = new Date(year + 1, 11, 25, 0, 0, 0);
+                targetTime = xmas.getTime();
+                
                 lastCountdownSec = -1;
                 toggleCountdown(true); 
                 break;
