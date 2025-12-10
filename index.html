@@ -1090,7 +1090,7 @@ const IceTextManager = {
         const geo = new TextGeometry(text, {
             font: this.font,
             size: 8,
-            height: 0.5, // 极薄，像地上的冰层
+            height: 0.2, // 极薄，几乎贴纸
             curveSegments: 4,
             bevelEnabled: true,
             bevelThickness: 0.1,
@@ -1107,50 +1107,38 @@ const IceTextManager = {
             console.warn("IceTextManager: Font not loaded yet.");
             return;
         }
-        this.clear(); // 清理旧的
+        this.clear(); 
         this.active = true;
-        this.state.time = 0;
-        this.state.opacity = 0;
-        this.state.targetOpacity = 1;
 
         this.textGroup = new THREE.Group();
 
-        // ❄️ 冰晶材质 - 优化版 (更通透，更像地上的冰)
+        // ❄️ 磨砂冰雪材质 (Frosted/Snowy Ice)
+        // 模拟被雪覆盖的感觉：高粗糙度，漫反射强，保留一点点透光
         const matIce = new THREE.MeshPhysicalMaterial({
             color: 0xffffff,       
-            metalness: 0.2,
-            roughness: 0.05,        
-            transmission: 0.95,     
-            thickness: 1.0,        
-            ior: 1.4,              
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.0,
-            emissive: 0x88ccff,    
-            emissiveIntensity: 0.4, 
-            flatShading: false     
+            metalness: 0.1,
+            roughness: 0.8,        // 粗糙，像积雪
+            transmission: 0.2,     // 低透光
+            thickness: 0.5,        
+            ior: 1.3,              
+            clearcoat: 0.0,        // 无清漆，不反光
+            emissive: 0xccddff,    
+            emissiveIntensity: 0.3, // 幽幽的冷光
+            flatShading: true
         });
 
-        // 🎲 随机祝福语库
+        // 🎲 随机祝福语
         const rawPhrases = [
-            "MERRY CHRISTMAS",
-            "HAPPY HOLIDAYS",
-            "JOY TO THE WORLD",
-            "LET IT SNOW",
-            "SEASON'S GREETINGS",
-            "PEACE AND LOVE",
-            "HO HO HO",
-            "MAGIC NIGHT",
-            "WINTER WONDERLAND",
-            "FESTIVE SPIRIT"
+            "MERRY CHRISTMAS", "HAPPY HOLIDAYS", "JOY TO THE WORLD", "LET IT SNOW",
+            "SEASON'S GREETINGS", "PEACE AND LOVE", "HO HO HO", "MAGIC NIGHT",
+            "WINTER WONDERLAND", "FESTIVE SPIRIT"
         ];
         const textStr = rawPhrases[Math.floor(Math.random() * rawPhrases.length)];
 
-        // 📝 智能分行逻辑 (Smart Word Wrapping)
+        // 📝 智能分行
         const words = textStr.split(' ');
         const lines = [];
         let currentLine = words[0];
-
-        // 简单的字符数限制分行，但绝不切断单词
         const maxCharsPerLine = 10; 
 
         for (let i = 1; i < words.length; i++) {
@@ -1164,8 +1152,7 @@ const IceTextManager = {
         lines.push(currentLine);
 
         // 生成几何体
-        const lineSpacing = 10.0; // 行间距
-        // 计算整体高度偏移，使文字组垂直居中
+        const lineSpacing = 10.0; 
         const totalHeight = (lines.length - 1) * lineSpacing;
         const startY = totalHeight / 2;
 
@@ -1173,43 +1160,22 @@ const IceTextManager = {
             const geo = this.createGeo(lineText);
             if (geo) {
                 const mesh = new THREE.Mesh(geo, matIce);
-                // 注意：这里我们是在 Group 内部布局
-                // 稍后 Group 会被平放 (Rotate X -90)
-                // 所以这里的 y 对应的是“地面上的前后(Z)”，或者“地面上的左右(X)”取决于TextGeometry生成方向
-                // TextGeometry 默认在 XY 平面生成。
-                // 这里的 mesh.position.y 实际上是文字的“行高”方向。
-                
-                // 行号 0 在最上面 (Y max), 行号 N 在最下面 (Y min)
+                // 这里的 Y 是文字行高方向
                 mesh.position.y = startY - (idx * lineSpacing); 
-                
                 this.textGroup.add(mesh);
             }
         });
 
-        // 放置在地面，稍微浮起，几乎平放
-        this.textGroup.position.set(0, 0.5, 30); // 略微浮起 0.5，位置靠前
-        this.textGroup.rotation.x = -Math.PI / 2 + 0.1; // 几乎平铺，只翘起一点点 (0.1 rad)
+        // 🧊 放置：平铺在地上 (Flat on ground)
+        // y=0.15 微微露出雪面，Rotation X = -90度
+        this.textGroup.position.set(0, 0.15, 30); 
+        this.textGroup.rotation.x = -Math.PI / 2; 
         
         this.scene.add(this.textGroup);
     },
 
     update(dt) {
-        if (!this.active || !this.textGroup) return;
-        
-        this.state.time += dt;
-
-        // 1. 浮动动画 (Float) - 极其轻微
-        // 保持在地面上方 0.5 左右，小幅度上下
-        this.textGroup.position.y = 0.5 + Math.sin(this.state.time * 1.0) * 0.1;
-
-        // 2. 材质动画 (闪烁辉光)
-        this.textGroup.children.forEach(mesh => {
-            if (mesh.material) {
-                // 模拟冰面反光闪烁
-                const shine = 0.3 + Math.sin(this.state.time * 2.0) * 0.15;
-                mesh.material.emissiveIntensity = shine;
-            }
-        });
+        // 静态展示，不需要每帧更新 (No pulsing)
     },
 
     hide() {
@@ -1419,20 +1385,58 @@ const MegaGiftManager = {
             if (STATE.giftPhase === 'FALLING') {
                 this.velY -= 80 * dt; 
                 this.mesh.position.y += this.velY * dt;
+                
+                // 旋转：空中自由旋转
                 this.mesh.rotation.x += dt;
                 this.mesh.rotation.z += dt * 0.5;
+
+                // 🌟 落地预判与姿态调整
+                // 当高度小于 2倍目标尺寸时，开始平滑回正 X 和 Z 轴，准备着陆
+                if (this.mesh.position.y < this.targetScale * 2.5) {
+                    // 目标旋转：(0, currentY, 0) - 只保留 Y 轴自旋
+                    // 使用简单的阻尼逼近
+                    this.mesh.rotation.x *= 0.9;
+                    this.mesh.rotation.z *= 0.9;
+                }
 
                 if (this.mesh.position.y <= this.targetScale/2) {
                     this.mesh.position.y = this.targetScale/2;
                     this.velY = 0;
                     STATE.giftPhase = 'WAITING';
-                    this.mesh.rotation.set(0, 0, 0);
+                    
+                    // 落地瞬间：不要强制 set(0,0,0)，而是保留 Y 轴角度，X/Z 归零
+                    this.mesh.rotation.x = 0;
+                    this.mesh.rotation.z = 0;
+                    
                     if(camera) camera.position.y -= 2; 
                     audio.explode(1); 
+                    
+                    // 触发落地 Squash 动画
+                    this.isSquashing = true;
+                    this.scaleTime = 0;
                 }
             } else if (STATE.giftPhase === 'WAITING') {
-                const s = 1.0 + Math.sin(time * 3) * 0.03;
-                this.mesh.scale.set(s, s, s);
+                // 🌟 落地 Q 弹动画 (Squash & Stretch)
+                if (this.isSquashing) {
+                    this.scaleTime += dt * 12.0; 
+                    const decay = Math.exp(-this.scaleTime * 0.5);
+                    // 振幅比小礼物小一点，体现重量感
+                    const wave = Math.sin(this.scaleTime) * 0.25 * decay; 
+                    
+                    const sy = 1.0 * (1.0 - wave);       
+                    const sxz = 1.0 * (1.0 + wave * 0.3); 
+                    this.mesh.scale.set(sxz, sy, sxz);
+
+                    if (this.scaleTime > Math.PI * 3) { // 稍微久一点
+                        this.isSquashing = false;
+                        this.mesh.scale.set(1, 1, 1); 
+                    }
+                } else {
+                    // 正常呼吸待机
+                    const s = 1.0 + Math.sin(time * 3) * 0.03;
+                    this.mesh.scale.set(s, s, s);
+                }
+                
                 if (this.glowMesh) this.glowMesh.material.opacity = 0.2 + Math.sin(time * 5) * 0.2;
             }
         }
@@ -2154,9 +2158,54 @@ function buildLights() {
 
     scene.add(new THREE.AmbientLight(0x303050, 0.4));
     
-    // 地面
-    ground = new THREE.Mesh(new THREE.CircleGeometry(1000,64), new THREE.MeshStandardMaterial({color:0x8899aa, roughness:1, metalness:0.1}));
-    ground.rotation.x = -Math.PI/2; ground.receiveShadow=true;
+    // ⛰️ 地面地形 (Terrain)
+    // 使用高细分平面模拟起伏雪地
+    const groundGeo = new THREE.PlaneGeometry(2000, 2000, 128, 128);
+    const pos = groundGeo.attributes.position;
+    
+    // 简单的伪随机噪声生成山丘
+    for(let i=0; i<pos.count; i++){
+        const x = pos.getX(i);
+        const y = pos.getY(i); // Plane平放前是XY平面，所以这里Y对应世界Z
+        
+        // 计算距离中心的距离
+        const dist = Math.sqrt(x*x + y*y);
+        
+        // 核心逻辑：轨道附近 (R=120) 保持平坦，远处起伏
+        // 平坦区：R < 150
+        // 过渡区：150 < R < 250
+        // 山丘区：R > 250
+        
+        let height = 0;
+        
+        if (dist > 150) {
+            // 基础波浪 (大山丘)
+            const h1 = Math.sin(x * 0.005) * Math.cos(y * 0.005) * 30;
+            // 细节波浪 (小起伏)
+            const h2 = Math.sin(x * 0.02 + y * 0.01) * 5;
+            
+            height = h1 + h2;
+            
+            // 过渡平滑
+            if (dist < 250) {
+                const alpha = (dist - 150) / 100;
+                height *= alpha; 
+            }
+        }
+        
+        // 设置 Z (对应 Plane 的法向，即世界 Y)
+        pos.setZ(i, height - 2.0); // 整体稍微下沉一点，避免遮挡铁轨
+    }
+    
+    groundGeo.computeVertexNormals();
+    
+    ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({
+        color: 0xeef2f3, // 雪白略带灰
+        roughness: 1.0, 
+        metalness: 0.0
+    }));
+    ground.rotation.x = -Math.PI/2; 
+    ground.receiveShadow = true;
     scene.add(ground);
 }
 
@@ -2271,11 +2320,14 @@ function buildEnv() {
     createHeroTree(85, 55, 1.4); 
     createHeroTree(-85, 55, 1.4);
 
-    // 🌲 升级版森林
-    const matTree = new THREE.MeshStandardMaterial({color:0x0f3315, roughness:0.9});
+    // 🌲 升级版森林 (Varied Forest)
+    const matTree = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.9}); // 使用白色底，靠 instanceColor 染色
     const matSnow = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.6}); 
     
-    const count = 700; 
+    const count = 1200; // 增加数量，因为有了地形
+    
+    // 我们不再分三层 Mesh，而是把一棵树合并成一个 Geometry 或者使用 Group (InstancedMesh 不支持 Group)
+    // 为了性能，我们保持 bot/mid/top 分离的 InstancedMesh 结构，但要同步它们的变换
     
     const meshBot = new THREE.InstancedMesh(new THREE.ConeGeometry(3.5, 5, 7), matTree, count);
     const meshMid = new THREE.InstancedMesh(new THREE.ConeGeometry(2.5, 4, 7), matTree, count);
@@ -2285,29 +2337,74 @@ function buildEnv() {
     meshMid.castShadow=true; meshMid.receiveShadow=true;
     
     const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
     let idx = 0;
     
-    for(let i=0; i<3000; i++) {
+    // 树木颜色库 (各种深浅不一的绿色)
+    const treeGreens = [0x0f3315, 0x1a4a22, 0x0a2910, 0x2d5a36];
+
+    for(let i=0; i<5000; i++) {
         if(idx >= count) break;
-        const r = 60 + Math.random()*380;
+        const r = 160 + Math.random()*800; // 扩大范围到山丘上
         const a = Math.random()*6.28;
         const x = Math.cos(a)*r, z = Math.sin(a)*r;
-        let safe=true;
+        
+        // 避开轨道 (轨道半径 ~120，保留缓冲)
         const distSq = 25*25; 
-        for(let k=0; k<trackPoints.length; k+=10) { 
-            const dx = trackPoints[k].x - x, dz = trackPoints[k].z - z;
-            if((dx*dx + dz*dz) < distSq) { safe=false; break; }
-        }
+        let safe = true;
+        
+        // 简单的距离检查
+        if (r < 150) safe = false; // 轨道区
 
         if(safe) {
-            const s = 0.6 + Math.random() * 1.6; 
-            const rotY = Math.random() * Math.PI;
-            dummy.position.set(x, 2.5*s, z); dummy.scale.set(s,s,s); dummy.rotation.y = rotY; dummy.updateMatrix();
+            // 获取地形高度
+            // (这是简单的复用 buildLights 里的噪声逻辑，理想情况应该封装地形高度函数)
+            // 这里我们简化：假设 y=0，然后根据 x,z 简单估算，或者直接 raycast (太慢)
+            // 我们重新计算高度：
+            const dist = Math.sqrt(x*x + z*z);
+            let yBase = -2.0;
+            if (dist > 150) {
+                const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30;
+                const h2 = Math.sin(x * 0.02 + z * 0.01) * 5;
+                let h = h1 + h2;
+                if (dist < 250) h *= (dist - 150) / 100;
+                yBase = h - 2.0;
+            }
+
+            // 随机变换
+            const s = 0.8 + Math.random() * 1.5; 
+            const sY = s * (0.8 + Math.random() * 0.6); // 高矮胖瘦不一
+            const rotY = Math.random() * Math.PI * 2;
+            
+            // 随机颜色
+            const baseHex = treeGreens[Math.floor(Math.random() * treeGreens.length)];
+            color.setHex(baseHex);
+            // 稍微加一点随机亮度
+            color.offsetHSL(0, 0, (Math.random()-0.5)*0.1);
+
+            // Bot
+            dummy.position.set(x, yBase + 2.5*sY, z); 
+            dummy.scale.set(s, sY, s); 
+            dummy.rotation.y = rotY; 
+            dummy.updateMatrix();
             meshBot.setMatrixAt(idx, dummy.matrix);
-            dummy.position.set(x, 5.5*s, z); dummy.scale.set(s,s,s); dummy.updateMatrix();
+            meshBot.setColorAt(idx, color);
+
+            // Mid
+            dummy.position.set(x, yBase + 5.5*sY, z); 
+            dummy.scale.set(s, sY, s); 
+            dummy.updateMatrix();
             meshMid.setMatrixAt(idx, dummy.matrix);
-            dummy.position.set(x, 8.0*s, z); dummy.scale.set(s,s,s); dummy.updateMatrix();
+            meshMid.setColorAt(idx, color);
+
+            // Top (Snow)
+            dummy.position.set(x, yBase + 8.0*sY, z); 
+            dummy.scale.set(s, sY, s); 
+            dummy.updateMatrix();
             meshTop.setMatrixAt(idx, dummy.matrix);
+            // 雪顶保持白色，或者稍微带点环境蓝
+            // meshTop.setColorAt(idx, ...); // 默认白
+
             idx++;
         }
     }
@@ -2318,15 +2415,31 @@ function buildEnv() {
     for(let i=0; i<30; i++){
         const x=(Math.random()-0.5)*350, z=(Math.random()-0.5)*350;
         let safe=true;
-        for(let k=0;k<trackPoints.length;k+=10) {
-            const dx=trackPoints[k].x-x, dz=trackPoints[k].z-z;
-            if((dx*dx+dz*dz)<400) { safe=false; break; }
-        }
+        const r = Math.sqrt(x*x + z*z);
+        if(r < 140) safe = false; // 避开轨道
+
         if(safe) {
-            const r=Math.random();
-            if(r<0.3) DecorManager.addGroundGift(x,z);
-            else if(r<0.6) DecorManager.addSnowman(x,z);
-            else DecorManager.addLamp(x,z);
+            // 简单估算高度 (同上)
+            let yBase = -2.0;
+            if (r > 150) {
+                const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30;
+                const h2 = Math.sin(x * 0.02 + z * 0.01) * 5;
+                let h = h1 + h2;
+                if (r < 250) h *= (r - 150) / 100;
+                yBase = h - 2.0;
+            }
+            
+            // 修正 DecorManager 的方法，让它们支持 Y 轴偏移
+            // 但 DecorManager 当前是写死的 Y=0.75 等。
+            // 这是一个小缺陷，但为了不重写 DecorManager，我们只能接受装饰品可能半埋在雪里
+            // 或者我们只在平坦区 (150 < r < 250) 放置
+            // 让我们简单点：
+            if (Math.abs(yBase) < 5) { // 只在相对平坦的地方放
+                 const rn=Math.random();
+                 if(rn<0.3) DecorManager.addGroundGift(x,z);
+                 else if(rn<0.6) DecorManager.addSnowman(x,z);
+                 else DecorManager.addLamp(x,z);
+            }
         }
     }
 }
@@ -4455,36 +4568,69 @@ class SantaSleigh {
             // 🛑 状态 A: 已落地 (Landed)
             // ===========================
             if (g.landed) {
-                // 1. 处理 Q 弹动画 (Squash & Stretch)
+                // 1. 处理 Q 弹动画 (Squash & Stretch) - 仅在刚落地时有效
                 if (g.isSquashing) {
-                    g.scaleTime += dt * 15.0; // 动画速度
-                    // 阻尼正弦波：模拟果冻颤动效果
+                    g.scaleTime += dt * 15.0; 
                     const decay = Math.exp(-g.scaleTime * 0.5);
                     const wave = Math.sin(g.scaleTime) * 0.4 * decay; 
                     
-                    // 应用形变
-                    const sy = g.baseScale * (1.0 - wave);       // Y轴压扁
-                    const sxz = g.baseScale * (1.0 + wave * 0.5); // XZ轴变宽保持体积
+                    const sy = g.baseScale * (1.0 - wave);       
+                    const sxz = g.baseScale * (1.0 + wave * 0.5); 
                     g.mesh.scale.set(sxz, sy, sxz);
 
                     if (g.scaleTime > Math.PI * 2) {
                         g.isSquashing = false;
-                        g.mesh.scale.set(g.baseScale, g.baseScale, g.baseScale); // 复原
+                        g.mesh.scale.set(g.baseScale, g.baseScale, g.baseScale); 
                     }
                 }
 
-                // 2. 发光迅速熄灭
-                g.mesh.traverse(c => {
-                    if (c.isMesh && c.material.emissiveIntensity > 0) {
-                        c.material.emissiveIntensity = THREE.MathUtils.lerp(c.material.emissiveIntensity, 0, dt * 5);
-                    }
-                });
-
-                // 3. 随车移动与生命周期结束 (原有逻辑)
+                // 2. 生命周期管理 (吸收效果)
                 g.life -= dt;
+                
+                // --- 📥 吸收倒计时 (最后 1.5 秒) ---
+                if (g.life < 1.5) {
+                    const progress = Math.max(0, g.life / 1.5); // 1.0 -> 0.0
+                    
+                    // A. 缓慢下沉 (Sink)
+                    // 假设初始 Y 是 5.5 (车顶)，我们要让它沉到 3.5 (车身内)
+                    // 这里的 Y 是相对于 g.targetCar 的局部坐标
+                    // 我们不需要保存初始 Y，只需要每帧稍微减一点，或者插值
+                    g.mesh.position.y -= dt * 1.5; 
+
+                    // B. 缩小 (Shrink)
+                    const scale = g.baseScale * progress;
+                    g.mesh.scale.set(scale, scale, scale);
+                    
+                    // C. 亮度爆发 (转化能量)
+                    const flare = 0.5 + 2.0 * (1.0 - progress);
+                    g.mesh.traverse(c => {
+                        if (c.isMesh && c.material.emissive) {
+                            c.material.emissiveIntensity = flare;
+                        }
+                    });
+                } 
+                // --- 正常停留期 ---
+                else if (!g.isSquashing) {
+                    const pulse = 0.4 + 0.2 * Math.sin(this.elapsed * 3.0 + g.mesh.id);
+                    g.mesh.traverse(c => {
+                        if (c.isMesh) c.material.emissiveIntensity = pulse;
+                    });
+                }
+
+                // 3. 彻底吸收完成
                 if(g.life <= 0) {
+                    // --- 🚃 车厢反馈 (Absorb Reaction) ---
+                    // 触发车厢窗户闪烁，表示收到礼物
+                    if (train && train.flashWindows) {
+                        train.flashWindows(g.targetCar);
+                        // 播放一个小音效 (收集声)
+                        if (audio) audio.bell(); 
+                    }
+
+                    // 移除物体
                     if(g.mesh.parent) g.mesh.parent.remove(g.mesh);
-                    // 深度清理
+                    
+                    // 深度清理内存
                     g.mesh.traverse(c => {
                         if (c.isMesh) {
                             if (c.geometry) c.geometry.dispose();
@@ -4497,7 +4643,7 @@ class SantaSleigh {
                     this.fallingGifts.splice(i, 1);
                 }
 
-                // 4. 尾迹淡出 (立即清除)
+                // 4. 尾迹清理
                 if (g.trail) {
                     g.trail.dispose();
                     g.trail = null;
@@ -4515,11 +4661,10 @@ class SantaSleigh {
             // --- 🔧 新版抛物线逻辑 (Quadratic Bezier) ---
             // 目标位置：车厢当前位置
             g.targetCar.getWorldPosition(_targetWorldPos);
-            // 目标高度调整：车顶 (Local Y ~5.2) + 世界坐标变换
-            // 由于车厢有旋转，我们先获取车厢的上方向
+            // 目标高度调整：车顶最高点 (Local Y ~7.25) + 礼物半高
+            // 这样飞行轨迹也是瞄准车顶的
             const carUp = new THREE.Vector3(0, 1, 0).applyQuaternion(g.targetCar.quaternion);
-            // 偏移到车顶上方一点点
-            _targetWorldPos.addScaledVector(carUp, 5.5);
+            _targetWorldPos.addScaledVector(carUp, 8.0);
 
             // 控制点计算：起点和终点的中点，再向上抬高
             _midPoint.copy(g.startPos).add(_targetWorldPos).multiplyScalar(0.5);
@@ -4560,22 +4705,35 @@ class SantaSleigh {
                 g.mesh.parent.remove(g.mesh);
                 g.targetCar.add(g.mesh);
                 
-                // --- 🔧 修正落地位置 (Snap to Roof) ---
-                // 转换到车厢局部坐标系
-                // 随机分布在车顶范围 (X: -1.5~1.5, Z: -3.5~3.5)
-                g.mesh.position.set(
-                    (Math.random()-0.5) * 2.5, 
-                    5.5, // 车顶高度
-                    (Math.random()-0.5) * 6.0  
-                );
+                // --- 🔧 修正落地位置 (Snap to Curved Roof) ---
+                // 车顶参数: 轴心Y=5.2, 半径R=2.05
+                const roofAxisY = 5.2;
+                const roofRadius = 2.05;
                 
-                // 落地姿态：平躺或稍微倾斜
-                g.mesh.rotation.set(0, Math.random()*Math.PI, 0);
-                // 偶尔歪一点
-                if(Math.random() > 0.7) {
-                    g.mesh.rotateX((Math.random()-0.5)*0.5);
-                    g.mesh.rotateZ((Math.random()-0.5)*0.5);
-                }
+                // 随机 X (宽度方向)
+                // 限制在 [-1.6, 1.6] 范围内，避免掉出边缘
+                const rX = (Math.random() - 0.5) * 3.2;
+                
+                // 计算对应的圆柱面高度 Y
+                // y = axisY + sqrt(R^2 - x^2)
+                // 防止浮点误差导致 NaN
+                const h = Math.sqrt(Math.max(0, roofRadius*roofRadius - rX*rX));
+                const surfaceY = roofAxisY + h;
+                
+                // 随机 Z (长度方向)
+                const rZ = (Math.random() - 0.5) * 6.0;
+                
+                // 设置位置 (加一点偏移防止穿模，假设礼物半高约 0.8)
+                g.mesh.position.set(rX, surfaceY + 0.6, rZ);
+                
+                // 计算法线角度，让礼物稍微贴合曲面倾斜
+                // 法线向量在 XY 平面是 (rX, h)，角度是 atan2(rX, h)
+                const normalAngle = Math.atan2(rX, h);
+                
+                // 落地姿态：围绕法线稍微随机旋转
+                g.mesh.rotation.set(0, 0, -normalAngle); // 基础倾斜
+                g.mesh.rotateY(Math.random() * Math.PI * 2); // 随机朝向
+                g.mesh.rotateX((Math.random() - 0.5) * 0.5); // 随机微调
 
                 // 设置消失倒计时
                 g.life = 4.0; 
