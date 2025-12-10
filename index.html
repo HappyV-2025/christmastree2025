@@ -4478,15 +4478,12 @@ class SantaSleigh {
                 
                 // 🎅 侧向偏移逻辑 (Side Offset)
                 // 计算火车当前方向的"右"向量
-                // trainTan 是前向向量，(0,1,0) 是上向量 -> Cross = 右向量
+                // trainTan 是前向向量 (逆时针), (0,1,0) 是上向量
+                // Tan x Up 指向圆心 (内侧)。为了飞在外侧，我们需要反向。
                 const trainRight = new THREE.Vector3().crossVectors(trainTan, new THREE.Vector3(0,1,0)).normalize();
                 
-                // 向右偏移 18 单位 (根据 trainDir 翻转，确保始终在弯道外侧或内侧固定一侧)
-                // 这里我们固定向"右"偏移，这样如果是顺时针(Dir=1)，他在外圈；逆时针(Dir=-1)，他在内圈? 
-                // 不，切线本身随路径变化。我们简单地 * 1.0 即可。
-                // 为了视觉不遮挡，我们让他飞在"外侧"或者"内侧"？
-                // 之前的体验是飞在头顶。现在我们让他飞在右侧。
-                this._targetPos.addScaledVector(trainRight, 18.0);
+                // 向外偏移 18 单位 (负号将内侧向量反转为外侧)
+                this._targetPos.addScaledVector(trainRight, -18.0);
 
                 // 稍微靠前一点 (Forward Offset)
                 this._targetPos.addScaledVector(trainTan, 15.0 * STATE.trainDir);
