@@ -542,8 +542,82 @@ const CameraDirector = {
         
         outPos.copy(trainPos);
         outPos.addScaledVector(vec, this.config.distance);
-        outPos.y = this.config.height;
-        outTarget.set(0, 15, 0); // 看向中心
+        
+        // 默认目标看向点 (中心上方)
+        outTarget.set(0, 15, 0); 
+        
+        // --- 优化 v2: 视线几何避障 ---
+        let finalY = this.config.height;
+        
+        if (typeof window.getTerrainHeight === 'function') {
+            // 1. 基础防穿地：确保相机至少离地 6 米
+            const groundH = window.getTerrainHeight(outPos.x, outPos.z);
+            finalY = Math.max(finalY, groundH + 6.0);
+
+            // 2. 视线遮挡检测 (Line-of-Sight Raycast)
+            // 原理：沿着从相机(outPos)到目标(outTarget)的路径采样
+            // 如果某处地形高于视线，则反推相机需要抬升到的高度
+            
+            const startDist = 5.0;   // 从相机前方 5 米开始检测
+            const endDist = 70.0;    // 检测到前方 70 米 (主要覆盖近处到中距的遮挡)
+            const steps = 10;        // 采样密度
+            
+            // 水平方向向量
+            const dx = outTarget.x - outPos.x;
+            const dz = outTarget.z - outPos.z;
+            const totalDistH = Math.sqrt(dx*dx + dz*dz); // 相机到目标的水平总距离
+            
+            if (totalDistH > 1.0) { // 防止距离过近导致计算错误
+                const dirX = dx / totalDistH;
+                const dirZ = dz / totalDistH;
+
+                for (let i = 0; i < steps; i++) {
+                    // 当前检测点的距离 (线性分布)
+                    const checkDist = startDist + (endDist - startDist) * (i / (steps - 1));
+                    
+                    // 如果检测距离超过了总距离，就停止（不检测目标背后的东西）
+                    if (checkDist >= totalDistH - 5.0) break;
+
+                    // 采样点的世界坐标
+                    const checkX = outPos.x + dirX * checkDist;
+                    const checkZ = outPos.z + dirZ * checkDist;
+                    
+                    // 获取该点的地形高度 + 安全余量(视线要高出地面一定距离)
+                    const terrainH = window.getTerrainHeight(checkX, checkZ);
+                    const obstacleSafeH = terrainH + 4.0; // 视线至少高出障碍物4米
+
+                    // 计算比率 ratio = d_current / d_total
+                    // 视线高度公式: H_line = H_cam + (H_target - H_cam) * ratio
+                    // 变形得: H_cam = (H_line - H_target * ratio) / (1 - ratio)
+                    
+                    const ratio = checkDist / totalDistH;
+                    
+                    // 当前基于 finalY 的视线在该处的高度
+                    const currentLineH = finalY + (outTarget.y - finalY) * ratio;
+
+                    // 如果当前视线高度低于障碍物安全高度，说明被挡住了
+                    if (currentLineH < obstacleSafeH) {
+                        // 反向计算：为了越过这个障碍，相机需要多高？
+                        // 避免 ratio 接近 1 导致除零 (前面 break 已经保护了一部分)
+                        if (ratio < 0.9) {
+                             const reqCamH = (obstacleSafeH - outTarget.y * ratio) / (1.0 - ratio);
+                             // 取最大值（满足所有障碍物的最高要求）
+                             if (reqCamH > finalY) {
+                                 finalY = reqCamH;
+                             }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 3. 限制最大高度与平滑限制
+        // 虽然这里是计算理想位置，但如果瞬间算出 200米高可能会导致这一帧跳变
+        // 加上一个合理的上限
+        finalY = Math.min(finalY, 150.0);
+        
+        outPos.y = finalY;
+        // --- 优化 v2 结束 ---
     },
 
     // 平滑插值
@@ -649,7 +723,7 @@ const CameraDirector = {
             console.error("CameraDirector.startCruise: this.controls or this.controls.target is null/undefined. Cannot start cruise.");
             return;
         }
-        STATE.viewMode = 'FOLLOW';
+        STATE.viewMode = VIEW_MODES.FOLLOW;
 
         const st = this.state;
         st.currentDrone = Math.floor(this.train.prog * this.config.droneCount) % this.config.droneCount;
@@ -659,15 +733,15 @@ const CameraDirector = {
         st.switching = true;
         st.switchT = 0;
     },
-    
+
     // 聚焦礼盒
     focusGift() {
-        STATE.viewMode = 'FOCUS_GIFT';
+        STATE.viewMode = VIEW_MODES.FOCUS_GIFT;
     },
 
     // 庆祝视角 (穿越机拉回)
     celebrate() {
-        STATE.viewMode = 'CELEBRATION';
+        STATE.viewMode = VIEW_MODES.CELEBRATION;
     }
 };
 
@@ -1048,6 +1122,34 @@ class AudioEngine {
         osc.start(t);
         osc.stop(t + style.kick.dur + 0.1);
     }
+
+    // 🌟 预热音频 (消除首次播放卡顿)
+    warmup() {
+        if(!this.ctx) return;
+        const t = this.ctx.currentTime;
+        
+        // 极短、无声地播放一次爆炸和铃铛
+        // 这会强制浏览器分配 buffer 和编译 audio graph
+        const dummyOsc = this.ctx.createOscillator();
+        const dummyGain = this.ctx.createGain();
+        dummyGain.gain.value = 0; // 静音
+        dummyOsc.connect(dummyGain);
+        dummyGain.connect(this.ctx.destination);
+        dummyOsc.start(t);
+        dummyOsc.stop(t + 0.01);
+        
+        // 预热 BufferSource
+        if(this.noiseBuf) {
+            const dummySrc = this.ctx.createBufferSource();
+            dummySrc.buffer = this.noiseBuf;
+            const g = this.ctx.createGain();
+            g.gain.value = 0;
+            dummySrc.connect(g);
+            g.connect(this.ctx.destination);
+            dummySrc.start(t);
+            dummySrc.stop(t+0.01);
+        }
+    }
 }
 
 const audio = new AudioEngine();
@@ -1201,7 +1303,8 @@ const VIEW_MODES = {
   FOLLOW: 'FOLLOW',
   FREE: 'FREE',
   FOCUS_GIFT: 'FOCUS_GIFT',
-  CELEBRATION: 'CELEBRATION'
+  CELEBRATION: 'CELEBRATION',
+  INTRO: 'INTRO'
 };
 
 const GIFT_PHASES = {
@@ -1377,7 +1480,7 @@ const IceTextManager = {
     }
 };
 
-// 🎁 巨型礼盒管理器
+// 🎁 巨型礼盒管理器 (优化版：预加载)
 const MegaGiftManager = {
     mesh: null,
     glowMesh: null,
@@ -1386,97 +1489,70 @@ const MegaGiftManager = {
     y: 200,
     velY: 0,
     physicsItems: [], 
-    spotLights: [], // 舞台灯光组
-    lightsFading: false, // 灯光淡出标志
+    spotLights: [], 
+    lightsFading: false, 
+    spawnQueue: [], // 生成队列
     
     init(scene) {
         this.scene = scene;
         scene.add(STATE.spawnedGiftsGroup);
+        this.spawnQueue = [];
         
         // 预创建光束资源
         this.beamGeo = new THREE.ConeGeometry(8, 120, 32, 1, true);
         this.beamGeo.translate(0, -60, 0); 
         this.beamMat = new THREE.MeshBasicMaterial({
-            color: 0x886633, 
-            transparent: true,
-            opacity: 0,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-            blending: THREE.AdditiveBlending
+            color: 0x886633, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
         });
         this.beamClosing = false;
+
+        // 🟢 核心优化：提前构建大礼盒，但隐藏它
+        this.buildMegaMesh();
     },
 
-    spawn() {
-        if (STATE.giftPhase !== GIFT_PHASES.NONE) return;
-        STATE.giftPhase = GIFT_PHASES.FALLING;
-        
-        this.velY = 0;
-        this.lightsFading = false;
-        
-        // 1. 创建礼盒模型
+    buildMegaMesh() {
         const grp = new THREE.Group();
-        
-        // 核心盒子 - 增加金边和高级感
         const size = this.targetScale;
+
+        // 材质
         const matBody = new THREE.MeshStandardMaterial({ 
-            color: 0xaa0000, 
-            roughness: 0.2, 
-            metalness: 0.4,
-            emissive: 0x440000,
-            emissiveIntensity: 0.2
+            color: 0xaa0000, roughness: 0.2, metalness: 0.4, emissive: 0x440000, emissiveIntensity: 0.2
         });
+        const matGold = new THREE.MeshStandardMaterial({ 
+            color: 0xffd700, roughness: 0.15, metalness: 0.9, emissive: 0xaa6600, emissiveIntensity: 0.2
+        });
+
+        // 核心盒子
         const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), matBody);
         box.castShadow = true;
         
-        // 增加金边装饰
-        // 只有线框
+        // 金边
         const edges = new THREE.LineSegments(
             new THREE.EdgesGeometry(new THREE.BoxGeometry(size, size, size)), 
             new THREE.LineBasicMaterial({ color: 0xffd700 })
         );
         grp.add(edges);
 
-        // 金色丝带 - 更宽
-        const matGold = new THREE.MeshStandardMaterial({ 
-            color: 0xffd700, 
-            roughness: 0.15, 
-            metalness: 0.9,
-            emissive: 0xaa6600,
-            emissiveIntensity: 0.2
-        });
+        // 丝带
         const ribbonW = size * 0.25;
         const ribbon1 = new THREE.Mesh(new THREE.BoxGeometry(size*1.02, size, ribbonW), matGold);
         const ribbon2 = new THREE.Mesh(new THREE.BoxGeometry(ribbonW, size, size*1.02), matGold);
-        
-        // 蝴蝶结 - 更细致
+        grp.add(box, ribbon1, ribbon2);
+
+        // 蝴蝶结
         const bow = new THREE.Group();
         bow.position.y = size * 0.5;
-        
         const bowGeo = new THREE.TorusGeometry(size*0.3, size*0.1, 16, 32);
-        const b1 = new THREE.Mesh(bowGeo, matGold); 
-        b1.position.set(size*0.25, size*0.25, 0); 
-        b1.rotation.z = -Math.PI/4;
+        const b1 = new THREE.Mesh(bowGeo, matGold); b1.position.set(size*0.25, size*0.25, 0); b1.rotation.z = -Math.PI/4;
+        const b2 = new THREE.Mesh(bowGeo, matGold); b2.position.set(-size*0.25, size*0.25, 0); b2.rotation.z = Math.PI/4;
         
-        const b2 = new THREE.Mesh(bowGeo, matGold); 
-        b2.position.set(-size*0.25, size*0.25, 0); 
-        b2.rotation.z = Math.PI/4;
-        
-        // 垂下的丝带尾巴
         const tailGeo = new THREE.BoxGeometry(size*0.15, size*0.8, size*0.05);
-        
-        const t1 = new THREE.Mesh(tailGeo, matGold); 
-        t1.position.set(size*0.3, 0, size*0.3); 
-        t1.rotation.set(0.5, 0, -0.5);
-        
-        const t2 = new THREE.Mesh(tailGeo, matGold);
-        t2.position.set(-size*0.3, 0, size*0.3); 
-        t2.rotation.set(0.5, 0, 0.5);
-
+        const t1 = new THREE.Mesh(tailGeo, matGold); t1.position.set(size*0.3, 0, size*0.3); t1.rotation.set(0.5, 0, -0.5);
+        const t2 = new THREE.Mesh(tailGeo, matGold); t2.position.set(-size*0.3, 0, size*0.3); t2.rotation.set(0.5, 0, 0.5);
         const knot = new THREE.Mesh(new THREE.SphereGeometry(size*0.18), matGold);
+        
         bow.add(b1, b2, t1, t2, knot);
-
-        grp.add(box, ribbon1, ribbon2, bow);
+        grp.add(bow);
         
         // 内部呼吸灯
         const glowGeo = new THREE.BoxGeometry(size*0.95, size*0.95, size*0.95);
@@ -1485,12 +1561,26 @@ const MegaGiftManager = {
         grp.add(this.glowMesh);
 
         this.mesh = grp;
-        this.mesh.position.set(0, this.y, 0);
+        this.mesh.visible = false; // 初始隐藏
         this.scene.add(this.mesh);
+    },
 
-        // --- 🎭 舞台灯光系统 ---
+    spawn() {
+        if (STATE.giftPhase !== GIFT_PHASES.NONE) return;
+        
+        STATE.giftPhase = GIFT_PHASES.FALLING;
+        this.velY = 0;
+        this.lightsFading = false;
+        
+        // 🟢 优化：只需显示并重置位置，无需 new Mesh
+        if (!this.mesh) this.buildMegaMesh(); // 防御性编程
+        this.mesh.visible = true;
+        this.mesh.position.set(0, this.y, 0);
+        this.mesh.rotation.set(0, 0, 0);
+        this.mesh.scale.set(1, 1, 1);
+
+        // --- 舞台灯光 ---
         this.clearLights(); 
-
         const targetY = 7.5;
         const configs = [
             { x: 40, y: 60, z: 50, color: 0xffeeb1, intensity: 200 },
@@ -1509,8 +1599,10 @@ const MegaGiftManager = {
             this.spotLights.push(sl);
         });
 
+        // 光柱
         this.beamMat.opacity = 0;
         this.beamClosing = false;
+        if(this.beam) { this.scene.remove(this.beam); } // 清理旧的
         this.beam = new THREE.Mesh(this.beamGeo, this.beamMat);
         this.beam.position.set(0, 100, 0);
         this.scene.add(this.beam);
@@ -1519,6 +1611,58 @@ const MegaGiftManager = {
     },
 
     update(dt, time) {
+        // --- 0. 处理生成队列 (Time Slicing Core) ---
+        if (this.spawnQueue && this.spawnQueue.length > 0) {
+            // 每帧只生成 4 个，分摊压力
+            const batchSize = 4;
+            const processCount = Math.min(batchSize, this.spawnQueue.length);
+            
+            // 延迟初始化模板
+            if (!this.partyGiftTemplate) {
+                 this.partyGiftTemplate = GiftFactory.createTemplate({ size: 1.5, shadow: false });
+            }
+
+            for(let k=0; k<processCount; k++) {
+                 this.spawnQueue.pop(); // 消耗一个任务
+                 
+                 // 🟢 优化：使用对象池获取
+                 const gift = GiftFactory.acquire(this.partyGiftTemplate);
+                 gift.position.set(0, 5, 0);
+                 
+                 const theta = Math.random() * Math.PI * 2;
+                 const phi = Math.random() * Math.PI * 0.4; 
+                 const speed = 20 + Math.random() * 30;
+                 
+                 const vx = Math.cos(theta) * Math.sin(phi) * speed;
+                 const vy = Math.cos(phi) * speed;
+                 const vz = Math.sin(theta) * Math.sin(phi) * speed;
+
+                 // 变色
+                 gift.traverse(c => {
+                     if (c.isMesh) {
+                         // 主体颜色
+                         if (c.material.name !== 'gold') {
+                              c.material.color.setHSL(Math.random(), 0.9, 0.6);
+                              c.material.emissive.copy(c.material.color);
+                         }
+                         c.material.emissiveIntensity = 1.0; 
+                     }
+                 });
+
+                 STATE.spawnedGiftsGroup.add(gift);
+                 
+                 this.physicsItems.push({
+                     mesh: gift,
+                     vel: new THREE.Vector3(vx, vy, vz),
+                     rotVel: new THREE.Vector3(Math.random(), Math.random(), Math.random()),
+                     landed: false,
+                     targetY: 0.5,
+                     life: 0,
+                     randomPhase: Math.random() * 100
+                 });
+            }
+        }
+
         // --- 1. 灯光动画 ---
         if (this.spotLights.length > 0) {
             if (this.lightsFading) {
@@ -1557,62 +1701,50 @@ const MegaGiftManager = {
         }
 
         // --- 2. 礼盒本体更新 ---
-        if (this.mesh) {
+        if (this.mesh && this.mesh.visible) { // 只更新可见的
             if (STATE.giftPhase === GIFT_PHASES.FALLING) {
                 this.velY -= 80 * dt;
                 this.mesh.position.y += this.velY * dt;
-
-                // 旋转：空中自由旋转
                 this.mesh.rotation.x += dt;
                 this.mesh.rotation.z += dt * 0.5;
 
-                // 🌟 落地预判与姿态调整
-                // 当高度小于 2倍目标尺寸时，开始平滑回正 X 和 Z 轴，准备着陆
                 if (this.mesh.position.y < this.targetScale * 2.5) {
-                    // 目标旋转：(0, currentY, 0) - 只保留 Y 轴自旋
-                    // 使用简单的阻尼逼近
                     this.mesh.rotation.x *= 0.9;
                     this.mesh.rotation.z *= 0.9;
                 }
 
-                if (this.mesh.position.y <= this.targetScale/2) {
-                    this.mesh.position.y = this.targetScale/2;
+                const terrainHeight = window.getTerrainHeight ? window.getTerrainHeight(this.mesh.position.x, this.mesh.position.z) : 0;
+                const targetGroundLevel = terrainHeight + this.targetScale/2;
+
+                if (this.mesh.position.y <= targetGroundLevel) {
+                    this.mesh.position.y = targetGroundLevel;
                     this.velY = 0;
                     STATE.giftPhase = GIFT_PHASES.WAITING;
-
-                    // 落地瞬间：不要强制 set(0,0,0)，而是保留 Y 轴角度，X/Z 归零
                     this.mesh.rotation.x = 0;
                     this.mesh.rotation.z = 0;
 
                     if(camera) camera.position.y -= 2;
                     audio.explode(1);
 
-                    // 触发落地 Squash 动画
                     this.isSquashing = true;
                     this.scaleTime = 0;
                 }
             } else if (STATE.giftPhase === GIFT_PHASES.WAITING) {
-                // 🌟 落地 Q 弹动画 (Squash & Stretch)
                 if (this.isSquashing) {
                     this.scaleTime += dt * 12.0;
                     const decay = Math.exp(-this.scaleTime * 0.5);
-                    // 振幅比小礼物小一点，体现重量感
                     const wave = Math.sin(this.scaleTime) * 0.25 * decay;
-
                     const sy = 1.0 * (1.0 - wave);
                     const sxz = 1.0 * (1.0 + wave * 0.3);
                     this.mesh.scale.set(sxz, sy, sxz);
-
-                    if (this.scaleTime > Math.PI * 3) { // 稍微久一点
+                    if (this.scaleTime > Math.PI * 3) {
                         this.isSquashing = false;
                         this.mesh.scale.set(1, 1, 1);
                     }
                 } else {
-                    // 正常呼吸待机
                     const s = 1.0 + Math.sin(time * 3) * 0.03;
                     this.mesh.scale.set(s, s, s);
                 }
-
                 if (this.glowMesh) this.glowMesh.material.opacity = 0.2 + Math.sin(time * 5) * 0.2;
             }
         }
@@ -1624,7 +1756,10 @@ const MegaGiftManager = {
                 
                 // 物理 (如果已落地则跳过)
                 if (!gift.landed) {
-                    const justLanded = GiftFactory.updateGiftPhysics(gift, dt, { gravity: 20, groundY: 0.5 });
+                    // 动态获取当前位置的地形高度
+                    const terrainHeight = window.getTerrainHeight ? window.getTerrainHeight(gift.mesh.position.x, gift.mesh.position.z) : 0;
+                    const groundY = terrainHeight + 0.5; // 在地形高度基础上加0.5，使小礼物稍微高于地面
+                    const justLanded = GiftFactory.updateGiftPhysics(gift, dt, { gravity: 20, groundY: groundY });
                     // 如果刚刚落地，初始化一些东西(如有必要)
                 }
                 
@@ -1657,84 +1792,31 @@ const MegaGiftManager = {
     },
 
     _disposeGroup(group) {
-        if (!group) return;
-        group.traverse(c => {
-            if (c.isMesh) {
-                if (c.geometry) c.geometry.dispose();
-                if (c.material) {
-                    if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
-                    else c.material.dispose();
-                }
-            }
-        });
+       // 不再需要手动 dispose，因为我们使用对象池或者只是隐藏
     },
 
     open() {
         if (STATE.giftPhase !== GIFT_PHASES.WAITING) return;
         STATE.giftPhase = GIFT_PHASES.OPENED;
-
         audio.explode(6);
         
-        // 1. 移除大礼盒实体
-        this.scene.remove(this.mesh);
-        this._disposeGroup(this.mesh);
-        this.mesh = null;
+        // 1. 🟢 优化：隐藏大礼盒而不是销毁
+        if(this.mesh) this.mesh.visible = false;
 
         // 2. 触发灯光淡出
         this.lightsFading = true;
         this.beamClosing = true;
 
-        // ⚡ 性能优化: 狂欢小礼盒不产生阴影
-        const template = GiftFactory.createTemplate({ size: 1.5, shadow: false });
+        // 3. 填充生成队列
         const count = 60; 
-        
         for(let i=0; i<count; i++) {
-             const gift = GiftFactory.cloneWithUniqueMaterials(template);
-             gift.position.set(0, 5, 0);
-             
-             const theta = Math.random() * Math.PI * 2;
-             const phi = Math.random() * Math.PI * 0.4; 
-             const speed = 20 + Math.random() * 30;
-             
-             const vx = Math.cos(theta) * Math.sin(phi) * speed;
-             const vy = Math.cos(phi) * speed;
-             const vz = Math.sin(theta) * Math.sin(phi) * speed;
-
-             // Add glow
-             gift.traverse(c => {
-                 if (c.isMesh) {
-                     c.material.emissive = new THREE.Color(c.material.color);
-                     c.material.emissiveIntensity = 1.0; // 初始极亮
-                     if (c.material.name !== 'gold') {
-                          c.material.color.setHSL(Math.random(), 0.9, 0.6);
-                          c.material.emissive.copy(c.material.color);
-                     }
-                 }
-             });
-
-             STATE.spawnedGiftsGroup.add(gift);
-             
-             this.physicsItems.push({
-                 mesh: gift,
-                 vel: new THREE.Vector3(vx, vy, vz),
-                 rotVel: new THREE.Vector3(Math.random(), Math.random(), Math.random()),
-                 landed: false,
-                 targetY: 0.5,
-                 life: 0, // 计时器
-                 randomPhase: Math.random() * 100 // 随机呼吸相位
-             });
+             this.spawnQueue.push({ delay: i });
         }
 
-        // 3. 激活狂欢模式
         if (typeof activateChristmasMode === 'function') activateChristmasMode();
-        
-        // 4. 显示冰晶祝福语
         IceTextManager.show();
-        
-        // 5. 触发庆祝视角 (穿越机拉回)
         CameraDirector.celebrate();
 
-        // 6. 自动流程：狂欢 8秒后，自动回到无人机跟拍
         setTimeout(() => {
             if (STATE.christmasParty) {
                 const trig = document.getElementById('countdown-trigger');
@@ -1745,34 +1827,30 @@ const MegaGiftManager = {
     },
 
     clearLights() {
-        if (this.spotLights.length > 0) {
-            this.spotLights.forEach(sl => {
-                this.scene.remove(sl);
-                this.scene.remove(sl.target);
-            });
-            this.spotLights = [];
-        }
+        this.spotLights.forEach(sl => {
+            this.scene.remove(sl);
+            this.scene.remove(sl.target);
+        });
+        this.spotLights = [];
     },
 
     clear() {
-        // 移除大礼盒
+        // 重置状态而不是销毁
         if (this.mesh) {
-            this.scene.remove(this.mesh);
-            this._disposeGroup(this.mesh);
-            this.mesh = null;
+            this.mesh.visible = false;
         }
-        
-        // 移除灯光
         this.clearLights();
-
         if (this.beam) {
             this.scene.remove(this.beam);
-            if(this.beam.geometry) this.beam.geometry.dispose();
-            if(this.beam.material) this.beam.material.dispose();
             this.beam = null;
         }
-        // 清空物理列表
+        
+        // 🟢 优化：归还小礼物到对象池
+        this.physicsItems.forEach(item => {
+            GiftFactory.release(item.mesh);
+        });
         this.physicsItems = [];
+        this.spawnQueue = [];
     }
 };
 
@@ -2020,10 +2098,10 @@ const HeroTreeResources = {
     }
 };
 
-// 🎁 共享礼盒工厂 - 消除 Train 和 SantaSleigh 的重复代码
+// 🎁 共享礼盒工厂 (带对象池优化)
 const GiftFactory = {
-    // 共享材质（延迟初始化）
     _mats: null,
+    _pool: [], // 对象池
 
     getMats() {
         if (!this._mats) {
@@ -2036,21 +2114,14 @@ const GiftFactory = {
         return this._mats;
     },
 
-    /**
-     * 创建礼盒模板
-     * @param {Object} options - 配置选项
-     * @param {number} options.size - 盒子尺寸 (默认 2)
-     * @param {boolean} options.hasKnot - 是否有蝴蝶结中心结 (默认 false)
-     * @param {string} options.bowMat - 蝴蝶结材质 'gold' | 'white' (默认 'gold')
-     * @param {boolean} options.shadow - 是否投射阴影 (默认 false, 优化性能)
-     */
     createTemplate(options = {}) {
         const { size = 2, hasKnot = false, bowMat = 'gold', shadow = false } = options;
         const mats = this.getMats();
         const group = new THREE.Group();
+        group.userData.isPoolObject = true; // 标记
 
         // 盒子主体
-        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mats.red);
+        const box = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mats.red.clone()); // Clone材质以便后续变色
         if(shadow) box.castShadow = true;
         group.add(box);
 
@@ -2062,7 +2133,7 @@ const GiftFactory = {
         if(shadow) { ribbon1.castShadow = true; ribbon2.castShadow = true; }
         group.add(ribbon1, ribbon2);
 
-        // 蝴蝶结 - ⚡ 性能优化: 降低段数 (6,12 -> 5,10)
+        // 蝴蝶结
         const bowRadius = size * 0.2;
         const bowTube = size * 0.06;
         const bowGeo = new THREE.TorusGeometry(bowRadius, bowTube, 5, 10);
@@ -2079,9 +2150,7 @@ const GiftFactory = {
         if(shadow) { bow1.castShadow = true; bow2.castShadow = true; }
         group.add(bow1, bow2);
 
-        // 可选：蝴蝶结中心结
         if (hasKnot) {
-            // ⚡ 性能优化: 降低段数 (8,8 -> 6,6)
             const knot = new THREE.Mesh(new THREE.SphereGeometry(size * 0.1, 6, 6), mats.white);
             knot.position.y = size * 0.5;
             if(shadow) knot.castShadow = true;
@@ -2091,61 +2160,76 @@ const GiftFactory = {
         return group;
     },
 
-    /**
-     * 克隆礼盒并独立化材质（用于设置不同颜色）
-     */
-    cloneWithUniqueMaterials(template) {
-        const gift = template.clone();
-        gift.traverse(child => {
-            if (child.isMesh) {
-                child.material = child.material.clone();
-            }
-        });
+    // 从池中获取或创建
+    acquire(template) {
+        let gift;
+        if (this._pool.length > 0) {
+            gift = this._pool.pop();
+            gift.visible = true;
+            gift.scale.set(1, 1, 1);
+            gift.rotation.set(0, 0, 0);
+            // 重置材质发光
+            gift.traverse(c => {
+                if(c.isMesh && c.material) {
+                     c.material.emissiveIntensity = 0;
+                     c.material.emissive.setHex(0x000000);
+                }
+            });
+        } else {
+            // 如果池空了，克隆模板
+            gift = template.clone(); 
+            // 深度克隆材质以支持独立变色
+            gift.traverse(child => {
+                 if (child.isMesh) {
+                     child.material = child.material.clone();
+                 }
+            });
+        }
         return gift;
     },
 
-    // 复用向量（避免每帧创建）
-    _physicsVel: new THREE.Vector3(),
+    // 归还到池中
+    release(gift) {
+        if (!gift) return;
+        
+        // 从场景移除
+        if (gift.parent) gift.parent.remove(gift);
+        
+        gift.visible = false;
+        // 重置位置到很远，防止意外渲染
+        gift.position.set(0, -9999, 0);
+        
+        this._pool.push(gift);
+    },
 
-    /**
-     * 统一的礼物物理更新
-     * @param {Object} giftData - 礼物数据 { mesh, vel, rotVel, landed, targetY? }
-     * @param {number} dt - 时间增量
-     * @param {Object} options - 配置选项
-     * @param {number} options.gravity - 重力加速度 (默认 PHYSICS_CONSTANTS.GRAVITY)
-     * @param {number} options.groundY - 落地高度 (默认 PHYSICS_CONSTANTS.GROUND_Y)
-     * @returns {boolean} 是否刚刚落地
-     */
+    cloneWithUniqueMaterials(template) {
+        // 兼容旧代码接口，直接导向 acquire
+        return this.acquire(template);
+    },
+
     updateGiftPhysics(giftData, dt, options = {}) {
-        // 安全检查：如果mesh不存在，直接返回
         if (!giftData || !giftData.mesh || giftData.landed) return false;
-
-        const { gravity = PHYSICS_CONSTANTS.GRAVITY, groundY = PHYSICS_CONSTANTS.GROUND_Y } = options;
+        const { gravity = 25, groundY = 1 } = options;
         const targetY = giftData.targetY ?? groundY;
 
-        // 重力
         giftData.vel.y -= gravity * dt;
-
-        // 位置更新
         this._physicsVel.copy(giftData.vel).multiplyScalar(dt);
         giftData.mesh.position.add(this._physicsVel);
 
-        // 旋转
         giftData.mesh.rotation.x += giftData.rotVel.x;
         giftData.mesh.rotation.y += giftData.rotVel.y;
         giftData.mesh.rotation.z += giftData.rotVel.z;
 
-        // 落地检查
         if (giftData.mesh.position.y <= targetY) {
             giftData.mesh.position.y = targetY;
             giftData.landed = true;
             giftData.rotVel.set(0, 0, 0);
             giftData.mesh.rotation.set(0, Math.random() * Math.PI * 2, 0);
-            return true; // 刚刚落地
+            return true; 
         }
-
         return false;
-    }
+    },
+    _physicsVel: new THREE.Vector3()
 };
 
 function init() {
@@ -2464,103 +2548,179 @@ function buildLights() {
 
 function buildTrack() {
     const points = [];
-    const segments = 12; 
+    const segments = 100; 
     
     const BaseR = 120; 
-    const Amp = 50; 
+    const Amp = 40; 
 
-    // 关键修改：生成随机种子，让三个叶片的大小每次都不太一样
-    // r1, r2, r3 分别影响三个叶片的 "突出程度"
-    const r1 = 1.0 + (Math.random() - 0.5) * 0.4; 
-    const r2 = 1.0 + (Math.random() - 0.5) * 0.4; 
-    const r3 = 1.0 + (Math.random() - 0.5) * 0.4;
+    // 🟢 修复1：使用平滑的正弦波叠加，替代原本的 if/else 突变逻辑
+    // 这样轨道半径的变化是连续的，彻底消除了"麻花"扭曲
+    const freqA = 3; // 三叶草形状
+    const freqB = 7; // 增加一点高频细节，让轨道不那么单调
+    
+    // 随机相位，每次刷新都不一样，但保证平滑
+    const phaseA = Math.random() * Math.PI * 2;
+    const phaseB = Math.random() * Math.PI * 2;
 
     for (let i = 0; i < segments; i++) {
         const theta = (i / segments) * Math.PI * 2;
         
-        // 关键修改：根据角度选择不同的随机系数
-        let randomScale = 1.0;
-        // 简单判断角度落在哪个叶片区间 (0~2PI 分三段)
-        if (theta < 2) randomScale = r1;
-        else if (theta < 4) randomScale = r2;
-        else randomScale = r3;
-
-        // 公式：基础半径 + (振幅 * 随机系数 * 三叶草形状) + 微小抖动
-        const r = BaseR + (Amp * randomScale * Math.sin(3 * theta));
+        // 连续的半径公式
+        const r = BaseR + 
+                  Amp * Math.sin(theta * freqA + phaseA) + 
+                  (Amp * 0.3) * Math.sin(theta * freqB + phaseB);
         
         const x = r * Math.cos(theta);
         const z = r * Math.sin(theta);
-        points.push(new THREE.Vector3(x, 0, z));
+        
+        const terrainH = window.getTerrainHeight ? window.getTerrainHeight(x, z) : 0;
+        
+        // 🟢 修复2：暴力抬升策略 (High Bed Strategy)
+        // 从 1.2 提升到 2.2，确保低模地面绝不可能切入轨道
+        points.push(new THREE.Vector3(x, terrainH + 2.2, z));
     }
 
-    trackCurve = new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.4); 
-    trackPoints = trackCurve.getPoints(1000);
-
-    const divs = 600;
-    // 枕木 (Sleeper) - 需要跟随地形起伏，但我们假设轨道区域是平的 (getTerrainHeight在 R<150 返回0)
-    // 所以这里保持 y=0.1 是正确的 (地面是 0)
-    const bed = new THREE.Mesh(new THREE.TubeGeometry(trackCurve, divs, 4.2, 8, true), new THREE.MeshStandardMaterial({color:0x080808, roughness:1}));
-    bed.position.y = 0.1; bed.scale.y = 0.1; scene.add(bed);
+    // 曲线生成 (保持高精度)
+    trackCurve = new THREE.CatmullRomCurve3(points, true, 'centripetal', 0.5); 
+    trackCurve.arcLengthDivisions = 4000; 
+    trackCurve.updateArcLengths();
     
-    const pg = new THREE.BoxGeometry(6, 0.4, 1.2); 
-    const pm = new THREE.MeshStandardMaterial({color:0x3e2723});
-    const pi = new THREE.InstancedMesh(pg, pm, divs);
+    // 2. 手工构建路基 (Bed)
+    const bedSegments = 800; 
+    const bedGeo = new THREE.BufferGeometry();
+    const bedPos = [];
+    const bedIndices = [];
+    const bedUVs = [];
+
+    // 路基参数
+    const wTop = 2.8;   
+    const wBot = 5.0;   // 底宽继续加大，形成稳固的土坡感
+    const depth = 5.5;  // 🟢 深度加到 5.5，配合抬升，确保扎入地下
+    const bedYOffset = 0.0; 
+
+    const upVec = new THREE.Vector3(0, 1, 0);
+    const rightVec = new THREE.Vector3();
+    const tanVec = new THREE.Vector3();
+    const centerPos = new THREE.Vector3();
+
+    const pTL = new THREE.Vector3(); 
+    const pTR = new THREE.Vector3(); 
+    const pBL = new THREE.Vector3(); 
+    const pBR = new THREE.Vector3(); 
+
+    const railPointsL = [];
+    const railPointsR = [];
+    const railDist = 2.0;
+
+    // 清空并填充 trackPoints
+    trackPoints = [];
+
+    for (let i = 0; i <= bedSegments; i++) {
+        const t = (i % bedSegments) / bedSegments; 
+        
+        trackCurve.getPointAt(t, centerPos);
+        trackCurve.getTangentAt(t, tanVec);
+
+        rightVec.crossVectors(tanVec, upVec).normalize();
+        
+        // 记录轨道中心点
+        if (i < bedSegments) {
+            trackPoints.push(centerPos.clone());
+        }
+
+        const baseY = centerPos.y + bedYOffset;
+
+        // Top Left
+        pTL.copy(centerPos).addScaledVector(rightVec, -wTop);
+        pTL.y = baseY;
+
+        // Top Right
+        pTR.copy(centerPos).addScaledVector(rightVec, wTop);
+        pTR.y = baseY;
+
+        // Bottom Left
+        pBL.copy(centerPos).addScaledVector(rightVec, -wBot);
+        pBL.y = baseY - depth;
+
+        // Bottom Right
+        pBR.copy(centerPos).addScaledVector(rightVec, wBot);
+        pBR.y = baseY - depth;
+
+        bedPos.push(pTL.x, pTL.y, pTL.z);
+        bedPos.push(pTR.x, pTR.y, pTR.z);
+        bedPos.push(pBL.x, pBL.y, pBL.z);
+        bedPos.push(pBR.x, pBR.y, pBR.z);
+
+        bedUVs.push(0, t * 20);
+        bedUVs.push(1, t * 20);
+        bedUVs.push(0, t * 20);
+        bedUVs.push(1, t * 20);
+
+        if (i > 0) {
+            const curr = i * 4;
+            const prev = (i - 1) * 4;
+
+            bedIndices.push(prev + 0, prev + 1, curr + 0);
+            bedIndices.push(prev + 1, curr + 1, curr + 0);
+
+            bedIndices.push(prev + 2, prev + 0, curr + 2);
+            bedIndices.push(prev + 0, curr + 0, curr + 2);
+
+            bedIndices.push(prev + 1, prev + 3, curr + 1);
+            bedIndices.push(prev + 3, curr + 3, curr + 1);
+        }
+
+        const railY = centerPos.y + 0.55; 
+
+        const rL = centerPos.clone().addScaledVector(rightVec, -railDist); rL.y = railY;
+        const rR = centerPos.clone().addScaledVector(rightVec, railDist); rR.y = railY;
+
+        if (i < bedSegments) {
+            railPointsL.push(rL);
+            railPointsR.push(rR);
+        }
+    }
+
+    bedGeo.setAttribute('position', new THREE.Float32BufferAttribute(bedPos, 3));
+    bedGeo.setAttribute('uv', new THREE.Float32BufferAttribute(bedUVs, 2));
+    bedGeo.setIndex(bedIndices);
+    bedGeo.computeVertexNormals();
+
+    const bedMat = new THREE.MeshStandardMaterial({
+        color: 0x2b2b2b, 
+        roughness: 1.0,  
+        metalness: 0.0,
+        side: THREE.DoubleSide
+    });
+
+    const bed = new THREE.Mesh(bedGeo, bedMat);
+    scene.add(bed);
+    
+    // 3. 枕木 (Sleepers)
+    const sleeperDivs = 600;
+    const pg = new THREE.BoxGeometry(5.0, 0.4, 1.0); 
+    const pm = new THREE.MeshStandardMaterial({color:0x3e2723, roughness: 0.9});
+    const pi = new THREE.InstancedMesh(pg, pm, sleeperDivs);
     const dum = new THREE.Object3D();
     
-    for(let i=0; i<divs; i++){
-        const t = i/divs; 
+    for(let i=0; i<sleeperDivs; i++){
+        const t = i/sleeperDivs; 
         const p = trackCurve.getPointAt(t); 
         const tan = trackCurve.getTangentAt(t);
         
-        // 关键：获取该位置的地形高度
-        // 虽然目前设计是平的，但为了健壮性，我们加上这个高度
-        // 枕木高度 = 地形高度 + 0.3
-        const terrainH = window.getTerrainHeight ? window.getTerrainHeight(p.x, p.z) : 0;
+        dum.position.copy(p);
+        dum.position.y += 0.2; 
         
-        dum.position.set(p.x, terrainH + 0.3, p.z); 
-        dum.lookAt(p.x + tan.x, terrainH + 0.3, p.z + tan.z); 
+        dum.lookAt(p.x + tan.x, p.y + tan.y, p.z + tan.z); 
         dum.updateMatrix();
         pi.setMatrixAt(i, dum.matrix);
     }
-    pi.receiveShadow = true; scene.add(pi);
+    pi.receiveShadow = true; 
+    scene.add(pi);
 
-    // --- 修复：双轨生成逻辑 ---
-    // 问题根源：ExtrudeGeometry 会自动旋转坐标系，导致铁轨变成了上下排列而不是左右排列
-    // 解决方案：手动计算两条平行于地面的路径
-    
-    const railPointsL = [];
-    const railPointsR = [];
-    const railSamp = 400;
-    const dist = 2.2; // 轨距
-
-    // 预分配复用对象，减少 GC 压力
-    const upVec = new THREE.Vector3(0, 1, 0);
-    const rightVec = new THREE.Vector3();
-    const tempL = new THREE.Vector3();
-    const tempR = new THREE.Vector3();
-
-    for(let i=0; i<=railSamp; i++) {
-        const t = i / railSamp;
-        const pt = trackCurve.getPointAt(t);
-        const tan = trackCurve.getTangentAt(t);
-
-        // 复用 rightVec 计算右侧向量
-        rightVec.crossVectors(tan, upVec).normalize();
-        
-        // 获取高度 (虽然中心区域是0，但加上比较稳妥)
-        const terrainH = window.getTerrainHeight ? window.getTerrainHeight(pt.x, pt.z) : 0;
-        pt.y = terrainH; // 确保基准点在地形上
-
-        // 生成左右坐标点
-        tempL.copy(pt).addScaledVector(rightVec, -dist);
-        tempR.copy(pt).addScaledVector(rightVec, dist);
-        railPointsL.push(tempL.clone());
-        railPointsR.push(tempR.clone());
-    }
-
-    // 4. 创建两条平行的曲线对象
-    const curveL = new THREE.CatmullRomCurve3(railPointsL, true, 'catmullrom', 0.4);
-    const curveR = new THREE.CatmullRomCurve3(railPointsR, true, 'catmullrom', 0.4);
+    // 4. 生成铁轨实体
+    const curveL = new THREE.CatmullRomCurve3(railPointsL, true, 'catmullrom', 0.1);
+    const curveR = new THREE.CatmullRomCurve3(railPointsR, true, 'catmullrom', 0.1);
     
     const railMat = new THREE.MeshStandardMaterial({
         color: 0x555555, 
@@ -2568,24 +2728,9 @@ function buildTrack() {
         roughness: 0.4
     });
 
-    // 5. 使用最稳妥的 TubeGeometry 生成实体
-    // 0.12 是铁轨粗细，8 是截面圆滑度
-    const railMeshL = new THREE.Mesh(new THREE.TubeGeometry(curveL, railSamp, 0.12, 8, true), railMat);
-    const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, railSamp, 0.12, 8, true), railMat);
+    const railMeshL = new THREE.Mesh(new THREE.TubeGeometry(curveL, bedSegments, 0.12, 6, true), railMat);
+    const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, bedSegments, 0.12, 6, true), railMat);
     
-    // 6. 调整高度
-    // 枕木顶面约 0.5 (terrain+0.3 + thickness/2)，铁轨设为 terrain + 0.56
-    // TubeGeometry 是以 path 为中心的，所以我们不需要额外加 offset，
-    // 因为我们在生成 path 点的时候已经把 y 设为了 terrainH ?? 
-    // 等等，上面 pt.y = terrainH。
-    // Tube 半径 0.12。如果 path 在 terrainH，那么底部在 terrainH - 0.12。
-    // 我们需要铁轨压在枕木上。枕木面在 terrainH + 0.5 (0.3 pos + 0.2 halfHeight)。
-    // 所以铁轨中心应该在 terrainH + 0.5 + 0.12 = terrainH + 0.62。
-    // 我们简单地整体抬高 mesh。
-    
-    railMeshL.position.y = 0.62; 
-    railMeshR.position.y = 0.62;
-
     scene.add(railMeshL);
     scene.add(railMeshR);
 }
@@ -3580,13 +3725,27 @@ class Train {
         if(dirty && this.smokeMesh) this.smokeMesh.instanceMatrix.needsUpdate = true;
     }
     place(o, t) {
-        if (!this.curve) return; // 安全检查：如果曲线未初始化，直接返回
+        if (!this.curve) return; 
+        
+        // 1. 获取当前位置
         const p = this.curve.getPointAt(t);
-        const tan = this.curve.getTangentAt(t);
         o.position.copy(p);
-        // 🚂 根据行驶方向调整朝向：逆时针时翻转切线方向
-        const dir = STATE.trainDir > 0 ? 1 : -1;
-        o.lookAt(p.x + tan.x * dir, p.y + tan.y * dir, p.z + tan.z * dir);
+
+        // 2. 🟢 姿态平滑修复 (Look Ahead Stabilization)
+        // 不要使用 getTangentAt(t)，因为切线对微小起伏太敏感，导致车头剧烈抖动
+        // 方案：让车头"看着"前方 0.5% 处的点，自然平滑掉高频抖动
+        const lookAheadDist = 0.005; // 约等于前方 5-10米
+        
+        // 根据行驶方向决定看哪里
+        const dir = STATE.trainDir; 
+        
+        // 计算目标点 t (处理循环边界)
+        let targetT = t + (lookAheadDist * dir);
+        if (targetT < 0) targetT += 1;
+        if (targetT > 1) targetT -= 1;
+
+        const lookAtPoint = this.curve.getPointAt(targetT);
+        o.lookAt(lookAtPoint);
     }
 
     // 🎁 从车厢扔出礼盒
@@ -3685,8 +3844,11 @@ class Train {
 
         // 使用统一的物理更新
         for (const g of this.droppedGifts) {
-            const landed = GiftFactory.updateGiftPhysics(g, dt, { gravity: 25, groundY: 1 });
-            
+            // 动态获取当前礼物位置的地形高度
+            const terrainHeight = window.getTerrainHeight ? window.getTerrainHeight(g.mesh.position.x, g.mesh.position.z) : 0;
+            const groundY = terrainHeight + 1; // 在地形高度基础上加1，使礼物稍微高于地面
+            const landed = GiftFactory.updateGiftPhysics(g, dt, { gravity: 25, groundY: groundY });
+
             // 发光衰减 logic
             if (g.life > 0) {
                 g.life -= dt;
@@ -5323,9 +5485,9 @@ const deactivateChristmasMode = () => {
 
         // ============================================
         // 2. 重置游戏状态 (Reset Game State)
-    STATE.giftPhase = 'NONE';
+    STATE.giftPhase = GIFT_PHASES.NONE;
     STATE.christmasParty = false;
-    STATE.viewMode = 'FOLLOW';
+    STATE.viewMode = VIEW_MODES.FOLLOW;
     
     if (santaSleigh) {
         santaSleigh.nextTrigger = santaSleigh.elapsed + 20; 
@@ -5391,10 +5553,11 @@ function setupUI() {
         try {
             STATE.started = true;
             STATE.running = true;
-            STATE.viewMode = 'INTRO'; // 🚫 关键修复：暂时屏蔽主循环的相机控制，防止抖动
+            STATE.viewMode = VIEW_MODES.INTRO; // 🚫 关键修复：暂时屏蔽主循环的相机控制，防止抖动
             
             // Audio Init can fail if user didn't interact (but this is a click handler, so it's fine)
             audio.init(); 
+            audio.warmup(); // 🌟 预热音频，防止后续卡顿
             audio.whistle(); 
             audio.playBGM(); 
             
@@ -5446,7 +5609,7 @@ function setupUI() {
 
                 if (t >= 1) {
                     clearInterval(iv);
-                    STATE.viewMode = 'FOLLOW'; // ✅ 动画结束，无缝切换回智能跟拍模式
+                    STATE.viewMode = VIEW_MODES.FOLLOW; // ✅ 动画结束，无缝切换回智能跟拍模式
                     // 确保最终位置精确
                     camera.position.copy(endPos);
                     controls.target.copy(endTarget);
@@ -5520,6 +5683,17 @@ function setupUI() {
 
             <!-- 画面设置 -->
             <div id="tab-graphics" class="tab-content">
+                <div class="control-group">
+                    <div class="toggle-row">
+                        <span class="toggle-label" style="color:#ccc; font-size:13px;">⚡ 低性能模式 (优化卡顿)</span>
+                        <label class="switch">
+                            <input type="checkbox" id="chk-perf">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div style="font-size:11px; color:#666; margin-top:-10px; margin-bottom:10px;">关闭阴影/泛光，降低分辨率。</div>
+                </div>
+
                 <div class="control-group">
                     <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.7</span></div>
                     <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.7">
@@ -5642,6 +5816,35 @@ function setupUI() {
     // 烟花风格选择
     const selStyle = document.getElementById('sel-fw-style');
     if(selStyle) window.getFireworkSoundStyle = () => parseInt(selStyle.value);
+
+    // ⚡ 性能模式绑定
+    const chkPerf = document.getElementById('chk-perf');
+    if (chkPerf) {
+        chkPerf.onchange = (e) => {
+            const isLow = e.target.checked;
+            
+            // 1. Pixel Ratio: 降级到 1.0
+            renderer.setPixelRatio(isLow ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
+            renderer.setSize(innerWidth, innerHeight);
+            composer.setSize(innerWidth, innerHeight);
+
+            // 2. Shadows: 关闭阴影 (ShadowMap)
+            renderer.shadowMap.enabled = !isLow;
+            // 必须遍历更新材质才能生效
+            scene.traverse(c => {
+                if (c.material) {
+                    if(Array.isArray(c.material)) c.material.forEach(m=>m.needsUpdate=true);
+                    else c.material.needsUpdate=true;
+                }
+            });
+
+            // 3. Bloom: 关闭辉光
+            bloomPass.enabled = !isLow;
+            
+            // 4. Lights: 关闭月光投影 (进一步节省 Draw Calls)
+            if (lights.moon) lights.moon.castShadow = !isLow;
+        };
+    }
 
     // 画面绑定
     bindRange('inp-bloom', CFG, 'bloomStr', 'val-bloom', v => bloomPass.strength = v);
@@ -5826,12 +6029,27 @@ function setupUI() {
             }
 
             // 🎁 检查是否点击了大礼盒
-            if (STATE.giftPhase === 'WAITING' && window.MegaGiftManager && MegaGiftManager.mesh) {
+            const megaGiftExists = typeof MegaGiftManager !== 'undefined' && MegaGiftManager !== null;
+            console.log("Gift Click Check:", {
+                giftPhase: STATE.giftPhase,
+                expectedPhase: GIFT_PHASES.WAITING,
+                megaGiftManagerExists: megaGiftExists,
+                megaGiftMeshExists: megaGiftExists && MegaGiftManager.mesh ? !!MegaGiftManager.mesh : false,
+                isWaiting: STATE.giftPhase === GIFT_PHASES.WAITING
+            });
+
+            if (STATE.giftPhase === GIFT_PHASES.WAITING && megaGiftExists && MegaGiftManager.mesh) {
                 const hitGift = ray.intersectObject(MegaGiftManager.mesh, true);
+                console.log("Gift Raycast Result:", { hitCount: hitGift.length, hitGift });
                 if (hitGift.length > 0) {
+                    console.log("Opening Mega Gift!");
                     MegaGiftManager.open();
                     return;
+                } else {
+                    console.log("Raycast missed the gift");
                 }
+            } else {
+                console.log("Gift click conditions not met");
             }
 
             // 点击空地：无反应（已移除手动烟花）
@@ -6103,7 +6321,13 @@ function setupUI() {
 
 window.onresize = () => {
     camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+    
+    // 检查性能模式开关
+    const isLow = document.getElementById('chk-perf')?.checked;
+    renderer.setPixelRatio(isLow ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
+    
+    renderer.setSize(innerWidth, innerHeight); 
+    composer.setSize(innerWidth, innerHeight);
 };
 
 try {
