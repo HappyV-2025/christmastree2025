@@ -1251,7 +1251,7 @@ const CFG = {
   accel: 0.005,
   decel: 0.003,
   wheelMult: 2.0,
-  carriageGap: 0.009,
+  carriageGap: 0.008, // 🟢 调整车厢间距，使之更紧凑 (0.008m roughly 7.5m, tight fit)
 
   // 🎥 相机 (外侧向心视角)
   camHeight: 22,    // 稍微抬高，防止火车挡住太多树的根部
@@ -1984,9 +1984,11 @@ const DecorManager = {
         const d = this._dummy;  // 复用 dummy 对象
         const scale = 1.2 + Math.random() * 0.6;
         const rotY = Math.random() * Math.PI;
+        
+        const h = window.getTerrainHeight ? window.getTerrainHeight(x, z) : 0;
 
         // 盒子
-        d.position.set(x, 0.75 * scale, z);
+        d.position.set(x, h + 0.75 * scale, z);
         d.scale.setScalar(scale);
         d.rotation.set(0, rotY, 0);
         d.updateMatrix();
@@ -2015,16 +2017,17 @@ const DecorManager = {
         if (this.counts.snowman >= this.maxCounts.snowman) return;
 
         const d = this._dummy;  // 复用 dummy 对象
+        const h = window.getTerrainHeight ? window.getTerrainHeight(x, z) : 0;
 
         // 下半身
-        d.position.set(x, 1, z);
+        d.position.set(x, h + 1, z);
         d.scale.setScalar(1);
         d.rotation.set(0, 0, 0);
         d.updateMatrix();
         this.instances.snowmanLower.setMatrixAt(this.counts.snowman, d.matrix);
 
         // 上半身
-        d.position.set(x, 2.5, z);
+        d.position.set(x, h + 2.5, z);
         d.updateMatrix();
         this.instances.snowmanUpper.setMatrixAt(this.counts.snowman, d.matrix);
 
@@ -2040,7 +2043,9 @@ const DecorManager = {
         if (this.counts.lamp >= this.maxCounts.lamp) return;
 
         const d = this._dummy;  // 复用 dummy 对象
-        d.position.set(x, 3.5, z);
+        const h = window.getTerrainHeight ? window.getTerrainHeight(x, z) : 0;
+        
+        d.position.set(x, h + 3.5, z);
         d.scale.setScalar(1);
         d.rotation.set(0, 0, 0);
         d.updateMatrix();
@@ -2052,7 +2057,7 @@ const DecorManager = {
             this._bulbBaseCol = new THREE.Color(0xffaa00);
         }
         const bulb = new THREE.Mesh(this.geos.lampBulb, this._bulbMat);
-        bulb.position.set(x, 7, z);
+        bulb.position.set(x, h + 7, z);
         bulb.userData = { type: 'bulb', phase: Math.random() * Math.PI, baseCol: this._bulbBaseCol };
         emissives.push(bulb);
         this.scene.add(bulb);
@@ -2903,19 +2908,10 @@ function buildEnv() {
         }
 
         if(safe) {
-            // 获取地形高度
-            // (这是简单的复用 buildLights 里的噪声逻辑，理想情况应该封装地形高度函数)
-            // 这里我们简化：假设 y=0，然后根据 x,z 简单估算，或者直接 raycast (太慢)
-            // 我们重新计算高度：
-            const dist = Math.sqrt(x*x + z*z);
-            let yBase = -2.0;
-            if (dist > 150) {
-                const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30;
-                const h2 = Math.sin(x * 0.02 + z * 0.01) * 5;
-                let h = h1 + h2;
-                if (dist < 250) h *= (dist - 150) / 100;
-                yBase = h - 2.0;
-            }
+            // 🟢 修复：使用统一的地形高度函数，确保树木贴地
+            const yBase = window.getTerrainHeight(x, z);
+
+            // 随机变换
 
             // 随机变换
             const s = 0.8 + Math.random() * 1.5; 
@@ -2965,27 +2961,11 @@ function buildEnv() {
         if(r < 140) safe = false; // 避开轨道
 
         if(safe) {
-            // 简单估算高度 (同上)
-            let yBase = -2.0;
-            if (r > 150) {
-                const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30;
-                const h2 = Math.sin(x * 0.02 + z * 0.01) * 5;
-                let h = h1 + h2;
-                if (r < 250) h *= (r - 150) / 100;
-                yBase = h - 2.0;
-            }
-            
-            // 修正 DecorManager 的方法，让它们支持 Y 轴偏移
-            // 但 DecorManager 当前是写死的 Y=0.75 等。
-            // 这是一个小缺陷，但为了不重写 DecorManager，我们只能接受装饰品可能半埋在雪里
-            // 或者我们只在平坦区 (150 < r < 250) 放置
-            // 让我们简单点：
-            if (Math.abs(yBase) < 5) { // 只在相对平坦的地方放
-                 const rn=Math.random();
-                 if(rn<0.3) DecorManager.addGroundGift(x,z);
-                 else if(rn<0.6) DecorManager.addSnowman(x,z);
-                 else DecorManager.addLamp(x,z);
-            }
+            // 🟢 修复：使用统一的地形高度函数，确保装饰物贴地
+            const rn = Math.random();
+            if(rn < 0.3) DecorManager.addGroundGift(x, z);
+            else if(rn < 0.6) DecorManager.addSnowman(x, z);
+            else DecorManager.addLamp(x, z);
         }
     }
 }
@@ -3320,7 +3300,7 @@ class Train {
         this.cars=[]; for(let i=1;i<=12;i++) { const c=this.mkCar(i); this.grp.add(c); this.cars.push(c); }
         this.gap();
     }
-    gap() { this.cars.forEach((c,i)=>c.userData.off=(i+1)*(0.0075+CFG.carriageGap*0.2)); }
+    gap() { this.cars.forEach((c,i)=>c.userData.off=(i+1)*CFG.carriageGap); }
     
     mkLoco() {
         const g = new THREE.Group();
