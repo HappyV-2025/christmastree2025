@@ -547,20 +547,22 @@ const CameraDirector = {
         outTarget.set(0, 15, 0); 
         
         // --- 优化 v2: 视线几何避障 ---
-        let finalY = this.config.height;
+        // 1. 基础高度：基于火车当前高度 + 配置高度 (不再是绝对高度)
+        let finalY = outPos.y + this.config.height;
         
         if (typeof window.getTerrainHeight === 'function') {
-            // 1. 基础防穿地：确保相机至少离地 6 米
+            // 2. 基础防穿地：确保相机始终保持在当前地形之上 (使用完整配置高度作为安全距离)
+            // 这样在遇到陡坡时，相机会跟随地形抬升，保持俯瞰视角
             const groundH = window.getTerrainHeight(outPos.x, outPos.z);
-            finalY = Math.max(finalY, groundH + 6.0);
+            finalY = Math.max(finalY, groundH + this.config.height);
 
-            // 2. 视线遮挡检测 (Line-of-Sight Raycast)
+            // 3. 视线遮挡检测 (Line-of-Sight Raycast)
             // 原理：沿着从相机(outPos)到目标(outTarget)的路径采样
             // 如果某处地形高于视线，则反推相机需要抬升到的高度
             
             const startDist = 5.0;   // 从相机前方 5 米开始检测
-            const endDist = 70.0;    // 检测到前方 70 米 (主要覆盖近处到中距的遮挡)
-            const steps = 10;        // 采样密度
+            const endDist = 80.0;    // 检测距离增加到 80 米 (覆盖更远)
+            const steps = 25;        // 采样密度增加到 25 (更精细)
             
             // 水平方向向量
             const dx = outTarget.x - outPos.x;
@@ -584,7 +586,7 @@ const CameraDirector = {
                     
                     // 获取该点的地形高度 + 安全余量(视线要高出地面一定距离)
                     const terrainH = window.getTerrainHeight(checkX, checkZ);
-                    const obstacleSafeH = terrainH + 4.0; // 视线至少高出障碍物4米
+                    const obstacleSafeH = terrainH + 8.0; // 视线至少高出障碍物 8 米
 
                     // 计算比率 ratio = d_current / d_total
                     // 视线高度公式: H_line = H_cam + (H_target - H_cam) * ratio
@@ -627,12 +629,30 @@ const CameraDirector = {
     update(dt) {
         if (!this.train || !STATE.started) return;
 
-        // 1. 聚焦礼盒模式
+        // 1. 聚焦礼盒模式 (智能背景板构图)
         if (STATE.viewMode === VIEW_MODES.FOCUS_GIFT) {
             if (this.camera && this.controls && this.controls.target) {
-                const giftCamPos = new THREE.Vector3(0, 15, 60);
-                const giftTarget = new THREE.Vector3(0, 8, 20);
-                this.camera.position.lerp(giftCamPos, 0.05);
+                // 目标：看着中心的大礼物
+                const giftTarget = new THREE.Vector3(0, 12, 0); 
+                
+                // 机位计算：礼物 -> 主树 向量的反向延长线
+                // 这样相机看礼物时，主树就在正后方
+                let camPos = new THREE.Vector3(0, 30, 90); // 默认值
+                
+                if (STATE.mainTreePos) {
+                    const treePos = STATE.mainTreePos;
+                    const center = new THREE.Vector3(0, 0, 0);
+                    
+                    // 方向：从树指向中心 (Camera should be on this line, past the center)
+                    const dir = new THREE.Vector3().subVectors(center, treePos).normalize();
+                    
+                    // 相机在中心点沿该方向再往后退 70 米
+                    // 树 ----- 中心(礼物) ----- 相机
+                    camPos.copy(center).addScaledVector(dir, 70);
+                    camPos.y = 25; // 稍微俯视
+                }
+
+                this.camera.position.lerp(camPos, 0.05);
                 this.controls.target.lerp(giftTarget, 0.05);
             }
             return;
@@ -1335,6 +1355,7 @@ const STATE = {
     curSpeed: 0,   // 当前实际物理速度
     clickTime: 0,
     trainDir: Math.random() > 0.5 ? 1 : -1,  // 🚂 随机方向：1=顺时针，-1=逆时针
+    trackPhase: Math.random() * Math.PI * 2, // 🟢 全局轨道相位，用于地形同步生成
     forceChristmas : false,    // 测试圣诞节当日效果
     giftPhase: GIFT_PHASES.NONE, // NONE | FALLING | WAITING | OPENED
     christmasParty: false,
@@ -2461,9 +2482,16 @@ function buildLights() {
     // 调整月光位置：更低、更侧向，制造长阴影
     moon.position.set(-150, 80, -150);
     moon.castShadow=true; 
-    moon.shadow.mapSize.set(1024,1024);
-    moon.shadow.camera.left=-400; moon.shadow.camera.right=400;
-    moon.shadow.camera.top=400; moon.shadow.camera.bottom=-400;
+    
+    // 🟢 阴影优化：大幅提升分辨率并收缩视口，解决漏光和锯齿
+    moon.shadow.mapSize.set(4096, 4096); 
+    moon.shadow.camera.left = -250; 
+    moon.shadow.camera.right = 250;
+    moon.shadow.camera.top = 250; 
+    moon.shadow.camera.bottom = -250;
+    moon.shadow.bias = -0.0005; 
+    moon.shadow.normalBias = 0.05; 
+
     scene.add(moon); lights.moon = moon;
 
     // 月亮实体：超级月亮效果，挂在天边 (推远以消除视差，防止自由模式穿帮)
@@ -2484,7 +2512,10 @@ function buildLights() {
     sg.setAttribute('position', new THREE.Float32BufferAttribute(sp,3));
     scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0xffffff, size:1.5, transparent:true, opacity:0.8, fog:false})));
 
-    scene.add(new THREE.AmbientLight(0x303050, 0.4));
+    // 🟢 升级环境光为半球光 (HemisphereLight)
+    // Sky: 月夜蓝灰 | Ground: 深邃地黑 | Intensity: 0.5 (足够照亮枕木细节)
+    const hemiLight = new THREE.HemisphereLight(0x405070, 0x101010, 0.5);
+    scene.add(hemiLight);
     
     // ⛰️ 地面地形 (Terrain)
     // 提取为独立函数，供其他对象（如轨道、树木）对齐高度
@@ -2492,33 +2523,24 @@ function buildLights() {
         const dist = Math.sqrt(x*x + z*z);
         let height = 0;
         
-        // 核心逻辑：轨道附近 (R=120) 保持平坦，远处起伏
-        // 平坦区：R < 150
-        // 过渡区：150 < R < 250
-        // 山丘区：R > 250
-        
-        if (dist > 150) {
-            // 基础波浪 (大山丘)
-            const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30;
-            // 细节波浪 (小起伏)
-            const h2 = Math.sin(x * 0.02 + z * 0.01) * 5;
-            
+        // 核心逻辑：扩大中心平坦区 (R < 180)，让轨道大部分区域处于平原
+        // 远山推后，且坡度更缓
+        if (dist > 180) { 
+            const h1 = Math.sin(x * 0.005) * Math.cos(z * 0.005) * 30; // 主山峰
+            const h2 = Math.sin(x * 0.02 + z * 0.01) * 5; // 地面细节
             height = h1 + h2;
             
-            // 过渡平滑
-            if (dist < 250) {
-                const alpha = (dist - 150) / 100;
-                height *= alpha; 
-            }
+            // 边缘平滑过渡 (180 ~ 350)
+            // 在此范围内，山势缓慢升起，轨道附近(max 200)只有轻微起伏
+            if (dist < 350) height *= (dist - 180) / 170;
         }
         
-        // 关键修复：让中心区域的高度正好等于轨道高度 (y=0.56)
-        // 这样铁轨就像铺在地面上，而不是悬空
-        // 原来地面整体下沉了 2.0，所以这里也做相应调整
         return height; 
     };
 
-    const groundGeo = new THREE.PlaneGeometry(2000, 2000, 128, 128);
+    // 🟢 修复：大幅提高地面网格精度 (128 -> 256)
+    // 防止低模地面在山谷处"架桥"，导致精确贴地的轨道被埋在下面
+    const groundGeo = new THREE.PlaneGeometry(2000, 2000, 256, 256);
     const pos = groundGeo.attributes.position;
     
     for(let i=0; i<pos.count; i++){
@@ -2548,130 +2570,182 @@ function buildLights() {
 
 function buildTrack() {
     const points = [];
-    const segments = 100; 
+    // 🟢 修复：增加轨道采样点 (100 -> 400)
+    // 配合高精度地面，确保轨道不会在两个采样点之间被地形"切"到
+    const segments = 400; 
     
-    const BaseR = 120; 
-    const Amp = 40; 
+    // 🟢 形状优化：明确的三叶草/指尖陀螺结构
+    const BaseR = 150; 
+    const Amp = 50; 
 
-    // 🟢 修复1：使用平滑的正弦波叠加，替代原本的 if/else 突变逻辑
-    // 这样轨道半径的变化是连续的，彻底消除了"麻花"扭曲
-    const freqA = 3; // 三叶草形状
-    const freqB = 7; // 增加一点高频细节，让轨道不那么单调
-    
-    // 随机相位，每次刷新都不一样，但保证平滑
-    const phaseA = Math.random() * Math.PI * 2;
-    const phaseB = Math.random() * Math.PI * 2;
+    // 随机旋转整个轨道，每次刷新都不一样，但形状保持三叶草
+    // 🟢 使用全局 STATE 中的相位，确保与地形生成逻辑同步
+    const globalPhase = STATE.trackPhase;
+
+    // --- 🌟 计算英雄树的完美布局点 ---
+    // 三叶草的三个叶片(波峰)分别出现在 cos(3θ + phase) = 1 时
+    // 即 3θ + phase = 0, 2π, 4π
+    // θ = (2kπ - phase) / 3
+    STATE.treeLayout = [];
+    for(let k=0; k<3; k++) {
+        const thetaPeak = (2 * k * Math.PI - globalPhase) / 3;
+        // 树的位置：在波峰角度上，但半径稍小，被轨道包围
+        // 轨道最大半径 BaseR + Amp = 200
+        // 我们把树放在 R = 130 处，留出 70 的安全距离
+        const rTree = 130; 
+        STATE.treeLayout.push({
+            x: rTree * Math.cos(thetaPeak),
+            z: rTree * Math.sin(thetaPeak),
+            angle: thetaPeak
+        });
+    }
+    // 标记第一棵为主树
+    STATE.mainTreePos = new THREE.Vector3(STATE.treeLayout[0].x, 0, STATE.treeLayout[0].z);
 
     for (let i = 0; i < segments; i++) {
         const theta = (i / segments) * Math.PI * 2;
+        const phase = globalPhase; 
         
-        // 连续的半径公式
-        const r = BaseR + 
-                  Amp * Math.sin(theta * freqA + phaseA) + 
-                  (Amp * 0.3) * Math.sin(theta * freqB + phaseB);
-        
+        const r = BaseR + Amp * Math.cos(3 * theta + phase);
         const x = r * Math.cos(theta);
         const z = r * Math.sin(theta);
         
-        const terrainH = window.getTerrainHeight ? window.getTerrainHeight(x, z) : 0;
+        // 🟢 智能定高：计算切线和法线，探测轨道两侧的地形高度
+        const dr = -3 * Amp * Math.sin(3 * theta + phase);
+        const dx = dr * Math.cos(theta) - r * Math.sin(theta);
+        const dz = dr * Math.sin(theta) + r * Math.cos(theta);
         
-        // 🟢 修复2：暴力抬升策略 (High Bed Strategy)
-        // 从 1.2 提升到 2.2，确保低模地面绝不可能切入轨道
-        points.push(new THREE.Vector3(x, terrainH + 2.2, z));
+        // 法线 (Normalized)
+        const len = Math.sqrt(dx*dx + dz*dz);
+        const nx = -dz / len;
+        const nz = dx / len;
+        
+        // 采样三个点 (中、左、右)
+        // 宽度 buffer = 3.5米 (精确匹配路基底宽，避免探测太远导致轨道莫名抬高)
+        const hC = window.getTerrainHeight ? window.getTerrainHeight(x, z) : 0;
+        const hL = window.getTerrainHeight ? window.getTerrainHeight(x + nx*3.5, z + nz*3.5) : 0;
+        const hR = window.getTerrainHeight ? window.getTerrainHeight(x - nx*3.5, z - nz*3.5) : 0;
+        
+        // 取最大值：确保路基边缘不会切入地下
+        const terrainH = Math.max(hC, hL, hR);
+        
+        // 🟢 最终定版：1.55m (兼顾贴地感与防穿模的最佳平衡点)
+        points.push(new THREE.Vector3(x, terrainH + 1.55, z));
     }
 
-    // 曲线生成 (保持高精度)
-    trackCurve = new THREE.CatmullRomCurve3(points, true, 'centripetal', 0.5); 
+    // 曲线生成
+    trackCurve = new THREE.CatmullRomCurve3(points, true, 'centripetal', 0.5);
     trackCurve.arcLengthDivisions = 4000; 
     trackCurve.updateArcLengths();
     
-    // 2. 手工构建路基 (Bed)
+    // ==========================================
+    // 🏗️ 构建复合路基 (Ballast + Vertical Snow Curtain)
+    // ==========================================
     const bedSegments = 800; 
-    const bedGeo = new THREE.BufferGeometry();
-    const bedPos = [];
-    const bedIndices = [];
-    const bedUVs = [];
+    
+    // 1. 道砟 (Ballast) - 深色碎石
+    const ballastGeo = new THREE.BufferGeometry();
+    const balPos = [];
+    const balIndices = [];
+    
+    // 2. 垂直挡雪墙 (Snow Curtain) - 替代水平裙边，防止弯道自相交
+    const skirtGeo = new THREE.BufferGeometry();
+    const skirtPos = [];
+    const skirtIndices = [];
 
-    // 路基参数
-    const wTop = 2.8;   
-    const wBot = 5.0;   // 底宽继续加大，形成稳固的土坡感
-    const depth = 5.5;  // 🟢 深度加到 5.5，配合抬升，确保扎入地下
-    const bedYOffset = 0.0; 
+    // 参数设定
+    const ballastTopW = 2.2;    
+    const ballastBotW = 3.5;    
+    const ballastHeight = 0.8;  
+    
+    // 🟢 垂直墙逻辑：不需要 skirtWidth，而是直接垂直到地下
+    const curtainDepthOffset = 2.0; // 插入地下的深度
 
     const upVec = new THREE.Vector3(0, 1, 0);
     const rightVec = new THREE.Vector3();
     const tanVec = new THREE.Vector3();
     const centerPos = new THREE.Vector3();
 
-    const pTL = new THREE.Vector3(); 
-    const pTR = new THREE.Vector3(); 
-    const pBL = new THREE.Vector3(); 
-    const pBR = new THREE.Vector3(); 
+    // 辅助点
+    const pTopL = new THREE.Vector3();
+    const pTopR = new THREE.Vector3();
+    const pBotL = new THREE.Vector3();
+    const pBotR = new THREE.Vector3();
+    
+    // 墙底点 (Underground)
+    const pCurtainL = new THREE.Vector3();
+    const pCurtainR = new THREE.Vector3();
 
     const railPointsL = [];
     const railPointsR = [];
-    const railDist = 2.0;
+    const railDist = 1.8; 
 
-    // 清空并填充 trackPoints
-    trackPoints = [];
+    trackPoints = []; 
 
     for (let i = 0; i <= bedSegments; i++) {
-        const t = (i % bedSegments) / bedSegments; 
+        const t = (i % bedSegments) / bedSegments;
         
         trackCurve.getPointAt(t, centerPos);
         trackCurve.getTangentAt(t, tanVec);
-
         rightVec.crossVectors(tanVec, upVec).normalize();
+
+        if (i < bedSegments) trackPoints.push(centerPos.clone());
+
+        // --- 计算关键点 ---
         
-        // 记录轨道中心点
-        if (i < bedSegments) {
-            trackPoints.push(centerPos.clone());
-        }
+        // A. 道砟顶面
+        pTopL.copy(centerPos).addScaledVector(rightVec, -ballastTopW);
+        pTopR.copy(centerPos).addScaledVector(rightVec, ballastTopW);
+        
+        // B. 道砟底面
+        const botY = centerPos.y - ballastHeight;
+        pBotL.copy(centerPos).addScaledVector(rightVec, -ballastBotW); pBotL.y = botY;
+        pBotR.copy(centerPos).addScaledVector(rightVec, ballastBotW); pBotR.y = botY;
 
-        const baseY = centerPos.y + bedYOffset;
+        // C. 挡雪墙底边 (Underground Curtain) - 🟢 核心逻辑
+        // X/Z 坐标与道砟底边完全一致 (垂直向下)
+        pCurtainL.copy(pBotL);
+        pCurtainR.copy(pBotR);
+        
+        // 采样地形高度，并确保墙底深埋地下
+        const hL = window.getTerrainHeight ? window.getTerrainHeight(pCurtainL.x, pCurtainL.z) : 0;
+        const hR = window.getTerrainHeight ? window.getTerrainHeight(pCurtainR.x, pCurtainR.z) : 0;
+        
+        // 墙底高度 = 地形高度 - 2.0米
+        // 这样墙面就从道砟底部一直延伸到地底，无论地形高低，看起来都像路基切入雪中
+        pCurtainL.y = Math.min(botY - 0.5, hL - curtainDepthOffset); 
+        pCurtainR.y = Math.min(botY - 0.5, hR - curtainDepthOffset);
 
-        // Top Left
-        pTL.copy(centerPos).addScaledVector(rightVec, -wTop);
-        pTL.y = baseY;
+        // --- 填充数据 ---
 
-        // Top Right
-        pTR.copy(centerPos).addScaledVector(rightVec, wTop);
-        pTR.y = baseY;
+        // 1. 道砟
+        balPos.push(pTopL.x, pTopL.y, pTopL.z);
+        balPos.push(pTopR.x, pTopR.y, pTopR.z);
+        balPos.push(pBotL.x, pBotL.y, pBotL.z);
+        balPos.push(pBotR.x, pBotR.y, pBotR.z);
 
-        // Bottom Left
-        pBL.copy(centerPos).addScaledVector(rightVec, -wBot);
-        pBL.y = baseY - depth;
+        // 2. 挡雪墙
+        skirtPos.push(pBotL.x, pBotL.y, pBotL.z);
+        skirtPos.push(pBotR.x, pBotR.y, pBotR.z);
+        skirtPos.push(pCurtainL.x, pCurtainL.y, pCurtainL.z);
+        skirtPos.push(pCurtainR.x, pCurtainR.y, pCurtainR.z);
 
-        // Bottom Right
-        pBR.copy(centerPos).addScaledVector(rightVec, wBot);
-        pBR.y = baseY - depth;
-
-        bedPos.push(pTL.x, pTL.y, pTL.z);
-        bedPos.push(pTR.x, pTR.y, pTR.z);
-        bedPos.push(pBL.x, pBL.y, pBL.z);
-        bedPos.push(pBR.x, pBR.y, pBR.z);
-
-        bedUVs.push(0, t * 20);
-        bedUVs.push(1, t * 20);
-        bedUVs.push(0, t * 20);
-        bedUVs.push(1, t * 20);
-
+        // 索引
         if (i > 0) {
             const curr = i * 4;
             const prev = (i - 1) * 4;
 
-            bedIndices.push(prev + 0, prev + 1, curr + 0);
-            bedIndices.push(prev + 1, curr + 1, curr + 0);
+            // 道砟
+            balIndices.push(prev+0, prev+1, curr+0); balIndices.push(prev+1, curr+1, curr+0);
+            balIndices.push(prev+2, prev+0, curr+2); balIndices.push(prev+0, curr+0, curr+2);
+            balIndices.push(prev+1, prev+3, curr+1); balIndices.push(prev+3, curr+3, curr+1);
 
-            bedIndices.push(prev + 2, prev + 0, curr + 2);
-            bedIndices.push(prev + 0, curr + 0, curr + 2);
-
-            bedIndices.push(prev + 1, prev + 3, curr + 1);
-            bedIndices.push(prev + 3, curr + 3, curr + 1);
+            // 挡雪墙 (垂直面)
+            skirtIndices.push(prev+2, prev+0, curr+2); skirtIndices.push(prev+0, curr+0, curr+2);
+            skirtIndices.push(prev+1, prev+3, curr+1); skirtIndices.push(prev+3, curr+3, curr+1);
         }
 
-        const railY = centerPos.y + 0.55; 
-
+        const railY = centerPos.y + 0.18; // 🟢 降低铁轨高度，使其嵌入枕木，消除悬空感
         const rL = centerPos.clone().addScaledVector(rightVec, -railDist); rL.y = railY;
         const rR = centerPos.clone().addScaledVector(rightVec, railDist); rR.y = railY;
 
@@ -2681,67 +2755,105 @@ function buildTrack() {
         }
     }
 
-    bedGeo.setAttribute('position', new THREE.Float32BufferAttribute(bedPos, 3));
-    bedGeo.setAttribute('uv', new THREE.Float32BufferAttribute(bedUVs, 2));
-    bedGeo.setIndex(bedIndices);
-    bedGeo.computeVertexNormals();
+    // --- 创建 Mesh ---
 
-    const bedMat = new THREE.MeshStandardMaterial({
-        color: 0x2b2b2b, 
+    // 1. 道砟 Mesh
+    ballastGeo.setAttribute('position', new THREE.Float32BufferAttribute(balPos, 3));
+    ballastGeo.setIndex(balIndices);
+    ballastGeo.computeVertexNormals();
+    const ballastMat = new THREE.MeshStandardMaterial({
+        color: 0x506070, 
         roughness: 1.0,  
-        metalness: 0.0,
-        side: THREE.DoubleSide
+        metalness: 0.1,  
+        side: THREE.FrontSide 
     });
+    const ballast = new THREE.Mesh(ballastGeo, ballastMat);
+    ballast.receiveShadow = true; // 🟢 开启接收阴影
+    scene.add(ballast);
 
-    const bed = new THREE.Mesh(bedGeo, bedMat);
-    scene.add(bed);
+    // 2. 挡雪墙 Mesh
+    skirtGeo.setAttribute('position', new THREE.Float32BufferAttribute(skirtPos, 3));
+    skirtGeo.setIndex(skirtIndices);
+    skirtGeo.computeVertexNormals();
+    
+    // 使用雪材质
+    const skirtMat = new THREE.MeshStandardMaterial({
+        color: 0xeef2f3, 
+        roughness: 1.0, 
+        metalness: 0.0,
+        side: THREE.FrontSide 
+    });
+    const skirt = new THREE.Mesh(skirtGeo, skirtMat);
+    skirt.receiveShadow = true; // 🟢 开启接收阴影
+    scene.add(skirt);
     
     // 3. 枕木 (Sleepers)
     const sleeperDivs = 600;
-    const pg = new THREE.BoxGeometry(5.0, 0.4, 1.0); 
-    const pm = new THREE.MeshStandardMaterial({color:0x3e2723, roughness: 0.9});
+    const pg = new THREE.BoxGeometry(4.2, 0.25, 0.8); // 尺寸微调，更像真实枕木
+    const pm = new THREE.MeshStandardMaterial({color:0x4a3c31, roughness: 0.9}); // 深木色
     const pi = new THREE.InstancedMesh(pg, pm, sleeperDivs);
-    const dum = new THREE.Object3D();
     
+    const dum = new THREE.Object3D();
+    const _up = new THREE.Vector3(0,1,0);
+    const _right = new THREE.Vector3();
+    const _fwd = new THREE.Vector3();
+    const _mat4 = new THREE.Matrix4();
+
     for(let i=0; i<sleeperDivs; i++){
         const t = i/sleeperDivs; 
         const p = trackCurve.getPointAt(t); 
         const tan = trackCurve.getTangentAt(t);
         
-        dum.position.copy(p);
-        dum.position.y += 0.2; 
+        // 🟢 修复枕木倾斜：强制构建水平正交基 (右手坐标系)
+        _fwd.copy(tan).normalize(); // Z轴：沿轨道切线
+        _right.crossVectors(_up, _fwd).normalize(); // X轴：Y x Z = X (Right)
+        const _trueUp = new THREE.Vector3().crossVectors(_fwd, _right).normalize(); // Y轴：Z x X = Y (Up)
         
-        dum.lookAt(p.x + tan.x, p.y + tan.y, p.z + tan.z); 
+        _mat4.makeBasis(_right, _trueUp, _fwd);
+        _mat4.setPosition(p.x, p.y + 0.12, p.z);
+        
+        dum.matrix.copy(_mat4);
+        dum.matrix.decompose(dum.position, dum.quaternion, dum.scale);
         dum.updateMatrix();
         pi.setMatrixAt(i, dum.matrix);
     }
     pi.receiveShadow = true; 
     scene.add(pi);
 
-    // 4. 生成铁轨实体
+    // 4. 铁轨
     const curveL = new THREE.CatmullRomCurve3(railPointsL, true, 'catmullrom', 0.1);
     const curveR = new THREE.CatmullRomCurve3(railPointsR, true, 'catmullrom', 0.1);
-    
-    const railMat = new THREE.MeshStandardMaterial({
-        color: 0x555555, 
-        metalness: 0.8, 
-        roughness: 0.4
-    });
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.4 });
 
     const railMeshL = new THREE.Mesh(new THREE.TubeGeometry(curveL, bedSegments, 0.12, 6, true), railMat);
     const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, bedSegments, 0.12, 6, true), railMat);
+    
+    railMeshL.receiveShadow = true; // 🟢 开启接收阴影
+    railMeshR.receiveShadow = true; // 🟢 开启接收阴影
     
     scene.add(railMeshL);
     scene.add(railMeshR);
 }
 
 function buildEnv() {
-    // 1. 下方放置大号英雄树 (配合大圆弧)
-    createHeroTree(0, -90, 2.8); 
-    
-    // 2. 左上和右上放置小号英雄树
-    createHeroTree(85, 55, 1.4); 
-    createHeroTree(-85, 55, 1.4);
+    // 1. 放置英雄树 (根据 buildTrack 计算出的完美布局点)
+    if (STATE.treeLayout && STATE.treeLayout.length >= 3) {
+        // 主树 (Main Hero Tree) - 放在第一个波峰怀抱中
+        const main = STATE.treeLayout[0];
+        createHeroTree(main.x, main.z, 3.2); // 巨大尺寸
+
+        // 副树 (Side Trees) - 放在另外两个波峰
+        const side1 = STATE.treeLayout[1];
+        createHeroTree(side1.x, side1.z, 2.0);
+
+        const side2 = STATE.treeLayout[2];
+        createHeroTree(side2.x, side2.z, 2.0);
+    } else {
+        // 降级方案 (如果未初始化布局)
+        createHeroTree(0, -90, 2.8);
+        createHeroTree(85, 55, 1.4);
+        createHeroTree(-85, 55, 1.4);
+    }
 
     // 🌲 升级版森林 (Varied Forest)
     const matTree = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.9}); // 使用白色底，靠 instanceColor 染色
