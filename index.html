@@ -3764,27 +3764,62 @@ class Train {
 
         // 💨 动态风场计算 (Dynamic Wind Field)
         const t = clock.getElapsedTime();
-        // 基础风力 + 阵风扰动 (使用不同频率的正弦波叠加)
-        // 模拟一阵阵的风，风向和力度随时间变化
+        // 基础风力 + 阵风扰动
         const windX = (Math.sin(t * 0.8) + Math.sin(t * 2.5) * 0.6) * 0.015;
         const windZ = (Math.cos(t * 0.6) + Math.sin(t * 1.9) * 0.6) * 0.015;
+
+        // 🛡️ 树木避障参数
+        const treePos = STATE.mainTreePos;
+        // 修正：扩大到 100米，覆盖树冠边缘
+        const treeRadiusSq = 100 * 100; 
 
         for(let i=0; i<this.smokeMax; i++) {
             const s = this.smokeData[i];
             if(!s.active) continue;
 
-            // 1. 应用风力 (在阻力之前应用，让风持续推动)
+            // 1. 应用风力
             s.vel.x += windX;
             s.vel.z += windZ;
+
+            // 🟢 避障逻辑：气流偏转场
+            if (treePos) {
+                const dx = s.pos.x - treePos.x;
+                const dz = s.pos.z - treePos.z;
+                const dSq = dx*dx + dz*dz;
+                
+                if (dSq < treeRadiusSq) {
+                    const dist = Math.sqrt(dSq);
+                    // 归一化方向 (从树心指向外)
+                    const dirX = dx / dist;
+                    const dirZ = dz / dist;
+
+                    // A. 侧向推力 (指数级增强)
+                    // 离得越近，推力越强，但力度适中
+                    const pushFactor = Math.pow((100 - dist) / 40, 2) * 0.12;
+                    
+                    s.vel.x += dirX * pushFactor;
+                    s.vel.z += dirZ * pushFactor;
+
+                    // B. 树下效应 (Under Canopy)
+                    if (dist < 80) {
+                        // 1. 温和压制：只减缓10%，保留上升感
+                        s.vel.y *= 0.9; 
+                        
+                        // 2. 湍流扩散：撞击树枝产生的随机涡流
+                        // 让烟雾向四周弥漫，而不仅仅是沿直线被推开
+                        s.vel.x += (Math.random() - 0.5) * 0.15;
+                        s.vel.z += (Math.random() - 0.5) * 0.15;
+                    }
+                }
+            }
 
             // 2. 物理运动
             s.pos.add(s.vel);
 
-            // 3. 空气阻力 (Air Resistance)
-            // 速度极快衰减，模拟撞击静止空气
+            // 3. 空气阻力
             s.vel.multiplyScalar(0.85); 
 
-            // 4. 热浮力 (Buoyancy)
+            // 4. 热浮力
             if (s.vel.y < 0.8) {
                 s.vel.y += 0.02; 
             }
