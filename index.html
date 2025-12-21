@@ -498,8 +498,8 @@ const CameraDirector = {
         droneCount: 6,
         droneCoverage: 0.18,
         switchDur: 1.0,
-        height: 22,
-        distance: 85,
+        height: 30, // 默认高度提升
+        distance: 110, // 默认距离拉远
         smoothSpeed: 0.02
     },
 
@@ -1232,18 +1232,18 @@ const CFG = {
   accel: 0.005,
   decel: 0.003,
   wheelMult: 2.0,
-  carriageGap: 0.008, // 🟢 调整车厢间距，使之更紧凑 (0.008m roughly 7.5m, tight fit)
+  carriageGap: 0.008, 
 
   // 🎥 相机 (外侧向心视角)
-  camHeight: 22,    // 稍微抬高，防止火车挡住太多树的根部
-  camDist: 85,      // 拉大距离，因为我们是在外圈看，需要视野包住中央
-  camSmooth: 0.02,   // 增大阻尼系数，让跟随更紧凑，减少"拖拽感"带来的抖动
+  camHeight: 30,    // 拉高视角
+  camDist: 110,     // 拉远距离，视野更开阔
+  camSmooth: 0.02,   
 
-  // 💡 视觉修正
-  moonInt: 1.0, // 月光调暗
-  fogDen: 0.0016, // 雾浓度调大
-  bloomStr: 0.7,
-  bloomThr: 0.02,
+  // 💡 视觉修正 (去朦胧)
+  moonInt: 2.0, 
+  fogDen: 0.0012, // 雾浓度降低，画面更通透
+  bloomStr: 0.4,  // 辉光减弱，减少光污染
+  bloomThr: 0.15, // 阈值提高，只让高光发光
   lightPow: 100,
   bulbBri: 30,
   autoFw: true,
@@ -3201,9 +3201,15 @@ function createHeroTree(x, z, scale) {
     g.add(ledMesh);
 
     if (scale > 2.0) {
-        const innerLight = new THREE.PointLight(0xffaa33, 100, 50);
+        // 核心主光源 (照亮中下部)
+        const innerLight = new THREE.PointLight(0xffdd44, 500, 100);
         innerLight.position.set(0, 15, 0);
-        g.add(innerLight);
+        
+        // 顶部补光 (照亮上部)
+        const topLight = new THREE.PointLight(0xffdd44, 300, 60);
+        topLight.position.set(0, 35, 0);
+        
+        g.add(innerLight, topLight);
     }
 
     // --- 🌟 树顶星星 (修复版：无缺口) ---
@@ -4395,7 +4401,7 @@ class SantaSleigh {
         this.syncDur = 3;        
         this.dropDur = 0.8;      
         this.departDur = 4;      
-        this.hoverHeight = 35;   
+        this.hoverHeight = 25;   
 
         this.fallingGifts = [];
         
@@ -4424,17 +4430,22 @@ class SantaSleigh {
         this.sleigh.position.set(0, 0, 6);
 
         this.group.visible = false;
-        this.group.scale.set(1.0, 1.0, 1.0); 
+        this.group.scale.set(1.8, 1.8, 1.8); 
         sc.add(this.group);
     }
 
     buildSleigh() {
         const sleighG = new THREE.Group();
 
-        const matRed = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.4 });
-        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 });
+        const matRed = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.3, emissive: 0xff0000, emissiveIntensity: 0.8 });
+        const matGold = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6, emissive: 0x443300, emissiveIntensity: 0.2 });
         const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }); // 绒毛感
         const matFace = new THREE.MeshStandardMaterial({ color: 0xffccaa, roughness: 0.5 });
+
+        // 💡 雪橇自带光源 (照亮圣诞老人)
+        const sleighLight = new THREE.PointLight(0xffaa00, 5.0, 50);
+        sleighLight.position.set(0, 5, -2);
+        sleighG.add(sleighLight);
 
         // 🛷 雪橇主体
         const createRunner = (x) => {
@@ -4575,7 +4586,7 @@ class SantaSleigh {
         const reindeerG = new THREE.Group();
         
         // 材质
-        const matSkin = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9 }); // 鹿皮褐
+        const matSkin = new THREE.MeshStandardMaterial({ color: 0xcd853f, roughness: 0.9 }); // 鹿皮褐 (更亮)
         const matDark = new THREE.MeshStandardMaterial({ color: 0x4a3015, roughness: 0.9 }); // 深色蹄子/角
         const matNose = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4 }); // 黑鼻子
         const matRed = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive:0xff0000, emissiveIntensity:0.8 }); // 红鼻子
@@ -5816,20 +5827,20 @@ function setupUI() {
                 </div>
 
                 <div class="control-group">
-                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.7</span></div>
-                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.7">
+                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.4</span></div>
+                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.4">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.02</span></div>
-                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.02">
+                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.15</span></div>
+                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.15">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>月光亮度 (Moon Light)</span><span id="val-moon" class="control-val">1.0</span></div>
-                    <input type="range" id="inp-moon" min="0" max="3" step="0.1" value="1.0">
+                    <div class="control-label"><span>月光亮度 (Moon Light)</span><span id="val-moon" class="control-val">2.0</span></div>
+                    <input type="range" id="inp-moon" min="0" max="3" step="0.1" value="2.0">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>大雾浓度 (Fog Density)</span><span id="val-fog" class="control-val">0.0016</span></div>
-                    <input type="range" id="inp-fog" min="0" max="0.005" step="0.0001" value="0.0016">
+                    <div class="control-label"><span>大雾浓度 (Fog Density)</span><span id="val-fog" class="control-val">0.0012</span></div>
+                    <input type="range" id="inp-fog" min="0" max="0.005" step="0.0001" value="0.0012">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>车灯亮度 (Headlight)</span><span id="val-headlight" class="control-val">100</span></div>
@@ -5852,12 +5863,12 @@ function setupUI() {
                     <input type="range" id="inp-accel" min="0.001" max="0.02" step="0.001" value="0.005">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>无人机高度 (Camera Height)</span><span id="val-height" class="control-val">22</span></div>
-                    <input type="range" id="inp-height" min="10" max="150" step="5" value="22">
+                    <div class="control-label"><span>无人机高度 (Camera Height)</span><span id="val-height" class="control-val">30</span></div>
+                    <input type="range" id="inp-height" min="10" max="150" step="5" value="30">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>跟拍距离 (Camera Distance)</span><span id="val-dist" class="control-val">85</span></div>
-                    <input type="range" id="inp-dist" min="30" max="250" step="10" value="85">
+                    <div class="control-label"><span>跟拍距离 (Camera Distance)</span><span id="val-dist" class="control-val">110</span></div>
+                    <input type="range" id="inp-dist" min="30" max="250" step="10" value="110">
                 </div>
             </div>
             
@@ -6292,7 +6303,7 @@ function setupUI() {
                 data.triggerText = '庆典';
                 data.daysVisible = false;
                 // 字体放大，强调分秒，Flex强制单行
-                data.panelText = `
+                data.psanelText = `
                     <div style="display:flex; justify-content:center; align-items:baseline; gap:6px; white-space:nowrap; width:100%;">
                         <span style="font-size:1.2em; color:#ffd700; font-weight:bold;">${pad(m)}分${pad(s)}秒</span>
                     </div>
