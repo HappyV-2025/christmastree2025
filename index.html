@@ -653,8 +653,8 @@ const CameraDirector = {
             if (this.camera && this.controls && this.controls.target) {
                 // 根据屏幕比例调整拉远距离 (移动端更远以看到完整文字)
                 const aspect = this.camera.aspect;
-                const distZ = aspect < 1.0 ? 160 : 110;
-                const heightY = aspect < 1.0 ? 80 : 50;
+                const distZ = aspect < 1.0 ? 150 : 100; // 稍微拉近一点点，配合抬高
+                const heightY = aspect < 1.0 ? 120 : 80; // 🟢 大幅抬高相机 (避免被两侧英雄树遮挡)
 
                 const targetPos = new THREE.Vector3(0, heightY, distZ);
                 const targetLook = new THREE.Vector3(0, 0, 10); // 看向文字中心 (稍微靠前)
@@ -2267,7 +2267,7 @@ function init() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.3;
+    renderer.toneMappingExposure = 1.5; // 稍微提升曝光，让色彩过渡更平滑
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
     // 初始化装饰物管理器
@@ -2293,7 +2293,7 @@ function init() {
 
     const rp = new RenderPass(scene, camera);
     bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 1.5, 0.4, 0.85);
-    bloomPass.threshold = CFG.bloomThr; 
+    bloomPass.threshold = 0.8; // 从 1.0 降低，防止高光闪烁导致的黑块 Artifact
     bloomPass.strength = CFG.bloomStr; 
     bloomPass.radius = 0.5;
 
@@ -4919,8 +4919,9 @@ class SantaSleigh {
                     vColor = color;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
-                    // 超大尺寸系数，确保远看也清晰
-                    gl_PointSize = size * (3000.0 / -mvPosition.z);
+                    // 🛡️ 修复：限制最小距离，防止除零导致 PointSize 爆炸
+                    float dist = max(1.0, -mvPosition.z);
+                    gl_PointSize = size * (3000.0 / dist);
                 }
             `,
             fragmentShader: `
@@ -4928,6 +4929,8 @@ class SantaSleigh {
                 varying vec3 vColor;
                 void main() {
                     vec4 texColor = texture2D(map, gl_PointCoord);
+                    // 🛡️ 修复：丢弃不可见像素，防止 Bloom 计算异常
+                    if (texColor.a < 0.05) discard;
                     // 增强透明度，防止看不见
                     gl_FragColor = vec4(vColor, 1.0) * texColor * 1.5;
                 }
