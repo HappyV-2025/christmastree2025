@@ -833,6 +833,15 @@ class AudioEngine {
                     out[i] *= 3.5; 
                 }
             }
+
+            // ❤️ 音频防休眠心跳 (Heartbeat): 永久运行一个静音振荡器，防止 AudioContext 在无声期间休眠
+            // 这对解决"十几秒后突然发声卡顿"至关重要
+            const heartOsc = this.ctx.createOscillator();
+            const heartGain = this.ctx.createGain();
+            heartGain.gain.value = 0.0001; 
+            heartOsc.connect(heartGain);
+            heartGain.connect(this.ctx.destination);
+            heartOsc.start();
         }
         if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
     }
@@ -848,6 +857,36 @@ class AudioEngine {
     }
 
     setBgmSpeed(speed) { this.bgmSpeed = speed; }
+
+    // 🔥 音频预热：播放一个极短的静音，强制激活音频管道
+    warmup() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+
+        // 1. 基础激活 (Dummy Oscillator)
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0.0001; 
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(t + 0.1);
+
+        // 2. 模拟铃铛 (Bell Simulation - Silent)
+        // 彻底模拟 bell() 的多重振荡器创建过程，防止首次并发创建节点卡顿
+        const bellFreqs = [{ f: 2600 }, { f: 3900 }, { f: 5200 }];
+        bellFreqs.forEach(({ f }) => {
+            const o = this.ctx.createOscillator(); 
+            o.type = 'sine';
+            o.frequency.setValueAtTime(f, t);
+            const g = this.ctx.createGain(); 
+            g.gain.value = 0; // 🔇 静音
+            o.connect(g); 
+            g.connect(this.ctx.destination); 
+            o.start(t); 
+            o.stop(t + 0.05);
+        });
+    }
 
     // 🎵 BGM Logic (Keep unchanged)
     playBGM() {
@@ -2318,57 +2357,9 @@ function init() {
     CameraDirector.init(camera, controls, train, trackCurve);
     setupUI();
     
-    // --- 🚀 渲染预热 (全家桶：强制 GPU 上传纹理与编译) ---
-    if (renderer && scene && camera) {
-        const santaVis = santaSleigh.group.visible;
-        const giftVis = MegaGiftManager.mesh.visible;
-        
-        // A. 激活主要模型
-        santaSleigh.group.visible = true;
-        const oldScaleSanta = santaSleigh.group.scale.clone();
-        santaSleigh.group.scale.setScalar(0.001); // 隐形
-        
-        MegaGiftManager.mesh.visible = true;
-        
-        // B. 激活所有烟花粒子池 (这是之前漏掉的大头)
-        const fwScales = [];
-        if (fwMgr && fwMgr.pool) {
-            fwMgr.pool.forEach(p => {
-                p.mesh.visible = true;
-                fwScales.push(p.mesh.scale.x); // 记录原始 scale (虽然一般是1)
-                p.mesh.scale.setScalar(0.001);
-            });
-        }
-
-        // C. 强制特效粒子数据更新
-        if (santaSleigh.trail) {
-            santaSleigh.trail.emit(new THREE.Vector3(), new THREE.Quaternion(), 1.0);
-            santaSleigh.trail.update(0.1);
-        }
-        const dummyTrail = new GiftParticleTrail(scene, 0xff0000);
-        dummyTrail.update(new THREE.Vector3(), 1.0);
-        
-        // D. 强制真实渲染一帧 (关键：触发纹理上传和阴影图计算)
-        // compile() 只管 Shader，render() 才能管 Texture 和 ShadowMap
-        renderer.compile(scene, camera);
-        renderer.render(scene, camera);
-        
-        // E. 恢复现场
-        santaSleigh.group.visible = santaVis;
-        santaSleigh.group.scale.copy(oldScaleSanta);
-        MegaGiftManager.mesh.visible = giftVis;
-        dummyTrail.dispose();
-        
-        if (fwMgr && fwMgr.pool) {
-            fwMgr.pool.forEach((p, i) => {
-                p.mesh.visible = false;
-                if(fwScales[i] !== undefined) p.mesh.scale.setScalar(fwScales[i]);
-                else p.mesh.scale.setScalar(1.0); // Fallback
-            });
-        }
-    }
-
-    document.getElementById('loading').style.display='none';
+    // 移除同步预热代码，改由 animate 循环的前几帧接管
+    // 这样能确保 WebGL 上下文在真实的渲染循环中完成 Shader 编译和纹理上传
+    
     animate();
 }
 
@@ -2526,11 +2517,88 @@ AnimationSystem.addSystem(EffectsSystem);
 AnimationSystem.addSystem(LightingSystem);
 AnimationSystem.addSystem(RenderingSystem);
 
+// --- 🚀 异步预热状态机 ---
+let preloadStep = 0;
+let preloadTemp = {};
+
 function animate() {
     requestAnimationFrame(animate);
 
     // Safety check
     if (!scene || !camera || !renderer) return;
+
+    // --- 预热阶段拦截 ---
+    if (preloadStep < 6) {
+        // Step 0: 准备场景 (摆放全尺寸模型)
+        if (preloadStep === 0) {
+            preloadTemp.santaVis = santaSleigh.group.visible;
+            preloadTemp.giftVis = MegaGiftManager.mesh.visible;
+            preloadTemp.santaScale = santaSleigh.group.scale.clone();
+            
+            santaSleigh.group.visible = true;
+            santaSleigh.group.scale.setScalar(1.0);
+            // 🛠️ 预热位置调整：移到场景中心上方，确保点光源照亮地面和树木，强制编译环境 Shader
+            preloadTemp.santaOldPos = santaSleigh.group.position.clone();
+            santaSleigh.group.position.set(0, 20, 0); 
+            
+            MegaGiftManager.mesh.visible = true;
+            
+            // 准备假礼物 (带自发光，模拟真实投掷)
+            preloadTemp.dummyGift = santaSleigh.createGift();
+            preloadTemp.dummyGift.traverse(c => {
+                if (c.isMesh && c.material) {
+                    c.material.emissive = new THREE.Color(c.material.color);
+                    c.material.emissiveIntensity = 0.5;
+                }
+            });
+            preloadTemp.dummyGift.position.set(0, 50, 0);
+            scene.add(preloadTemp.dummyGift);
+            
+            // 准备特效 (CanvasTexture 上传)
+            if (santaSleigh.trail) {
+                santaSleigh.trail.emit(new THREE.Vector3(), new THREE.Quaternion(), 1.0);
+                santaSleigh.trail.update(0.1);
+            }
+            // 激活烟花
+            if (fwMgr && fwMgr.pool) {
+                preloadTemp.fwScales = [];
+                fwMgr.pool.forEach(p => {
+                    p.mesh.visible = true;
+                    preloadTemp.fwScales.push(p.mesh.scale.x);
+                    p.mesh.scale.setScalar(0.001); // 烟花不用全尺寸，只需 Shader
+                });
+            }
+        } 
+        // Step 1-3: 连续渲染几帧，确保 GPU 管道完全跑通 (Texture Upload, Shader Compile, Shadow Map Gen)
+        else if (preloadStep >= 1 && preloadStep <= 3) {
+            renderer.render(scene, camera);
+        } 
+        // Step 4: 清理现场
+        else if (preloadStep === 4) {
+            santaSleigh.group.visible = preloadTemp.santaVis;
+            santaSleigh.group.scale.copy(preloadTemp.santaScale);
+            if (preloadTemp.santaOldPos) santaSleigh.group.position.copy(preloadTemp.santaOldPos);
+            
+            MegaGiftManager.mesh.visible = preloadTemp.giftVis;
+            
+            scene.remove(preloadTemp.dummyGift);
+            if(GiftFactory.release) GiftFactory.release(preloadTemp.dummyGift);
+            
+            if (fwMgr && fwMgr.pool && preloadTemp.fwScales) {
+                fwMgr.pool.forEach((p, i) => {
+                    p.mesh.visible = false;
+                    p.mesh.scale.setScalar(preloadTemp.fwScales[i]);
+                });
+            }
+            
+            // 隐藏 Loading，正式就绪
+            const loading = document.getElementById('loading');
+            if(loading) loading.style.display = 'none';
+        }
+        
+        preloadStep++;
+        return; // 预热期间不运行游戏逻辑
+    }
 
     const dt = clock.getDelta();
     const time = clock.getElapsedTime();
@@ -2564,6 +2632,13 @@ function buildLights() {
     const mMesh = new THREE.Mesh(new THREE.SphereGeometry(120,32,32), new THREE.MeshBasicMaterial({color:0xffffee, fog:false}));
     mMesh.position.set(-2000, 600, -2000); 
     scene.add(mMesh);
+
+    // 🛠️ 性能优化：添加一个永久存在的不可见(黑色)点光源
+    // 目的：强制所有材质的 Shader 始终包含 PointLight 计算逻辑。
+    // 必须确保它能"照到"视锥体内的物体（如地面），否则可能会被渲染器剔除导致优化失效。
+    const dummyPL = new THREE.PointLight(0x000000, 1, 5000); // 距离设大，覆盖全场
+    dummyPL.position.set(0, 100, 0); // 悬在空中，确保照亮地面正面
+    scene.add(dummyPL);
 
     // 星空
     const sg = new THREE.BufferGeometry();
@@ -6393,8 +6468,8 @@ function setupUI() {
         countdownPanel.style.pointerEvents = 'auto';
         finalEl.style.display = 'none';
         
-        // 强制展开面板 (仅首次或调试时)
-        if(!countdownExpanded) toggleCountdown(true);
+        // 🛠️ 关键修复：初始化时强制执行展开逻辑，确保 UI 状态（.show 类）与变量同步
+        toggleCountdown(true);
         
         // 立即刷新
         updateCountdown();
@@ -6519,12 +6594,16 @@ function setupUI() {
         }
 
         // 2. 右上角 Panel (展开详情)
-        if (data.phase === 'SPRINT') {
+        if (data.phase === 'SPRINT' || !countdownExpanded) {
+            // 冲刺阶段或用户手动收起时隐藏
             countdownPanel.style.opacity = '0';
             countdownPanel.style.pointerEvents = 'none';
+            countdownPanel.style.visibility = 'hidden';
         } else {
+            // 正常展示阶段且用户未收起
             countdownPanel.style.opacity = '1';
             countdownPanel.style.pointerEvents = 'auto';
+            countdownPanel.style.visibility = 'visible';
             if (countdownDetail) countdownDetail.innerHTML = data.panelText;
             
             // 特殊动效：整点/整分闪烁
@@ -6601,14 +6680,16 @@ function setupUI() {
         toggleCountdown();
     };
 
+    // 🛠️ 优化：按照用户要求，面板默认展示且不因点击外部或面板自身而自动收起
+    // 仅保留点击 Trigger (小圣诞树胶囊) 切换可见性的功能
+    /* 
     document.addEventListener('click', (e) => {
         if (countdownExpanded && !countdownPanel.contains(e.target) && !countdownTrigger.contains(e.target)) {
             toggleCountdown(false);
         }
     });
-    
-    // 面板点击收起
     countdownPanel.onclick = () => toggleCountdown(false);
+    */
 
     // 首次展示逻辑 (Auto Show)
     window.showCountdownFirstTime = () => {
