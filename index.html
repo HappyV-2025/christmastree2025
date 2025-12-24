@@ -6361,11 +6361,17 @@ function setupUI() {
         } else {
             // B. 真实日历模式 (下一个 12月25日)
             const date = new Date();
-            let year = date.getFullYear();
-            let xmas = new Date(year, 11, 25, 0, 0, 0);
-            // 如果今年已经过了 (比如12月26日)，则算明年
-            if (date > xmas) xmas = new Date(year + 1, 11, 25, 0, 0, 0);
-            targetTime = xmas.getTime();
+            
+            // 🎄 特殊修正：如果是 12月25日当天 (全天)，进入 15秒 庆典倒计时 (避免相机瞬间切换抽风)
+            if (date.getMonth() === 11 && date.getDate() === 25) {
+                targetTime = now + 15 * 1000; 
+            } else {
+                let year = date.getFullYear();
+                let xmas = new Date(year, 11, 25, 0, 0, 0);
+                // 如果今年已经过了 (比如12月26日)，则算明年
+                if (date > xmas) xmas = new Date(year + 1, 11, 25, 0, 0, 0);
+                targetTime = xmas.getTime();
+            }
             isManualDebug = false;
         }
 
