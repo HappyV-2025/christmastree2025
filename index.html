@@ -2284,7 +2284,12 @@ function init() {
     MegaGiftManager.init(scene);
     IceTextManager.init(scene);
 
-    const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, stencilBuffer: false });
+    // 🟢 开启 MSAA (samples: 4) 以消除锯齿
+    const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { 
+        type: THREE.HalfFloatType, 
+        stencilBuffer: false,
+        samples: 4 // WebGL 2.0 MSAA
+    });
 
     const rp = new RenderPass(scene, camera);
     bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 1.5, 0.4, 0.85);
@@ -2886,8 +2891,9 @@ function buildTrack() {
     const curveR = new THREE.CatmullRomCurve3(railPointsR, true, 'catmullrom', 0.1);
     const railMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.4 });
 
-    const railMeshL = new THREE.Mesh(new THREE.TubeGeometry(curveL, bedSegments, 0.12, 6, true), railMat);
-    const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, bedSegments, 0.12, 6, true), railMat);
+    // 🟢 提升铁轨圆滑度 (Segments: 6 -> 8) 以减少视觉锯齿
+    const railMeshL = new THREE.Mesh(new THREE.TubeGeometry(curveL, bedSegments, 0.12, 8, true), railMat);
+    const railMeshR = new THREE.Mesh(new THREE.TubeGeometry(curveR, bedSegments, 0.12, 8, true), railMat);
     
     railMeshL.receiveShadow = true; // 🟢 开启接收阴影
     railMeshR.receiveShadow = true; // 🟢 开启接收阴影
