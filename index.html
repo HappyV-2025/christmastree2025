@@ -508,6 +508,13 @@ const CameraDirector = {
     // 状态
     state: {
         currentDrone: 0,
+        // 补全缺失的运镜插值状态变量
+        fromPos: new THREE.Vector3(),
+        fromTarget: new THREE.Vector3(),
+        toPos: new THREE.Vector3(),
+        toTarget: new THREE.Vector3(),
+        switching: false,
+        switchT: 0,
         // 临时变量用于物理计算，避免每帧创建新对象
         _tempPos: new THREE.Vector3(),
         _tempTarget: new THREE.Vector3()
@@ -1291,10 +1298,10 @@ const CFG = {
   camSmooth: 0.02,   
 
   // 💡 视觉修正 (去朦胧)
-  moonInt: 4.0, 
+  moonInt: 1.5, 
   fogDen: 0.003, // 大雾浓度改为0.003
-  bloomStr: 0.2,  // 辉光强度改为0.2
-  bloomThr: 1.0, // 阈值调到1
+  bloomStr: 0.45,  // 辉光强度改为0.45
+  bloomThr: 0.95, // 阈值调到0.95
   lightPow: 100,
   bulbBri: 30,
   autoFw: true,
@@ -2123,8 +2130,8 @@ const HeroTreeResources = {
         this.mats = {
             trunk: new THREE.MeshStandardMaterial({ color: 0x4a2e16, roughness: 1.0 }),
             // 开启顶点颜色以支持积雪效果；底色设为白，由顶点色(绿/白)决定最终颜色
-            // shadowSide: DoubleSide 解决树影断层问题
-            foliage: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.1, vertexColors: true, flatShading: true, shadowSide: THREE.DoubleSide }),
+            // shadowSide: DoubleSide 解决树影断层问题; side: DoubleSide 解决仰视透明问题
+            foliage: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.1, vertexColors: true, flatShading: true, shadowSide: THREE.DoubleSide, side: THREE.DoubleSide }),
             red: new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.3 }),
             gold: new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 }),
             white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 }),
@@ -3140,7 +3147,8 @@ function createHeroTree(x, z, scale) {
             const a = (i/4)*Math.PI; const s = new THREE.Mesh(geos.caneStripe, matRedEmit);
             s.position.set(Math.cos(a)*0.35, Math.sin(a)*0.35, 0); s.rotation.z = a+Math.PI/2; hs.add(s);
         }
-        cane.add(stick, hook, hs); cane.scale.set(1.2, 1.2, 1.2); cane.rotation.z = Math.PI/6;
+        // 🛠️ 移除内部固定旋转，将姿态控制权完全交给外部生成循环
+        cane.add(stick, hook, hs); cane.scale.set(1.2, 1.2, 1.2); 
         return cane;
     };
 
@@ -3158,13 +3166,15 @@ function createHeroTree(x, z, scale) {
         const b1 = new THREE.Mesh(geos.bowLoop, mats.white); b1.position.set(0.15,0.15,0); b1.rotation.set(0,0,-Math.PI/4);
         const b2 = new THREE.Mesh(geos.bowLoop, mats.white); b2.position.set(-0.15,0.15,0); b2.rotation.set(0,0,Math.PI/4);
         bg.add(b1, b2, new THREE.Mesh(geos.bowKnot, mats.white));
-        boxG.add(bg); boxG.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
+        boxG.add(bg); 
+        // 🛠️ 优化：移除可能干扰贴合的随机 X/Z 旋转，仅保留 Y 轴随机旋转
+        boxG.rotation.y = Math.random() * Math.PI * 2;
         return boxG;
     };
 
     // --- 🌲 核心重构：程序化生成树冠 (Procedural Foliage) ---
     const tiers = [];
-    const layerCount = 16;
+    const layerCount = 18; // 🛠️ 增加层数 (从 16 -> 18)，让树看起来更茂密
     const baseR = 20;
     const startY = 8;
     const totalH = 28;
@@ -3187,7 +3197,7 @@ function createHeroTree(x, z, scale) {
         const rBot = baseR * Math.pow(1 - t, 0.9);
         const rTop = rBot * 0.3; // 顶部收缩，形成圆台
         
-        const h = (totalH / layerCount) * 2.5; // 重叠高度
+        const h = (totalH / layerCount) * 2.8; // 🛠️ 增加重叠高度系数 (2.5 -> 2.8)
         
         // 生成几何体
         const geo = new THREE.CylinderGeometry(rTop, rBot, h, 24, 2, true); 
@@ -3258,7 +3268,7 @@ function createHeroTree(x, z, scale) {
         // 这里的 r 记录基准底部半径，具体挂载时再叠加噪声
         tiers.push({ y: currentY + h/2, h: h, rBot: rBot, rTop: rTop, layerIdx: i });
 
-        currentY += h * 0.65; 
+        currentY += h * 0.62; // 🛠️ 缩小步长 (0.65 -> 0.62)，增加层间重叠
     }
     
     const treeTopY = currentY;
@@ -3276,31 +3286,60 @@ function createHeroTree(x, z, scale) {
             // 关键：重新计算该角度下的噪声，确保贴合
             const noise = getTreeNoise(finalAngle, tier.layerIdx);
             
-            // 计算基准半径 (我们在底部挂装饰，所以用 rBot)
-            // 考虑到噪声强度 logic: scale = 1.0 + noise * 2.0 (at bottom)
+            // 计算基准半径
             const scale = 1.0 + noise * 2.0;
-            const r = tier.rBot * scale * 0.95; // 0.95 稍微内收一点点，防悬空
+            let r = tier.rBot * scale; 
             
-            const lx = Math.cos(finalAngle) * r;
-            const lz = Math.sin(finalAngle) * r;
             // 高度：层中心 - 半高 (即底部) + 噪声高度补偿
-            const ly = tier.y - tier.h/2 + noise * 2.0;
+            let ly = tier.y - tier.h/2 + noise * 2.0;
 
             const type = Math.random();
             let decor;
+            let currentR = r;
+            let isCane = false;
+
             if (type < 0.45) {
+                // 1. 彩球：加大内缩力度 (0.93 -> 0.85)，确保半埋入树叶，杜绝悬空
                 decor = new THREE.Mesh(geos.ball, Math.random()>.5 ? mats.red : mats.gold);
+                currentR *= 0.85; 
             } else if (type < 0.75) {
+                // 2. 礼盒：贴合度要求最高，原 0.96 仍有悬空，现调整为 0.88，强制埋入
                 decor = createMiniGift();
+                currentR *= 0.88;
             } else {
+                // 3. 拐杖糖：加大内缩力度 (0.90 -> 0.88)，并标记需要特殊旋转
                 decor = createCandyCane();
-                decor.rotateX(Math.PI/4);
+                currentR *= 0.88;
+                isCane = true;
             }
             
             if(decor) {
+                const lx = Math.cos(finalAngle) * currentR;
+                const lz = Math.sin(finalAngle) * currentR;
                 decor.position.set(lx, ly, lz);
+                
+                // 基础姿态：面向圆心
                 decor.lookAt(0, ly, 0); 
+                // 转身：背向圆心 (Z轴朝外，Y轴向上，X轴切线)
                 decor.rotateY(Math.PI);
+                
+                // 🛠️ 贴合优化：
+                // 1. 先应用斜率修正，让 Y 轴成为树面的法线 (Normal)
+                const slopeAngle = Math.atan2(tier.rBot - tier.rTop, tier.h);
+                decor.rotateX(slopeAngle);
+                
+                // 2. 针对拐杖糖的特殊处理 (Random Laying):
+                if (isCane) {
+                    // A. 先绕法线 (Y轴) 随机旋转 360 度，决定它倒下的方向 (打破整齐划一)
+                    decor.rotateY(Math.random() * Math.PI * 2);
+                    
+                    // B. 再绕 X 轴转 90 度，让它从直立状态"躺"在树面上
+                    decor.rotateX(Math.PI / 2);
+                    
+                    // C. 稍微往下压一点点 (0.1弧度)，确保两头即使在曲面上也不翘起
+                    decor.rotateX(0.1);
+                }
+                
                 g.add(decor);
             }
         }
@@ -6054,16 +6093,16 @@ function setupUI() {
                 </div>
 
                 <div class="control-group">
-                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.7</span></div>
-                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.7">
+                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.45</span></div>
+                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.45">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.6</span></div>
-                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.6">
+                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.95</span></div>
+                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.95">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>月光亮度 (Moon Light)</span><span id="val-moon" class="control-val">2.0</span></div>
-                    <input type="range" id="inp-moon" min="0" max="3" step="0.1" value="2.0">
+                    <div class="control-label"><span>月光亮度 (Moon Light)</span><span id="val-moon" class="control-val">1.5</span></div>
+                    <input type="range" id="inp-moon" min="0" max="3" step="0.1" value="1.5">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>大雾浓度 (Fog Density)</span><span id="val-fog" class="control-val">0.0012</span></div>
@@ -6401,16 +6440,11 @@ function setupUI() {
 
             if (STATE.giftPhase === GIFT_PHASES.WAITING && megaGiftExists && MegaGiftManager.mesh) {
                 const hitGift = ray.intersectObject(MegaGiftManager.mesh, true);
-                console.log("Gift Raycast Result:", { hitCount: hitGift.length, hitGift });
                 if (hitGift.length > 0) {
-                    console.log("Opening Mega Gift!");
+                    console.log("🎁 Opening Mega Gift!");
                     MegaGiftManager.open();
                     return;
-                } else {
-                    console.log("Raycast missed the gift");
                 }
-            } else {
-                console.log("Gift click conditions not met");
             }
 
             // 点击空地：无反应（已移除手动烟花）
