@@ -348,7 +348,9 @@ class GiftParticleTrail {
                     vOpacity = opacity;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
-                    gl_PointSize = size * (300.0 / -mvPosition.z);
+                    // 🛡️ 修复：限制最小距离，防止除零
+                    float dist = max(1.0, -mvPosition.z);
+                    gl_PointSize = size * (300.0 / dist);
                 }
             `,
             fragmentShader: `
@@ -548,9 +550,9 @@ const CameraDirector = {
             // 原理：沿着从相机(outPos)到目标(outTarget)的路径采样
             // 如果某处地形高于视线，则反推相机需要抬升到的高度
             
-            const startDist = 5.0;   // 从相机前方 5 米开始检测
+            const startDist = 1.0;   // 从相机前方 1 米开始检测 (避免漏掉近处障碍)
             const endDist = 80.0;    // 检测距离增加到 80 米 (覆盖更远)
-            const steps = 25;        // 采样密度增加到 25 (更精细)
+            const steps = 40;        // 采样密度增加到 40 (更精细)
             
             // 水平方向向量
             const dx = outTarget.x - outPos.x;
@@ -574,7 +576,7 @@ const CameraDirector = {
                     
                     // 获取该点的地形高度 + 安全余量(视线要高出地面一定距离)
                     const terrainH = window.getTerrainHeight(checkX, checkZ);
-                    const obstacleSafeH = terrainH + 8.0; // 视线至少高出障碍物 8 米
+                    const obstacleSafeH = terrainH + 12.0; // 视线至少高出障碍物 12 米
 
                     // 计算比率 ratio = d_current / d_total
                     // 视线高度公式: H_line = H_cam + (H_target - H_cam) * ratio
@@ -697,6 +699,16 @@ const CameraDirector = {
         // 因为是 XYZ 空间坐标插值，即使 prog 从 0.99 跳到 0.01，XYZ 也是连续的
         this.camera.position.lerp(this.state._tempPos, posSmooth);
         this.controls.target.lerp(this.state._tempTarget, targetSmooth);
+
+        // 🛡️ 最终防穿地检查 (Hard Floor Check)
+        // Lerp 路径可能会切入地下，这里强制修正
+        if (typeof window.getTerrainHeight === 'function') {
+            const currentH = window.getTerrainHeight(this.camera.position.x, this.camera.position.z);
+            const safeY = currentH + 8.0; // 绝对安全高度 (比 target 计算时的缓冲略小，作为底线)
+            if (this.camera.position.y < safeY) {
+                this.camera.position.y = safeY;
+            }
+        }
     },
 
     // 强制开始巡航 (用于从其他模式切回)
@@ -1240,10 +1252,10 @@ const CFG = {
   camSmooth: 0.02,   
 
   // 💡 视觉修正 (去朦胧)
-  moonInt: 2.0, 
-  fogDen: 0.0012, // 雾浓度降低，画面更通透
-  bloomStr: 0.4,  // 辉光减弱，减少光污染
-  bloomThr: 0.15, // 阈值提高，只让高光发光
+  moonInt: 4.0, 
+  fogDen: 0.003, // 大雾浓度改为0.003
+  bloomStr: 0.2,  // 辉光强度改为0.2
+  bloomThr: 1.0, // 阈值调到1
   lightPow: 100,
   bulbBri: 30,
   autoFw: true,
@@ -2071,7 +2083,9 @@ const HeroTreeResources = {
         // 共享材质
         this.mats = {
             trunk: new THREE.MeshStandardMaterial({ color: 0x4a2e16, roughness: 1.0 }),
-            foliage: new THREE.MeshStandardMaterial({ color: 0x0f5515, roughness: 0.8, flatShading: true }),
+            // 开启顶点颜色以支持积雪效果；底色设为白，由顶点色(绿/白)决定最终颜色
+            // shadowSide: DoubleSide 解决树影断层问题
+            foliage: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.1, vertexColors: true, flatShading: true, shadowSide: THREE.DoubleSide }),
             red: new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.3 }),
             gold: new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.3, metalness: 0.6 }),
             white: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 }),
@@ -2287,7 +2301,7 @@ function init() {
     composer = new EffectComposer(renderer, rt);
     composer.addPass(rp);
     composer.addPass(bloomPass);
-    composer.addPass(fxaaPass); // 添加 FXAA Pass
+    // composer.addPass(fxaaPass); // 禁用 FXAA 以防止黑块 Artifact
 
     train = new Train(scene, trackCurve);
     fwMgr = new Fireworks(scene);
@@ -2299,23 +2313,54 @@ function init() {
     CameraDirector.init(camera, controls, train, trackCurve);
     setupUI();
     
-    // --- 🚀 渲染预热 (在 Loading 阶段预编译 Shader) ---
+    // --- 🚀 渲染预热 (全家桶：强制 GPU 上传纹理与编译) ---
     if (renderer && scene && camera) {
         const santaVis = santaSleigh.group.visible;
         const giftVis = MegaGiftManager.mesh.visible;
         
+        // A. 激活主要模型
         santaSleigh.group.visible = true;
-        const oldScale = santaSleigh.group.scale.clone();
-        santaSleigh.group.scale.setScalar(0.001); // 极小化防止闪烁
+        const oldScaleSanta = santaSleigh.group.scale.clone();
+        santaSleigh.group.scale.setScalar(0.001); // 隐形
         
         MegaGiftManager.mesh.visible = true;
         
-        renderer.compile(scene, camera);
+        // B. 激活所有烟花粒子池 (这是之前漏掉的大头)
+        const fwScales = [];
+        if (fwMgr && fwMgr.pool) {
+            fwMgr.pool.forEach(p => {
+                p.mesh.visible = true;
+                fwScales.push(p.mesh.scale.x); // 记录原始 scale (虽然一般是1)
+                p.mesh.scale.setScalar(0.001);
+            });
+        }
+
+        // C. 强制特效粒子数据更新
+        if (santaSleigh.trail) {
+            santaSleigh.trail.emit(new THREE.Vector3(), new THREE.Quaternion(), 1.0);
+            santaSleigh.trail.update(0.1);
+        }
+        const dummyTrail = new GiftParticleTrail(scene, 0xff0000);
+        dummyTrail.update(new THREE.Vector3(), 1.0);
         
-        // 恢复状态
+        // D. 强制真实渲染一帧 (关键：触发纹理上传和阴影图计算)
+        // compile() 只管 Shader，render() 才能管 Texture 和 ShadowMap
+        renderer.compile(scene, camera);
+        renderer.render(scene, camera);
+        
+        // E. 恢复现场
         santaSleigh.group.visible = santaVis;
-        santaSleigh.group.scale.copy(oldScale);
+        santaSleigh.group.scale.copy(oldScaleSanta);
         MegaGiftManager.mesh.visible = giftVis;
+        dummyTrail.dispose();
+        
+        if (fwMgr && fwMgr.pool) {
+            fwMgr.pool.forEach((p, i) => {
+                p.mesh.visible = false;
+                if(fwScales[i] !== undefined) p.mesh.scale.setScalar(fwScales[i]);
+                else p.mesh.scale.setScalar(1.0); // Fallback
+            });
+        }
     }
 
     document.getElementById('loading').style.display='none';
@@ -2436,15 +2481,23 @@ const LightingSystem = {
                 const intensity = 1.0 + blink * (CFG.bulbBri / 8);
                 obj.material.color.copy(obj.userData.baseCol).multiplyScalar(intensity);
             }
-            if(obj.userData.type === 'star') obj.material.color.setHSL(0.14, 1.0, 0.6 + 0.3 * Math.sin(time));
+            if(obj.userData.type === 'star') {
+                // 限制在安全范围内，防止数值异常
+                const val = 1.5 + 0.8 * Math.sin(time * 3.0);
+                obj.material.emissiveIntensity = Math.max(0.1, Math.min(10.0, val));
+            }
             if(obj.userData.type === 'headlight_spot') {
                 obj.intensity = CFG.lightPow;
             }
             if(obj.userData.type === 'headlight_glare') {
-                // 将光照强度 (0~200) 映射到 透明度 (0~0.6)
-                // 避免完全不透明导致看起来像贴图 bug
                 obj.material.opacity = Math.min(0.6, (CFG.lightPow / 100) * 0.3);
-                obj.visible = CFG.lightPow > 1; // 关灯时隐藏
+                obj.visible = CFG.lightPow > 1; 
+            }
+            // 🎄 树冠彩灯补光呼吸
+            if(obj.userData.type === 'tree_cluster') {
+                const pulse = Math.sin(time * 2.0 + obj.userData.offset);
+                // 强度在 80% ~ 120% 之间波动
+                obj.intensity = obj.userData.baseInt * (1.0 + pulse * 0.2);
             }
         });
     }
@@ -2488,7 +2541,7 @@ function animate() {
 function buildLights() {
     const moon = new THREE.DirectionalLight(0xaaccff, CFG.moonInt);
     // 调整月光位置：更低、更侧向，制造长阴影
-    moon.position.set(-150, 80, -150);
+    moon.position.set(-150, 120, -150);
     moon.castShadow=true; 
     
     // 🟢 阴影优化：大幅提升分辨率并收缩视口，解决漏光和锯齿
@@ -2497,8 +2550,8 @@ function buildLights() {
     moon.shadow.camera.right = 250;
     moon.shadow.camera.top = 250; 
     moon.shadow.camera.bottom = -250;
-    moon.shadow.bias = -0.0005; 
-    moon.shadow.normalBias = 0.05; 
+    moon.shadow.bias = -0.0001; // 优化自阴影
+    moon.shadow.normalBias = 0.1; // 适应粗糙表面
 
     scene.add(moon); lights.moon = moon;
 
@@ -2521,8 +2574,8 @@ function buildLights() {
     scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0xffffff, size:1.5, transparent:true, opacity:0.8, fog:false})));
 
     // 🟢 升级环境光为半球光 (HemisphereLight)
-    // Sky: 月夜蓝灰 | Ground: 深邃地黑 | Intensity: 0.5 (足够照亮枕木细节)
-    const hemiLight = new THREE.HemisphereLight(0x405070, 0x101010, 0.5);
+    // Sky: 月夜蓝灰 | Ground: 提亮暗部细节 | Intensity: 1.2
+    const hemiLight = new THREE.HemisphereLight(0x405070, 0x202025, 1.2);
     scene.add(hemiLight);
     
     // ⛰️ 地面地形 (Terrain)
@@ -2848,19 +2901,19 @@ function buildEnv() {
     if (STATE.treeLayout && STATE.treeLayout.length >= 3) {
         // 主树 (Main Hero Tree) - 放在第一个波峰怀抱中
         const main = STATE.treeLayout[0];
-        createHeroTree(main.x, main.z, 3.2); // 巨大尺寸
+        createHeroTree(main.x, main.z, 2.8); // 尺寸调整 (中等)
 
         // 副树 (Side Trees) - 放在另外两个波峰
         const side1 = STATE.treeLayout[1];
-        createHeroTree(side1.x, side1.z, 2.0);
+        createHeroTree(side1.x, side1.z, 1.8);
 
         const side2 = STATE.treeLayout[2];
-        createHeroTree(side2.x, side2.z, 2.0);
+        createHeroTree(side2.x, side2.z, 1.8);
     } else {
         // 降级方案 (如果未初始化布局)
-        createHeroTree(0, -90, 2.8);
-        createHeroTree(85, 55, 1.4);
-        createHeroTree(-85, 55, 1.4);
+        createHeroTree(0, -90, 2.5);
+        createHeroTree(85, 55, 1.6);
+        createHeroTree(-85, 55, 1.6);
     }
 
     // 🌲 升级版森林 (Varied Forest)
@@ -2978,219 +3031,290 @@ function createHeroTree(x, z, scale) {
     g.position.set(x, 0, z);
     g.scale.set(scale, scale, scale);
 
-    // 使用共享资源引用（简化代码）
     const { mats, geos } = HeroTreeResources;
 
-    // 1. 树干 - 使用共享几何体和材质
+    // 1. 树干 (Trunk)
     const trunk = new THREE.Mesh(geos.trunk, mats.trunk);
     trunk.position.y = 6;
     g.add(trunk);
 
-    const bulbCols = [0xff0000, 0x00ff00, 0x0088ff, 0xffd700, 0xff00ff];
+    // 🎨 灯珠颜色库
+    const bulbCols = [0xff0000, 0x00ff00, 0xffd700, 0x0088ff, 0xff00ff, 0xffaa77, 0xff4400, 0x00ffff];
 
-    // 🍬 拐杖糖 - 使用共享几何体
+    // 🍬 辅助函数：创建装饰物 (带自发光)
     const createCandyCane = () => {
         const cane = new THREE.Group();
+        // 增加微弱发光
+        const matWhiteEmit = mats.white.clone(); matWhiteEmit.emissive.setHex(0x222222);
+        const matRedEmit = mats.red.clone(); matRedEmit.emissive.setHex(0x330000); // 红光微亮
 
-        // 棍身 - 使用共享几何体
-        const stick = new THREE.Mesh(geos.caneStick, mats.white);
-        stick.position.y = 0.6; // stickH / 2 = 1.2 / 2
-
-        // 弯钩 - 使用共享几何体
-        const hook = new THREE.Mesh(geos.caneHook, mats.white);
-        hook.position.set(0.35, 1.2, 0); // hookRadius, stickH
-
-        // 棍身上的条纹 - 使用共享几何体
+        const stick = new THREE.Mesh(geos.caneStick, matWhiteEmit); stick.position.y = 0.6;
+        const hook = new THREE.Mesh(geos.caneHook, matWhiteEmit); hook.position.set(0.35, 1.2, 0);
         for(let i=0; i<5; i++) {
-            const stripe = new THREE.Mesh(geos.caneStripe, mats.red);
-            stripe.position.y = 0.2 + i * 0.22;
-            stripe.rotation.x = Math.PI / 2;
-            stripe.rotation.y = 0.3;
-            cane.add(stripe);
+            const s = new THREE.Mesh(geos.caneStripe, matRedEmit);
+            s.position.y = 0.2 + i * 0.22; s.rotation.set(Math.PI/2, 0.3, 0); cane.add(s);
         }
-
-        // 弯钩上的条纹
-        const hookStripes = new THREE.Group();
-        hookStripes.position.copy(hook.position);
-
+        const hs = new THREE.Group(); hs.position.copy(hook.position);
         for(let i=1; i<4; i++) {
-            const angle = (i / 4) * Math.PI;
-            const stripe = new THREE.Mesh(geos.caneStripe, mats.red);
-            stripe.position.set(Math.cos(angle) * 0.35, Math.sin(angle) * 0.35, 0);
-            stripe.rotation.z = angle + Math.PI/2;
-            hookStripes.add(stripe);
+            const a = (i/4)*Math.PI; const s = new THREE.Mesh(geos.caneStripe, matRedEmit);
+            s.position.set(Math.cos(a)*0.35, Math.sin(a)*0.35, 0); s.rotation.z = a+Math.PI/2; hs.add(s);
         }
-
-        cane.add(stick, hook, hookStripes);
-        cane.scale.set(1.2, 1.2, 1.2);
-        cane.rotation.z = Math.PI / 6;
-
+        cane.add(stick, hook, hs); cane.scale.set(1.2, 1.2, 1.2); cane.rotation.z = Math.PI/6;
         return cane;
     };
 
-    // 🎁 小礼物 - 使用共享几何体
     const createMiniGift = () => {
         const boxG = new THREE.Group();
-        const mainMat = Math.random() > 0.5 ? mats.red : mats.gold;
-
-        // 盒子主体 - 使用共享几何体
-        const box = new THREE.Mesh(geos.giftBox, mainMat);
-
-        // 十字丝带 - 使用共享几何体
-        const r1 = new THREE.Mesh(geos.giftRibbon1, mats.white);
-        const r2 = new THREE.Mesh(geos.giftRibbon2, mats.white);
-
-        // 蝴蝶结
-        const bowG = new THREE.Group();
-        bowG.position.y = 0.5;
-
-        const b1 = new THREE.Mesh(geos.bowLoop, mats.white);
-        b1.position.set(0.15, 0.15, 0);
-        b1.rotation.set(0, 0, -Math.PI / 4);
-
-        const b2 = new THREE.Mesh(geos.bowLoop, mats.white);
-        b2.position.set(-0.15, 0.15, 0);
-        b2.rotation.set(0, 0, Math.PI / 4);
-
-        const knot = new THREE.Mesh(geos.bowKnot, mats.white);
-
-        bowG.add(b1, b2, knot);
-        boxG.add(box, r1, r2, bowG);
-        boxG.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
-
+        const isRed = Math.random()>0.5;
+        // 增加微弱发光
+        const m = isRed ? mats.red.clone() : mats.gold.clone();
+        m.emissive.setHex(isRed ? 0x330000 : 0x332200); 
+        
+        boxG.add(new THREE.Mesh(geos.giftBox, m));
+        boxG.add(new THREE.Mesh(geos.giftRibbon1, mats.white));
+        boxG.add(new THREE.Mesh(geos.giftRibbon2, mats.white));
+        const bg = new THREE.Group(); bg.position.y = 0.5;
+        const b1 = new THREE.Mesh(geos.bowLoop, mats.white); b1.position.set(0.15,0.15,0); b1.rotation.set(0,0,-Math.PI/4);
+        const b2 = new THREE.Mesh(geos.bowLoop, mats.white); b2.position.set(-0.15,0.15,0); b2.rotation.set(0,0,Math.PI/4);
+        bg.add(b1, b2, new THREE.Mesh(geos.bowKnot, mats.white));
+        boxG.add(bg); boxG.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
         return boxG;
     };
 
-    const tiers = [
-        { r: 24, h: 16, y: 14 }, { r: 20, h: 15, y: 24 },
-        { r: 16, h: 14, y: 34 }, { r: 11, h: 12, y: 43 },
-        { r: 6,  h: 10, y: 51 }
-    ];
-    let treeTopY = 0;
+    // --- 🌲 核心重构：程序化生成树冠 (Procedural Foliage) ---
+    const tiers = [];
+    const layerCount = 16;
+    const baseR = 20;
+    const startY = 8;
+    const totalH = 28;
 
-    tiers.forEach((tier, index) => {
-        const geo = new THREE.ConeGeometry(tier.r, tier.h, 8);
+    let currentY = startY;
+
+    // 噪声函数 (提取出来供几何体和装饰物共用)
+    const getTreeNoise = (angle, layerIdx) => {
+        // 大波浪 (树枝分叉)
+        const branch = Math.sin(angle * 7 + layerIdx) * 0.5 + Math.cos(angle * 13) * 0.3;
+        // 细节抖动
+        const detail = Math.sin(angle * 23) * 0.1;
+        return (branch + detail) * 0.15; // 总幅度控制
+    };
+
+    for(let i=0; i<layerCount; i++) {
+        const t = i / (layerCount - 1); 
+        
+        // 形状曲线
+        const rBot = baseR * Math.pow(1 - t, 0.9);
+        const rTop = rBot * 0.3; // 顶部收缩，形成圆台
+        
+        const h = (totalH / layerCount) * 2.5; // 重叠高度
+        
+        // 生成几何体
+        const geo = new THREE.CylinderGeometry(rTop, rBot, h, 24, 2, true); 
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        
+        const vertex = new THREE.Vector3();
+        const green = new THREE.Color(0x0f5515);
+        const snow = new THREE.Color(0xffffff);
+        const tempCol = new THREE.Color();
+
+        for(let k=0; k<pos.count; k++) {
+            vertex.fromBufferAttribute(pos, k);
+            
+            const angle = Math.atan2(vertex.x, vertex.z);
+            const radius = Math.sqrt(vertex.x*vertex.x + vertex.z*vertex.z);
+            const yRel = vertex.y / (h/2); // -1(底) ~ 1(顶)
+            
+            // 计算噪声
+            const noiseVal = getTreeNoise(angle, i);
+            
+            // 应用噪声：主要影响半径，轻微影响高度
+            // 底部(yRel=-1)受影响大，顶部受影响小(保持接口平整)
+            const noiseStrength = 1.0 - Math.max(0, yRel); 
+            
+            const scale = 1.0 + noiseVal * noiseStrength * 2.0; // 底部外扩
+            
+            vertex.x *= scale;
+            vertex.z *= scale;
+            // 移除导致翻转的 Y 轴大幅偏移，只做微调
+            vertex.y += noiseVal * 2.0 * noiseStrength; 
+
+            pos.setXYZ(k, vertex.x, vertex.y, vertex.z);
+
+            // --- ❄️ 积雪上色逻辑优化 (增加密度) ---
+            // 增加基础偏置 0.2，并加大 yRel (高度) 的权重
+            const snowFactor = Math.max(0, noiseVal * 5.0 + (yRel * 0.8) + 0.2);
+            
+            tempCol.copy(green);
+            // 降低阈值从 0.3 -> 0.05，让雪更容易出现
+            if (snowFactor > 0.05) {
+                // 加快混合速度 (* 3.0)，让雪色更纯白、更厚实
+                const amount = Math.min(1.0, (snowFactor - 0.05) * 3.0);
+                tempCol.lerp(snow, amount);
+            }
+            
+            // 阴影处理：让内部深处保留一点绿黑色
+            tempCol.multiplyScalar(0.5 + 0.5 * (radius / rBot));
+
+            col[k*3] = tempCol.r;
+            col[k*3+1] = tempCol.g;
+            col[k*3+2] = tempCol.b;
+        }
+        
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        geo.computeVertexNormals();
+
         const mesh = new THREE.Mesh(geo, mats.foliage);
-        mesh.position.y = tier.y;
-        mesh.rotation.y = (index % 2) * (Math.PI / 8);
-        mesh.castShadow = true; mesh.receiveShadow = true;
+        mesh.position.y = currentY + h/2;
+        // 移除随机旋转，因为我们需要对齐噪声来挂装饰物
+        // mesh.rotation.y = Math.random() * Math.PI; 
+        
+        mesh.castShadow = true; 
+        mesh.receiveShadow = true;
         g.add(mesh);
-        treeTopY = tier.y + tier.h / 2;
 
-        // --- 装饰品：使用共享几何体 ---
-        const decorCount = Math.floor(tier.r * 0.8) + 2;
-        for (let k = 0; k < decorCount; k++) {
-            const angle = Math.random() * Math.PI * 2;
-            const v = 0.1 + Math.random() * 0.5;
-            const surfR = tier.r * (1 - v);
-            const embed = 0.85 + Math.random() * 0.15;
+        // 记录层级信息
+        // 这里的 r 记录基准底部半径，具体挂载时再叠加噪声
+        tiers.push({ y: currentY + h/2, h: h, rBot: rBot, rTop: rTop, layerIdx: i });
 
-            const lx = Math.cos(angle) * surfR * embed;
-            const lz = Math.sin(angle) * surfR * embed;
-            const ly = -tier.h / 2 + v * tier.h;
+        currentY += h * 0.65; 
+    }
+    
+    const treeTopY = currentY;
+
+    // --- 装饰物生成 (精准贴合表面) ---
+    tiers.forEach((tier) => {
+        // 越靠下挂越多
+        const density = Math.max(1, Math.floor(tier.rBot * 0.6)); 
+        if (tier.layerIdx < 2) return; 
+
+        for(let k=0; k<density; k++) {
+            const angle = (k / density) * Math.PI * 2 + (tier.layerIdx * 0.5); 
+            const finalAngle = angle + (Math.random()-0.5)*0.5;
+            
+            // 关键：重新计算该角度下的噪声，确保贴合
+            const noise = getTreeNoise(finalAngle, tier.layerIdx);
+            
+            // 计算基准半径 (我们在底部挂装饰，所以用 rBot)
+            // 考虑到噪声强度 logic: scale = 1.0 + noise * 2.0 (at bottom)
+            const scale = 1.0 + noise * 2.0;
+            const r = tier.rBot * scale * 0.95; // 0.95 稍微内收一点点，防悬空
+            
+            const lx = Math.cos(finalAngle) * r;
+            const lz = Math.sin(finalAngle) * r;
+            // 高度：层中心 - 半高 (即底部) + 噪声高度补偿
+            const ly = tier.y - tier.h/2 + noise * 2.0;
 
             const type = Math.random();
             let decor;
-            if (type < 0.4) {
-                // 装饰球 - 使用共享几何体
+            if (type < 0.45) {
                 decor = new THREE.Mesh(geos.ball, Math.random()>.5 ? mats.red : mats.gold);
-                decor.position.set(lx, ly, lz);
-            } else if (type < 0.7) {
+            } else if (type < 0.75) {
                 decor = createMiniGift();
-                decor.position.set(lx, ly + 0.5, lz);
-                decor.rotation.set(Math.random()*0.5, Math.random()*Math.PI, Math.random()*0.5);
             } else {
                 decor = createCandyCane();
-                decor.position.set(lx, ly, lz);
-                decor.lookAt(0, ly, 0);
                 decor.rotateX(Math.PI/4);
             }
-            mesh.add(decor);
+            
+            if(decor) {
+                decor.position.set(lx, ly, lz);
+                decor.lookAt(0, ly, 0); 
+                decor.rotateY(Math.PI);
+                g.add(decor);
+            }
         }
     });
 
-    // --- 🌟 实体电线 (随机布线逻辑) ---
+    // --- 🌟 实体电线 (拟真缠绕) ---
     const wirePoints = [];
-    wirePoints.push(new THREE.Vector3(0, 2, 2)); // 起点
+    wirePoints.push(new THREE.Vector3(0, 2, 2)); 
     let currentAngle = 0;
 
-    tiers.forEach((tier) => {
-        // 盘旋：0.5 ~ 1.5 圈
-        const loops = 0.5 + Math.random() * 1.0; 
-        const steps = 15; // 细分
+    // 针对新的 tiers 生成电线
+    const wireStep = 2; 
+    
+    for(let i=0; i<tiers.length; i+=wireStep) {
+        const tier = tiers[i];
+        const nextTier = tiers[Math.min(i+wireStep, tiers.length-1)];
+        
+        const loops = 0.8 + Math.random() * 0.3; 
+        const steps = 20; 
         
         for(let s=0; s <= steps; s++) {
             const t = s / steps;
+            currentAngle += (Math.PI * 2 * loops) / steps;
             
-            // 角度推进
-            const angleStep = (Math.PI * 2 * loops) / steps;
-            currentAngle += angleStep;
+            let py = tier.y + (nextTier.y - tier.y) * t;
+            py -= Math.sin(t * Math.PI) * 1.5; 
             
-            // 高度：在当前层爬升
-            // 只爬到 70% 高度，留出钻回去的空间
-            const py = (tier.y - tier.h/2) + (tier.h * 0.7) * t;
-            
-            // 半径：从表面稍微浮起
-            const surfR = tier.r * (1 - t * 0.7); // 随高度变细
-            const r = surfR * 1.05 + Math.random(); // 随机松弛
+            // 半径插值 (使用 rBot 近似)
+            const rBase = tier.rBot + (nextTier.rBot - tier.rBot) * t;
+            // 简单波动
+            const wave = Math.sin(s * 0.8) * 0.2;
+            const r = rBase * (0.9 + wave * 0.2); 
             
             const px = Math.cos(currentAngle) * r;
             const pz = Math.sin(currentAngle) * r;
             wirePoints.push(new THREE.Vector3(px, py, pz));
         }
-
-        // C. 钻回：回到树干附近，准备去下一层
-        const endH = tier.y + tier.h/2 - 1;
-        wirePoints.push(new THREE.Vector3(2 * Math.cos(currentAngle), endH, 2 * Math.sin(currentAngle)));
-    });
+    }
     // 终点
     wirePoints.push(new THREE.Vector3(0, treeTopY, 0));
 
     const curve = new THREE.CatmullRomCurve3(wirePoints);
-    const tubeGeo = new THREE.TubeGeometry(curve, 300, 0.08, 6, false);
-    const wireMesh = new THREE.Mesh(tubeGeo, mats.black); // 使用共享材质
+    const tubeGeo = new THREE.TubeGeometry(curve, 400, 0.08, 6, false);
+    const wireMesh = new THREE.Mesh(tubeGeo, mats.black); 
     g.add(wireMesh);
 
-    // --- 🌟 LED 灯珠 (稀疏分布 + 局部点光源) ---
+    // --- 🌟 LED 灯珠 (彩色闪烁 + 辉光溢出) ---
     const totalLength = curve.getLength();
-    const bulbCountRaw = Math.floor(totalLength * 1.8);
+    const bulbCountRaw = Math.floor(totalLength * 1.2); 
 
-    // LED材质需要独立创建（MeshBasicMaterial 用于发光效果）
-    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
-    const ledMesh = new THREE.InstancedMesh(geos.bulb, bulbMat, bulbCountRaw); // 使用共享几何体
+    // 使用 MeshBasicMaterial，它能直接展示 setColorAt 设置的颜色
+    // 配合动画循环中的 multiplyScalar(intensity) 产生发光感
+    const bulbMat = new THREE.MeshBasicMaterial({ 
+        transparent: false,
+        fog: false // 灯珠不被雾气遮挡，保持清脆
+    });
+    const ledMesh = new THREE.InstancedMesh(geos.bulb, bulbMat, bulbCountRaw);
     
     const dummy = new THREE.Object3D();
     const ledData = [];
     let realCount = 0;
-    let clusterState = false; 
-    let clusterCounter = 0;
-
+    
     for(let i=0; i<bulbCountRaw; i++) {
         const t = i / bulbCountRaw;
         
-        if (clusterCounter <= 0) {
-            clusterState = !clusterState;
-            clusterCounter = clusterState ? Math.floor(Math.random() * 5 + 4) : Math.floor(Math.random() * 12 + 8);
-        }
-        clusterCounter--;
-        if (!clusterState) continue;
+        // 随机分布，但稍微均匀一点，不要聚成一团
+        if (Math.random() < 0.15) continue; // 偶尔缺一颗，更真实
 
         const pos = curve.getPointAt(t);
-        // 随机偏移
-        pos.x += (Math.random()-0.5)*0.3;
-        pos.y += (Math.random()-0.5)*0.3;
-        pos.z += (Math.random()-0.5)*0.3;
+        
+        // 随机深度偏移 (埋入树叶)
+        // 沿径向 (从中心向外) 进行扰动
+        const dirToCenter = new THREE.Vector3(pos.x, 0, pos.z).normalize();
+        const depthOffset = (Math.random() - 0.6) * 1.5; // 稍微偏向内部 (-0.6)
+        pos.addScaledVector(dirToCenter, depthOffset);
+        
+        // 随机微调位置
+        pos.y += (Math.random()-0.5)*0.5;
 
         dummy.position.copy(pos);
-        dummy.scale.setScalar(1.0);
+        dummy.scale.setScalar(0.3 + Math.random() * 0.3); // 缩小尺寸，变成星点
         dummy.updateMatrix();
         ledMesh.setMatrixAt(realCount, dummy.matrix);
         
         const colHex = bulbCols[Math.floor(Math.random() * bulbCols.length)];
         const color = new THREE.Color(colHex);
+        
+        // 随机亮度扰动 (更有层次感)
+        const hsl = {};
+        color.getHSL(hsl);
+        color.setHSL(hsl.h, hsl.s, hsl.l + (Math.random()-0.5)*0.3);
+        
         ledMesh.setColorAt(realCount, color);
         
-        ledData.push({ id: realCount, baseCol: color, speed: 0.5 + Math.random() * 3.0, offset: Math.random() * 100 });
+        ledData.push({ id: realCount, baseCol: color, speed: 1.0 + Math.random() * 4.0, offset: Math.random() * 100 });
         realCount++;
     }
     
@@ -3201,15 +3325,24 @@ function createHeroTree(x, z, scale) {
     g.add(ledMesh);
 
     if (scale > 2.0) {
-        // 核心主光源 (照亮中下部)
-        const innerLight = new THREE.PointLight(0xffdd44, 500, 100);
-        innerLight.position.set(0, 15, 0);
+        // --- 💡 外部光阵 (Cluster Lighting) ---
+        // 模拟彩灯照亮树叶表面
+        // 使用红绿蓝三原色，通过混合模拟多彩反光
+        const lightColors = [0xff0000, 0x00ff00, 0x0044ff];
+        const lightDist = 25; // 更紧贴一点
         
-        // 顶部补光 (照亮上部)
-        const topLight = new THREE.PointLight(0xffdd44, 300, 60);
-        topLight.position.set(0, 35, 0);
-        
-        g.add(innerLight, topLight);
+        for(let k=0; k<3; k++) {
+            const angle = (k / 3) * Math.PI * 2;
+            const lx = Math.cos(angle) * lightDist;
+            const lz = Math.sin(angle) * lightDist;
+            
+            // 放在树的中下部，向上照
+            const light = new THREE.PointLight(lightColors[k], 800, 100);
+            light.position.set(lx, 15 + k*8, lz);
+            light.userData = { type: 'tree_cluster', baseInt: 800, offset: k * 2.0 };
+            emissives.push(light); // 加入动画循环
+            g.add(light);
+        }
     }
 
     // --- 🌟 树顶星星 (修复版：无缺口) ---
@@ -3229,14 +3362,20 @@ function createHeroTree(x, z, scale) {
     // 减小 bevel 防止自相交缺口
     const starGeo = new THREE.ExtrudeGeometry(starShape, { 
         depth: 1.0, 
-        bevelEnabled: true, 
+        bevelEnabled: false, // 禁用倒角，防止产生非法法线 (NaN) 导致黑屏
         bevelThickness: 0.1, 
         bevelSize: 0.1, 
         bevelSegments: 1 
     });
     starGeo.center();
     
-    const star = new THREE.Mesh(starGeo, new THREE.MeshBasicMaterial({ color: 0xffeb3b, fog: false }));
+    const star = new THREE.Mesh(starGeo, new THREE.MeshStandardMaterial({ 
+        color: 0xffeb3b, 
+        emissive: 0xffeb3b,
+        emissiveIntensity: 1.0,
+        roughness: 0.2,
+        metalness: 0.8
+    }));
     star.position.set(0, treeTopY + 3.5, 0);
     star.userData = { type: 'star' }; 
     emissives.push(star); 
@@ -3269,7 +3408,7 @@ class Train {
             winMat: new THREE.MeshStandardMaterial({ 
                 color: 0xffcc00, // 更明亮的暖黄
                 emissive: 0xffaa00, 
-                emissiveIntensity: 1.0, // 提升亮度
+                emissiveIntensity: 2.0, // 降低亮度，保持适度发光
                 roughness: 0.2, 
                 metalness: 0.8 
             })
@@ -3321,7 +3460,7 @@ class Train {
         const matWin = new THREE.MeshStandardMaterial({ 
             color: 0xffcc00, 
             emissive: 0xffaa00, 
-            emissiveIntensity: 1.0, 
+            emissiveIntensity: 2.0, 
             roughness: 0.2 
         });
 
@@ -4274,7 +4413,9 @@ class MagicTrail {
                             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                             gl_Position = projectionMatrix * mvPosition;
                             // 💡 想要粒子更小？调小这个数字 (当前 550.0)
-                            gl_PointSize = size * (550.0 / -mvPosition.z); 
+                            // 🛡️ 修复：限制最小距离，防止除零导致黑屏 Artifact
+                            float dist = max(1.0, -mvPosition.z);
+                            gl_PointSize = size * (550.0 / dist); 
                         }
                     `,
                     fragmentShader: `
@@ -5443,7 +5584,7 @@ class SantaSleigh {
 
 class Snow {
     constructor(sc) {
-        const count = 3000; // Reduced from 6000 for mobile performance
+        const count = 30000; // 大幅增加雪花数量
         const pos = [];
         const velocities = []; // 存储下落速度和偏移
         
@@ -5494,8 +5635,10 @@ class Snow {
                     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
                     
-                    // 距离衰减 (可选)
-                    gl_PointSize = (300.0 / -mvPosition.z) * 0.8;
+                    // 距离衰减 - 稍微增大尺寸
+                    // 🛡️ 修复：限制最小距离，防止除零或负数导致 PointSize 爆炸
+                    float dist = max(1.0, -mvPosition.z); 
+                    gl_PointSize = (300.0 / dist) * 1.2;
                     vAlpha = 0.8;
                 }
             `,
@@ -5827,12 +5970,12 @@ function setupUI() {
                 </div>
 
                 <div class="control-group">
-                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.4</span></div>
-                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.4">
+                    <div class="control-label"><span>辉光强度 (Bloom Strength)</span><span id="val-bloom" class="control-val">0.7</span></div>
+                    <input type="range" id="inp-bloom" min="0" max="2.5" step="0.1" value="0.7">
                 </div>
                 <div class="control-group">
-                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.15</span></div>
-                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.15">
+                    <div class="control-label"><span>辉光阈值 (Bloom Threshold)</span><span id="val-bloom-thr" class="control-val">0.6</span></div>
+                    <input type="range" id="inp-bloom-thr" min="0" max="1" step="0.01" value="0.6">
                 </div>
                 <div class="control-group">
                     <div class="control-label"><span>月光亮度 (Moon Light)</span><span id="val-moon" class="control-val">2.0</span></div>
@@ -6303,7 +6446,7 @@ function setupUI() {
                 data.triggerText = '庆典';
                 data.daysVisible = false;
                 // 字体放大，强调分秒，Flex强制单行
-                data.psanelText = `
+                data.panelText = `
                     <div style="display:flex; justify-content:center; align-items:baseline; gap:6px; white-space:nowrap; width:100%;">
                         <span style="font-size:1.2em; color:#ffd700; font-weight:bold;">${pad(m)}分${pad(s)}秒</span>
                     </div>
@@ -6505,23 +6648,35 @@ function setupUI() {
     console.log("🔧 Celebration Countdown Ready (Hybrid Mode).");
 }
 
+let resizeTimeout;
 window.onresize = () => {
-    camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-    
-    // 检查性能模式开关
-    const isLow = document.getElementById('chk-perf')?.checked;
-    renderer.setPixelRatio(isLow ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
-    
-    renderer.setSize(innerWidth, innerHeight); 
-    composer.setSize(innerWidth, innerHeight);
+    // 防抖动：避免在拖拽窗口时频繁重置渲染器导致黑屏
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        if (!camera || !renderer || !composer) return;
 
-    // 更新 FXAA 分辨率
-    const pixelRatio = renderer.getPixelRatio();
-    const fxaaPass = composer.passes.find(p => p.material && p.material.uniforms && p.material.uniforms.resolution);
-    if(fxaaPass) {
-        fxaaPass.material.uniforms['resolution'].value.x = 1 / (innerWidth * pixelRatio);
-        fxaaPass.material.uniforms['resolution'].value.y = 1 / (innerHeight * pixelRatio);
-    }
+        camera.aspect = innerWidth/innerHeight; 
+        camera.updateProjectionMatrix();
+        
+        // 检查性能模式开关
+        const isLow = document.getElementById('chk-perf')?.checked;
+        // 动态调整像素比
+        const targetPixelRatio = isLow ? 1.0 : Math.min(window.devicePixelRatio, 1.75);
+        renderer.setPixelRatio(targetPixelRatio);
+        
+        renderer.setSize(innerWidth, innerHeight); 
+        composer.setSize(innerWidth, innerHeight);
+
+        // 鏇存柊 FXAA 鍒嗚鲸鐜
+        const pixelRatio = renderer.getPixelRatio();
+        if (composer.passes) {
+            const fxaaPass = composer.passes.find(p => p.material && p.material.uniforms && p.material.uniforms.resolution);
+            if(fxaaPass) {
+                fxaaPass.material.uniforms['resolution'].value.x = 1 / (innerWidth * pixelRatio);
+                fxaaPass.material.uniforms['resolution'].value.y = 1 / (innerHeight * pixelRatio);
+            }
+        }
+    }, 100); // 100ms 延迟
 };
 
 try {
